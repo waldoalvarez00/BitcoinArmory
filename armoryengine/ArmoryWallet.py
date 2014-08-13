@@ -204,6 +204,8 @@ class WalletEntry(object):
       serPayload = bpPayload.getBinaryString()
        
       if self.outerCryptInfo.useEncryption():
+         if not len(serPayload) % self.outerCryptInfo.getBlockSize() == 0:
+            raise EncryptionError('Improper padding on payload data for encryption')
          raise NotImplementedError('Outer encryption not yet implemented!')
          serPayload = self.outerCryptInfo.encrypt(serPayload, **encryptKwargs)
 
@@ -665,11 +667,7 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   def createNewKDFObject(self, kdfAlgo='ROMixOv2', \
-                                targSec=0.25, \
-                                maxMem=32*MEGABYTE,
-                                writeToFile=True):
-
+   def createNewKDFObject(self, kdfAlgo, writeToFile=True, **kdfCreateArgs):
       """
       ROMixOv2 is ROMix-over-2 -- it's the ROMix algorithm as described by 
       Colin Percival, but using only 1/2 of the number of LUT ops, in order
@@ -678,38 +676,28 @@ class ArmoryWalletFile(object):
       If we had access to Scrypt, it could be an option here.  ROMix was 
       chosen due to simplicity despite its lack of flexibility
       """
-      LOGINFO('KDF Target (time,RAM)=(%0.3f,%d)', kdfTargSec, kdfMaxMem)
-      
-      if kdfAlgo.lower()=='romixov2':
+      LOGINFO('Creating new %s KDF with the following parameters:' % kdfAlgo)
+      for key,val in kdfCreateArgs.iteritems():
+         LOGINFO('   %s: %s' % (key, str([val]))
          
-         kdf = KdfRomix()
-         kdf.computeKdfParams(targetSec, long(maxMem))
-   
-         mem   = kdf.getMemoryReqtBytes()
-         nIter = kdf.getNumIterations()
-         slt   = SecureBinaryData(kdf.getSalt().toBinStr())
+      newKDF = KdfObject.createNewKDF(kdfAlgo, **kdfCreateArgs)
+      self.kdfMap[newKDF.getKdfID()] = newKDF
 
-         newKDF   = KdfObject(kdfAlgo, memReqd=mem, numIter=nIter, salt=slt)
-         newWE    = WalletEntry(self, payload=newKDF)
-         newKdfID = newKDF.getKdfID()
-   
-         if writeToFile and not self.kdfMap.has_key(newKdfID):
-            self.doFileOperation('Append', newWE)
-
-         self.kdfMap[newKdfID] = newKDF
-         ArmoryCryptInfo.registerKDF(newKDF)
+      if writeToFile:
+         self.doFileOperation('Append', newWE)
 
 
    
          
    #############################################################################
    def changePrivateKeyEncryption(self, encryptInfoObj):
-      raise 'Notimplemented'   
+      raise NotImplementedError
 
    #############################################################################
    def changeOuterEncryption(self, encryptInfoObj):
-      raise 'Notimplemented'   
+      raise NotImplementedError
 
+   #############################################################################
    def findAllEntriesUsingObject(self, objID):
       """
       Use this to identify whether certain objects, such as KDF objects, are 
@@ -1380,23 +1368,19 @@ class ArmoryCryptInfo(object):
    """
 
    ############################################################################
-   def __init__(self, kdfAlgo=NULLSTR(8), \
+   def __init__(self, kdfID=NULLSTR(8), \
                       encrAlgo=NULLSTR(8), \
                       keysrc=NULLSTR(8), \
                       ivsrc=NULLSTR(8)):
 
-      if kdfAlgo is None:
-         kdfAlgo = NULLSTR(8)
-
-      # Now perform the encryption using the encryption key
-      if (not kdfAlgo==NULLSTR(8)) and (not KdfObject.kdfIsRegistered(kdfAlgo)):
-         raise UnrecognizedCrypto('Unknown KDF algo: %s', kdfAlgo)
+      if kdfID is None:
+         kdfID = NULLSTR(8)
 
       # Now perform the encryption using the encryption key
       if not (encrAlgo==NULLSTR(8)) and (not encrAlgo in KNOWN_CRYPTO):
          raise UnrecognizedCrypto('Unknown encryption algo: %s', encrAlgo)
 
-      self.kdfObjID     = kdfAlgo
+      self.kdfObjID     = kdfID
       self.encryptAlgo  = encrAlgo
       self.keySource    = keysrc
       self.ivSource     = ivsrc
@@ -1518,10 +1502,18 @@ class ArmoryCryptInfo(object):
    ############################################################################
    @VerifyArgTypes(keyData=SecureBinaryData,  
                    ivData=SecureBinaryData)
-   def prepareKeyDataAndIV(self, keyData=None, ivData=None, ekeyObj=None):
+   def prepareKeyDataAndIV(self, keyData=None, ivData=None, 
+                                                ekeyObj=None, kdfObj=None):
       """
       This is the code that is common to both the encrypt and decrypt functions.
+
+      NOTE:  You can supply an ekey map and/or kdf map (such as those used in 
+             the ArmoryWallet class) instead of a specific ekey or kdf.  This
+             method will check the map for the needed IDs in the maps and 
+             throw an error if they don't exist
       """
+
+
 
       # IV data might actually be part of this object, not supplied
       if not self.hasStoredIV():
@@ -1550,13 +1542,20 @@ class ArmoryCryptInfo(object):
          if keysrc == CRYPT_KEY_SRC.EKEY_OBJ:
             raise EncryptionError('EncryptionKey object required but not supplied')
       else:
-         # We have supplied a master key to help encrypt this object
+         # If a map was supplied, get the correct ekey out of it
+         if isinstance(ekeyObj, map):
+            ekeyObj = ekeyObj.get(self.keySource)
+            if ekeyObj is None:
+               ekeyID = binary_to_hex(self.keySource)
+               raise KeyDataError('Encryption key is not avail: %s' % ekeyID)
+                                                
+
+         # We have supplied a master key to help encrypt/decrypt this object
          if self.useKeyDerivFunc():
             raise EncryptionError('Master key encryption should never use a KDF')
 
          # If supplied master key is correct, its ID should match stored value
          if not ekeyObj.getEncryptionKeyID() == self.keySource:
-            LOGERROR
             raise EncryptionError('Supplied ekeyObj does not match keySource')
 
          # Make sure master key is unlocked -- use keyData arg if locked
@@ -1577,11 +1576,15 @@ class ArmoryCryptInfo(object):
          
       # Apply KDF if it's requested
       if self.useKeyDerivFunc(): 
-         if not KdfObject.kdfIsRegistered(self.kdfObjID):
+         # If a map was supplied, get the correct KDF out of it
+         if isinstance(kdfObj, map):
+            kdfObj = kdfObj.get(self.kdfObjID)
+
+         if kdfObj is None:
             kdfIDHex = binary_to_hex(self.kdfObjID)
-            raise KdfError('KDF is not registered: %s' % kdfIDHex)
+            raise KdfError('KDF is not available: %s' % kdfIDHex)
                                             
-         keyData = KdfObject.REGISTERED_KDFS[self.kdfObjID].execKDF(keyData)
+         keyData = kdfObj.execKDF(keyData)
    
       # Check that after all the above, our final keydata is the right size 
       expectedSize = KNOWN_CRYPTO[self.encryptAlgo]['keysize']
@@ -1596,7 +1599,7 @@ class ArmoryCryptInfo(object):
    @VerifyArgTypes(plaintext=SecureBinaryData, 
                    keyData=SecureBinaryData,  
                    ivData=SecureBinaryData)
-   def encrypt(self, plaintext, keyData=None, ivData=None, ekeyObj=None):
+   def encrypt(self, plaintext, keyData=None, ivData=None, ekeyObj=None, kdfObj=None):
       """
       Ways this function is used:
 
@@ -1675,7 +1678,7 @@ class ArmoryCryptInfo(object):
    @VerifyArgTypes(ciphertext=SecureBinaryData, 
                    keyData=SecureBinaryData,  
                    ivData=SecureBinaryData)
-   def decrypt(self, ciphertext, keyData=None, ivData=None, ekeyObj=None):
+   def decrypt(self, ciphertext, keyData=None, ivData=None, ekeyObj=None, kdfObj=None):
       """
       See comments for encrypt function -- this function works the same way
       """
@@ -1722,7 +1725,6 @@ class KdfObject(object):
    KDF_ALGORITHMS = { 'identity': [], 
                       'romixov2': ['memReqd','numIter','salt'],
                       'scrypt__': ['n','r','i'] } # not actually avail yet
-   REGISTERED_KDFS = { }
 
    #############################################################################
    def __init__(self, kdfName=None, **params):
@@ -1792,23 +1794,6 @@ class KdfObject(object):
    def getKdfID(self):
       return computeChecksum(self.serialize(), 8)
       
-   ############################################################################
-   @staticmethod
-   def RegisterKDF(kdfObj):
-      LOGINFO('Registering KDF object: %s', binary_to_hex(kdfObj.getKdfID()))
-      KdfObject.REGISTERED_KDFS[kdfObj.getKdfID()] = kdfObj
-
-   ############################################################################
-   @staticmethod
-   def kdfIsRegistered(kdfObjID):
-      return KdfObject.REGISTERED_KDFS.has_key(kdfObjID)
-
-   ############################################################################
-   @staticmethod
-   def getRegisteredKDF(kdfID):
-      if not KdfObject.kdfIsRegistered(kdfID):
-         raise UnrecognizedCrypto('Unregistered KDF: %s', binary_to_hex(kdfID))
-      return KdfObject.REGISTERED_KDFS[kdfID] 
 
    #############################################################################
    def serialize(self):
@@ -1851,43 +1836,50 @@ class KdfObject(object):
 
 
    #############################################################################
-   def createNewKDF(self, kdfName, targSec=0.25, maxMem=32*MEGABYTE, 
-                                                           doRegisterKDF=True):
+   @staticmethod
+   def createNewKDF(kdfName, **kdfCreateArgs):
+      """
+      We'd like this to eventually support lots of KDFs, not just ROMix, but
+      at the moment the extra flexibility wo
+      """
       
       LOGINFO("Creating new KDF object")
 
-      if not (0 <= targSec <= 20):
-         raise KdfError('Must use positive time < 20 sec.  Use 0 for min settings')
-
-      if not (32*KILOBYTE <= maxMem < 2*GIGABYTE):
-         raise KdfError('Must use maximum memory between 32 kB and 2048 MB')
-
-      if not kdfName.lower() in self.KDF_ALGORITHMS:
+      if not kdfName.lower() in KdfObject.KDF_ALGORITHMS:
          raise KdfError('Unknown KDF name in createNewKDF:  %s' % kdfName)
          return None
 
+      kdfOut = None
+
       if kdfName.lower()=='identity':
-         self.__init__('Identity')
-         LOGINFO('Created identity identity KDF')
+         LOGINFO('Creating identity KDF')
+         kdfOut = KdfObject('Identity')
       elif kdfName.lower()=='romixov2':
+         LOGINFO('Creating ROMixOv2 KDF')
+         targSec = kdfCreateArgs['targSec']
+         maxMem  = kdfCreateArgs['maxMem']
+
+         if not (0 <= targSec <= 20):
+            raise KdfError('Must use 0<time<20 sec.  0 for min settings')
+   
+         if not (32*KILOBYTE <= maxMem < 2*GIGABYTE):
+            raise KdfError('Must use max memory between 32 kB and 2048 MB')
+
          kdf = KdfRomix()
          kdf.computeKdfParams(targetSec, maxMem)
    
          mem   = kdf.getMemoryReqtBytes()
          nIter = kdf.getNumIterations()
-         slt   = kdf.getSalt().toBinStr()
-         self.__init__('ROMixOv2', memReqd=mem, numIter=nIter, salt=slt)
+         salty = kdf.getSalt().toBinStr()
+         kdfOut = KdfObject('ROMixOv2', memReqd=mem, numIter=nIter, salt=salty)
 
          LOGINFO('Created new KDF with the following parameters:')
          LOGINFO('\tAlgorithm: %s', kdfName)
          LOGINFO('\t  MemReqd: %0.2f MB' % (float(mem)/MEGABYTE))
          LOGINFO('\t  NumIter: %d', nIter)
-         LOGINFO('\t  HexSalt: %s', self.kdf.getSalt().toHexStr())
+         LOGINFO('\t  HexSalt: %s', kdfOut.getSalt().toHexStr())
 
-      if doRegisterKDF:
-         KdfObject.RegisterKDF(self)
-
-      return self
+      return kdfOut
 
 
 
@@ -2036,8 +2028,8 @@ class EncryptionKey(object):
    #############################################################################
    @VerifyArgTypes(passphrase=SecureBinaryData,
                    preGenKey=[SecureBinaryData, None])
-   def CreateNewMasterKey(self, encryptEkeyKdfID, encryptEkeyAlgo, passphrase,
-                                withTestString=False, preGenKey=None):
+   def CreateNewMasterKey(self, kdfObj, encryptEkeyAlgo, passphrase,
+                           withTestString=False, preGenKey=None):
       """
       This method assumes you already have a KDF you want to use and is 
       referenced by the first arg.  If not, please create the KDF and
@@ -2054,13 +2046,6 @@ class EncryptionKey(object):
 
       LOGINFO('Generating new master key')
 
-      # Check for the existence of the specified KDF      
-      if not KdfObject.kdfIsRegistered(encryptEkeyKdfID):
-         LOGERROR('Cannot create new master key without KDF.  Use') 
-         LOGERROR('KdfObject().createNewKDF("ROMixOv2", targSec=X, maxMem=Y)')
-         raise KdfError('Unregistered KDF: %s' % encryptEkeyKdfID)
-
-
       # Check that we recognize the encryption algorithm
       # This is the algorithm used to encrypt the master key itself
       if not encryptEkeyAlgo in KNOWN_CRYPTO:
@@ -2071,7 +2056,7 @@ class EncryptionKey(object):
       newIV = SecureBinaryData().GenerateRandom(8).toBinStr()
 
       # Create the object that explains how this master key will be encrypted
-      self.keyCryptInfo = ArmoryCryptInfo(encryptEkeyKdfID, encryptEKeyAlgo, 
+      self.keyCryptInfo = ArmoryCryptInfo(kdfObj.getKdfID(), encryptEKeyAlgo, 
                                                              'PASSWORD', newIV)
 
       # Create the master key itself
@@ -2178,13 +2163,15 @@ class EncryptionKey(object):
       I posted about this on Bitcointalk.org... let me find it...
       """
 
+      raise NotImplementedError('Kinda implemented, but never tested')
+
       # If the plain string is all zero-bytes, then this key was created 
       # without the test strings
       if self.testStringPlain.toBinStr() == '\x00'*32:
          return ''
 
       kdfid  = self.keyCryptInfo.kdfObjID
-      kdfObj = KdfObject.getRegisteredKDF(kdfid)
+      #kdfObj = KdfObject.getRegisteredKDF(kdfid)
 
       if not kdfObj.kdfName.lower()=='romixov2':
          raise UnrecognizedCrypto('Unknown KDF')
@@ -2474,7 +2461,7 @@ class MultiPwdEncryptionKey(object):
 
 
    #############################################################################
-   def CreateNewMultiPwdKey(self, efragKdfID, encryptFragAlgo, 
+   def CreateNewMultiPwdKey(self, kdfObj, encryptFragAlgo, 
                                   M, N, sbdPasswdList, labelList, 
                                   preGenKey=None):
 
@@ -2496,13 +2483,6 @@ class MultiPwdEncryptionKey(object):
       if not len(labelList)==N:
          raise BadInputError('Expected %d labels, only %d provided' % \
                                           (N, len(labelList)))
-
-
-      # Check for the existence of the specified KDF      
-      if not KdfObject.kdfIsRegistered(kdfID):
-         LOGERROR('Cannot create new master key without KDF.  Use') 
-         LOGERROR('KdfObject().createNewKDF("ROMixOv2", targSec=X, maxMem=Y)')
-         raise KdfError('Unregistered KDF: %s' % kdfID)
 
 
       # Check that we recognize the encryption algorithm
