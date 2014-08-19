@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright(C) 2011-2013, Armory Technologies, Inc.                         //
+//  Copyright (C) 2011-2014, Armory Technologies, Inc.                        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -130,7 +130,7 @@ public:
    { 
       fname_ = logfile;
       truncateFile(fname_, maxSz);
-      fout_.open(fname_.c_str(), ios::app); 
+      fout_.open(OS_TranslatePath(fname_.c_str()), ios::app); 
       fout_ << "\n\nLog file opened at " << NowTimeInt() << ": " << fname_.c_str() << endl;
    }
 
@@ -173,8 +173,13 @@ public:
          delete[] lastBytes;
 
          // Remove the original and rename the temp file to original
-         remove(logfile.c_str());
-         rename(tempfile.c_str(), logfile.c_str());
+			#ifndef _MSC_VER
+				remove(logfile.c_str());
+				rename(tempfile.c_str(), logfile.c_str());
+			#else
+				_wunlink(OS_TranslatePath(logfile).c_str());
+				_wrename(OS_TranslatePath(tempfile).c_str(), OS_TranslatePath(logfile).c_str());
+			#endif
       }
    }
 

@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright(C) 2011-2013, Armory Technologies, Inc.                         //
+//  Copyright (C) 2011-2014, Armory Technologies, Inc.                        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -10,7 +10,9 @@
 
 #include <stdio.h>
 #if defined(_MSC_VER) || defined(__MINGW32__)
-
+	#if _MSC_PLATFORM_TOOLSET!=110
+		#include <stdint.h>
+   #endif
 #else
    #include <stdlib.h>
    #include <inttypes.h>   

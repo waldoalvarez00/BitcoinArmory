@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2011-2014, Alan C. Reiner    <alan.reiner@gmail.com>
+# Copyright (C) 2011-2014, Armory Technologies, Inc.                         
 # Distributed under the GNU Affero General Public License (AGPL v3)
 # See LICENSE or http://www.gnu.org/licenses/agpl.html
 #
@@ -21,10 +21,10 @@ from pywin.scintilla import view
 from armoryengine.PyBtcWallet import PyBtcWallet
 from CppBlockUtils import SecureBinaryData
 from armoryengine.ArmoryUtils import makeSixteenBytesEasy, NegativeValueError, \
-   WalletAddressError, MIN_RELAY_TX_FEE, LOGINFO
+   WalletAddressError, MIN_RELAY_TX_FEE, LOGINFO, hash160_to_p2pkhash_script
 from armoryengine.BDM import TheBDM
 from armoryengine.CoinSelection import calcMinSuggestedFees, PySelectCoins
-from armoryengine.Transaction import PyTxDistProposal
+from armoryengine.Transaction import UnsignedTransaction
 from qtdefines import GETFONT, tr
 from qtdialogs import SimplePrintableGraphicsScene
 
@@ -199,16 +199,18 @@ def distributeBtc(masterWallet, amount, sendingAddrList):
             raise WalletAddressError, 'Address is not in wallet! [%s]' % sendingAddr.getAddrStr()
          utxoList.extend(masterWallet.getAddrTxOutList(addr160))
    
-      # get total value   
-      totalAvailable = sum([u.getValue() for u in utxoList])
+
       for importedAddr in masterWallet.getLinearAddrList():
          if importedAddr.chainIndex<0:
             recipValuePairs.append((importedAddr.getAddr160(),amount))
       totalSpend = len(recipValuePairs)*amount
-      fee = calcMinSuggestedFees(utxoList, totalSpend, MIN_RELAY_TX_FEE)[1]
-      totalChange = totalAvailable - (totalSpend + fee)
+      fee = calcMinSuggestedFees(utxoList, totalSpend, MIN_RELAY_TX_FEE, len(recipValuePairs))[1]
       # Get the necessary utxo list
       selectedUtxoList = PySelectCoins(utxoList, totalSpend, fee)
+      # get total value   
+      totalAvailable = sum([u.getValue() for u in selectedUtxoList])
+      totalChange = totalAvailable - (totalSpend + fee)
+
       # Make sure there are funds to cover the transaction.
       if totalChange < 0:
          print '***ERROR: you are trying to spend more than your balance!'
@@ -219,12 +221,12 @@ def distributeBtc(masterWallet, amount, sendingAddrList):
       #       to take full scripts, not just hash160 values.  Convert the list
       #       before passing it in
       scrPairs = [[hash160_to_p2pkhash_script(r), v] for r,v in recipValuePairs]
-      txdp = PyTxDistProposal().createFromTxOutSelection(selectedUtxoList, scrPairs)
+      txdp = UnsignedTransaction().createFromTxOutSelection(selectedUtxoList, scrPairs)
       
       masterWallet.unlock(securePassphrase = SecureBinaryData(getpass('Enter your secret string:')))
       # Sign and prepare the final transaction for broadcast
       masterWallet.signTxDistProposal(txdp)
-      pytx = txdp.prepareFinalTx()
+      pytx = txdp.getPyTxSignedIfPossible()
    
       print '\nSigned transaction to be broadcast using Armory "offline transactions"...'
       print txdp.serializeAscii()
@@ -255,7 +257,7 @@ def sweepImportedAddrs(masterWallet):
 
    # get total value   
    totalAvailable = sum([u.getValue() for u in utxoList])
-   fee = calcMinSuggestedFees(utxoList, totalAvailable, MIN_RELAY_TX_FEE)[1]
+   fee = calcMinSuggestedFees(utxoList, totalAvailable, MIN_RELAY_TX_FEE, 1)[1]
    totalSpend = totalAvailable - fee
    if totalSpend<0:
       print '***ERROR: The fees are greater than the funds being swept!'
@@ -266,12 +268,12 @@ def sweepImportedAddrs(masterWallet):
    #       to take full scripts, not just hash160 values.  Convert the list
    #       before passing it in
    scrPairs = [[hash160_to_p2pkhash_script(r), v] for r,v in recipValuePairs]
-   txdp = PyTxDistProposal().createFromTxOutSelection(utxoList, scrPairs)
+   txdp = UnsignedTransaction().createFromTxOutSelection(utxoList, scrPairs)
    
    masterWallet.unlock(securePassphrase = SecureBinaryData(getpass('Enter your secret string:')))
    # Sign and prepare the final transaction for broadcast
    masterWallet.signTxDistProposal(txdp)
-   pytx = txdp.prepareFinalTx()
+   pytx = txdp.getPyTxSignedIfPossible()
 
    print '\nSigned transaction to be broadcast using Armory "offline transactions"...'
    print txdp.serializeAscii()
@@ -281,11 +283,11 @@ def sweepImportedAddrs(masterWallet):
 # Example execution generates 3 promo wallets and imports 2 address each to 
 # a master wallet that is provided
 '''
-walletList = createWalletList(3, 'Inside Bitcoin 2013 -- ', 'Inside Bitcoins Las Vegas 2013 Promotional Wallet')
+walletList = createWalletList(100, 'Cambridge Bitcoin Meetup')
 masterWallet = importAddrsToMasterWallet( \
-   'C:\\Users\\Andy\\AppData\\Roaming\\Armory\\testnet3\\armory_2hzEdtr9c_.wallet',\
-    walletList, 2, "Master Promo Wallet", )
-printWalletList(walletList, "who knows how many bitcoins!?", "January 1st, 2014")
+    PyBtcWallet().readWalletFile('C:\\Users\\Andy\\AppData\\Roaming\\Armory\\armory_28Xrf4hbu_.wallet', False, False),\
+    walletList, 2, "Master Promo Wallet")
+printWalletList(walletList, "who knows how many bitcoins!?", "April 1st, 2014")
 '''
 
 # Example execution distribute .0001 Btc to each imported address in a master wallet
@@ -325,7 +327,7 @@ if operation == '--create':
       masterWallet = importAddrsToMasterWallet( \
             masterWallet, walletList, addrsPerWallet, "Master Promo Wallet", )
       # Didn't want to fit these into the argument list. Need to edit based on event
-      printWalletList(walletList, "some amount of bitcoin. ", "January 1st, 2014")
+      printWalletList(walletList, "some amount of bitcoin. ", "July 1st, 2014")
 elif operation == '--distribute':
    if len(promoKitArgList)<4:
       printHelp()

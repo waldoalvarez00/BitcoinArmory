@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright(C) 2011-2013, Armory Technologies, Inc.                         //
+//  Copyright (C) 2011-2014, Armory Technologies, Inc.                        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -43,7 +43,6 @@
 #define NUM_BLKS_BATCH_THRESH 30
 #define UPDATE_BYTES_SSH      25
 #define UPDATE_BYTES_SUBSSH   75
-#define UPDATE_BYTES_THRESH   96*1024*1024
 
 #define NUM_BLKS_IS_DIRTY 2016
 
@@ -79,7 +78,7 @@ typedef enum
 //
 // LedgerEntry  
 //
-// LedgerEntry class is used for bother ScrAddresses and BtcWallets.  Members
+// LedgerEntry class is used for both ScrAddresses and BtcWallets.  Members
 // have slightly different meanings (or irrelevant) depending which one it's
 // used with.
 //
@@ -180,12 +179,8 @@ private:
    bool             isValid_;
    bool             isCoinbase_;
    bool             isSentToSelf_;
-   bool             isChangeBack_;;
-
-
-   
+   bool             isChangeBack_;
 }; 
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -283,10 +278,13 @@ public:
    // the Utxos in the list.  If you don't care (i.e. you only want to 
    // know what TxOuts are available to spend, you can pass in 0 for currBlk
    uint64_t getFullBalance(void);
-   uint64_t getSpendableBalance(uint32_t currBlk=0);
-   uint64_t getUnconfirmedBalance(uint32_t currBlk);
+   uint64_t getSpendableBalance(uint32_t currBlk=0, 
+                                bool ignoreAllZeroConf=false);
+   uint64_t getUnconfirmedBalance(uint32_t currBlk, 
+                                  bool includeAllZeroConf=false);
    vector<UnspentTxOut> getFullTxOutList(uint32_t currBlk=0);
-   vector<UnspentTxOut> getSpendableTxOutList(uint32_t currBlk=0);
+   vector<UnspentTxOut> getSpendableTxOutList(uint32_t currBlk=0, 
+                                              bool ignoreAllZeroConf=false);
    void clearZeroConfPool(void);
 
 
@@ -335,7 +333,7 @@ private:
 class BtcWallet
 {
 public:
-   BtcWallet(void) : bdmPtr_(NULL) {}
+   BtcWallet(void) : bdmPtr_(NULL), lastScanned_(0), ignoreLastScanned_(true) {}
    explicit BtcWallet(BlockDataManager_LevelDB* bdm) : bdmPtr_(bdm) {}
    ~BtcWallet(void);
 
@@ -374,6 +372,7 @@ public:
                       uint32_t      lastTimestamp,
                       uint32_t      lastBlockNum);
 
+   // Why did we not just name this "hasScrAddr" like everything else?
    bool hasScrAddress(BinaryData const & scrAddr) const;
 
 
@@ -386,10 +385,11 @@ public:
                                      map<OutPoint, TxIOPair> const & txiomap,
                                      bool withMultiSig=false) const;
 
-   void scanTx(Tx & tx, 
+   void scanTx(Tx & tx,
                uint32_t txIndex = UINT32_MAX,
                uint32_t blktime = UINT32_MAX,
-               uint32_t blknum  = UINT32_MAX);
+               uint32_t blknum  = UINT32_MAX,
+               bool mainwallet = true);
 
    void scanNonStdTx(uint32_t    blknum, 
                      uint32_t    txidx, 
@@ -407,10 +407,13 @@ public:
    // the Utxos in the list.  If you don't care (i.e. you only want to 
    // know what TxOuts are available to spend, you can pass in 0 for currBlk
    uint64_t getFullBalance(void);
-   uint64_t getSpendableBalance(uint32_t currBlk=0);
-   uint64_t getUnconfirmedBalance(uint32_t currBlk);
+   uint64_t getSpendableBalance(uint32_t currBlk=0, 
+                                bool ignoreAllZeroConf=false);
+   uint64_t getUnconfirmedBalance(uint32_t currBlk,
+                                  bool includeAllZeroConf=false);
    vector<UnspentTxOut> getFullTxOutList(uint32_t currBlk=0);
-   vector<UnspentTxOut> getSpendableTxOutList(uint32_t currBlk=0);
+   vector<UnspentTxOut> getSpendableTxOutList(uint32_t currBlk=0,
+                                              bool ignoreAllZeroConf=false);
    void clearZeroConfPool(void);
 
    
@@ -426,6 +429,10 @@ public:
    map<OutPoint, TxIOPair> & getTxIOMap(void)    {return txioMap_;}
    map<OutPoint, TxIOPair> & getNonStdTxIO(void) {return nonStdTxioMap_;}
 
+
+   vector<LedgerEntry> & getTxLedgerForComments(void)
+                                                 { return txLedgerForComments_; }
+
    bool isOutPointMine(BinaryData const & hsh, uint32_t idx);
 
    void pprintLedger(void);
@@ -438,13 +445,21 @@ public:
 
    vector<LedgerEntry> & getEmptyLedger(void) { EmptyLedger_.clear(); return EmptyLedger_;}
 
+	void reorgChangeBlkNum(uint32_t newBlkHgt);
+   
+   uint32_t lastScanned_;
+   bool     ignoreLastScanned_;
+
 private:
    vector<ScrAddrObj*>          scrAddrPtrs_;
    map<BinaryData, ScrAddrObj>  scrAddrMap_;
    map<OutPoint, TxIOPair>      txioMap_;
 
    vector<LedgerEntry>          ledgerAllAddr_;  
-   vector<LedgerEntry>          ledgerAllAddrZC_;  
+   vector<LedgerEntry>          ledgerAllAddrZC_;
+
+   // Work around for address comments populating until 1:1 wallets are adopted
+   vector<LedgerEntry>          txLedgerForComments_;
 
    // For non-std transactions
    map<OutPoint, TxIOPair>      nonStdTxioMap_;
@@ -452,7 +467,6 @@ private:
 
    BlockDataManager_LevelDB*    bdmPtr_;
    static vector<LedgerEntry>   EmptyLedger_; // just a null-reference object
-
 
 };
 
@@ -467,16 +481,52 @@ struct ZeroConfData
 };
 
 
+/*
+ This class accumulates changes to write to the database,
+ and will do so when it gets to a certain threshold
+*/
+class BlockWriteBatcher
+{
+public:
+   static const uint64_t UPDATE_BYTES_THRESH = 96*1024*1024;
+   
+   BlockWriteBatcher(InterfaceToLDB* iface);
+   ~BlockWriteBatcher();
+   
+   void applyBlockToDB(StoredHeader &sbh);
+   void applyBlockToDB(uint32_t hgt, uint8_t dup)
+   {
+      StoredHeader sbh;
+      iface_->getStoredHeader(sbh, hgt, dup);
+      applyBlockToDB(sbh);
+   }
+   void undoBlockFromDB(StoredUndoData &sud);
 
-////////////////////////////////////////////////////////////////////////////////
-// A somewhat convenient way to store and pass around block-update data but I 
-// never actually used it on the .cpp side.
-//struct BlockWriteBatchData
-//{
-   //map<BinaryData, StoredTx>              stxToModify;
-   //map<BinaryData, StoredScriptHistory>   sshToModify;
-   //set<BinaryData>                        keysToDelete;
-//}
+private:
+   // We have accumulated enough data, actually write it to the db
+   void commit();
+   
+   // search for entries in sshToModify_ that are empty and should
+   // be deleted, removing those empty ones from sshToModify
+   set<BinaryData> searchForSSHKeysToDelete();
+   
+   bool applyTxToBatchWriteData(
+                           StoredTx &       thisSTX,
+                           StoredUndoData * sud);
+private:
+   InterfaceToLDB* const iface_;
+
+   // turn off batches by setting this to 0
+   uint64_t dbUpdateSize_;
+   map<BinaryData, StoredTx>              stxToModify_;
+   map<BinaryData, StoredScriptHistory>   sshToModify_;
+   
+   // (theoretically) incremented for each
+   // applyBlockToDB and decremented for each
+   // undoBlockFromDB
+   uint32_t mostRecentBlockApplied_;
+};
+
 
 
 
@@ -556,7 +606,6 @@ private:
    uint64_t                           startApplyOffset_;
 
    // Used to estimate how much data is queued to be written to DB
-   uint64_t                           dbUpdateSize_;
    bool                               requestRescan_;
 
    // These should be set after the blockchain is organized
@@ -581,6 +630,7 @@ private:
    static BlockDataManager_LevelDB*   theOnlyBDM_;
    static bool                        bdmCreatedYet_;
    bool                               isInitialized_;
+	uint32_t									  lastScannedBlock_;
 
 
    // These will be set for the specific network we are testing
@@ -613,6 +663,14 @@ private:
    set<OutPoint>                      registeredOutPoints_;
    uint32_t                           allScannedUpToBlk_; // one past top
 
+   // list of block headers that appear to be missing 
+   // when scanned by buildAndScanDatabases
+   vector<BinaryData>                 missingBlockHeaderHashes_;
+   // list of blocks whose contents are invalid but we have
+   // their headers
+   vector<BinaryData>                 missingBlockHashes_;
+
+   
    // TODO: We eventually want to maintain some kind of master TxIO map, instead
    // of storing them in the individual wallets.  With the new DB, it makes more
    // sense to do this, and it will become easier to compute total balance when
@@ -720,8 +778,8 @@ public:
 
    bool     registerScrAddr(BinaryData scraddr, bool isNew, uint32_t blk0);
    bool     registerNewScrAddr(BinaryData scraddr);
-   bool     registerImportedScrAddr(HashString scrAddr, uint32_t createBlk=0);
-   bool     unregisterScrAddr(HashString scrAddr);
+   bool     registerImportedScrAddr(BinaryData scrAddr, uint32_t createBlk=0);
+   bool     unregisterScrAddr(BinaryData scrAddr);
 
    uint32_t evalLowestBlockNextScan(void);
    uint32_t evalLowestScrAddrCreationBlock(void);
@@ -730,7 +788,7 @@ public:
    void     updateRegisteredScrAddrs(uint32_t newTopBlk);
 
    bool     walletIsRegistered(BtcWallet & wlt);
-   bool     scrAddrIsRegistered(HashString scrAddr);
+   bool     scrAddrIsRegistered(BinaryData scrAddr);
    void     insertRegisteredTxIfNew(HashString txHash);
    void     insertRegisteredTxIfNew(RegisteredTx & regTx);
    void     insertRegisteredTxIfNew(TxRef const & txref,
@@ -743,11 +801,13 @@ public:
    void     registeredScrAddrScan( uint8_t const * txptr,
                                    uint32_t txSize=0,
                                    vector<uint32_t> * txInOffsets=NULL,
-                                   vector<uint32_t> * txOutOffsets=NULL);
+                                   vector<uint32_t> * txOutOffsets=NULL,
+                                   bool withSecondOrderMultisig=true);
    void     registeredScrAddrScan_IterSafe( 
                                    StoredTx & stx,
                                    vector<uint32_t> * txInOffsets=NULL,
-                                   vector<uint32_t> * txOutOffsets=NULL);
+                                   vector<uint32_t> * txOutOffsets=NULL,
+                                   bool withSecondOrderMultisig=true);
    void     resetRegisteredWallets(void);
    void     pprintRegisteredWallets(void);
 
@@ -775,6 +835,8 @@ public:
                                   bool forceRebuild=false, 
                                   bool skipFetch=false,
                                   bool initialLoad=false);
+   bool scanForMagicBytes(BinaryStreamBuffer& bsb, uint32_t *bytesSkipped=0) const;
+
    void readRawBlocksInFile(uint32_t blkFileNum, uint32_t offset);
    // These are wrappers around "buildAndScanDatabases"
    void doRebuildDatabases(void);
@@ -784,34 +846,12 @@ public:
    void doInitialSyncOnLoad_Rescan(void);
    void doInitialSyncOnLoad_Rebuild(void);
 
-   bool     addRawBlockToDB(BinaryRefReader & brr);
-   void     updateBlkDataHeader(StoredHeader const & sbh);
-
-   // On the first pass through the blockchain data, we only write the raw
-   // blocks to do the DB.  We don't "apply" them (marking TxOuts spent and
-   // updating StoredScriptHistory objects).  When we know the longest chain,
-   // we do apply them.
-   bool applyBlockToDB(uint32_t hgt, uint8_t dup);
-   bool applyBlockToDB(StoredHeader & sbh);
-   bool applyBlockToDB( 
-         StoredHeader & sbh,
-         map<BinaryData, StoredTx> &            stxToModify,
-         map<BinaryData, StoredScriptHistory> & sshToModify,
-         set<BinaryData> &                      keysToDelete,
-         bool                                   applyWhenDone=true);
-   bool applyBlockToDB(
-         uint32_t hgt, 
-         uint8_t dup,
-         map<BinaryData, StoredTx> &            stxToModify,
-         map<BinaryData, StoredScriptHistory> & sshToModify,
-         set<BinaryData> &                      keysToDelete,
-         bool                                   applyWhenDone=true);
+   void addRawBlockToDB(BinaryRefReader & brr);
 
    void applyBlockRangeToDB(uint32_t blk0=0, uint32_t blk1=UINT32_MAX);
 
    // When we reorg, we have to undo blocks that have been applied.
    bool createUndoDataFromBlock(uint32_t hgt, uint8_t dup, StoredUndoData & sud);
-   bool undoBlockFromDB(StoredUndoData & sud);
 
    // When we add new block data, we will need to store/copy it to its
    // permanent memory location before parsing it.
@@ -951,39 +991,6 @@ public:
    void   markOrphanChain(BlockHeader & bhpStart);
 
    /////////////////////////////////////////////////////////////////////////////
-   // Helper methods for updating the DB
-   bool applyTxToBatchWriteData(
-                        StoredTx &                             thisSTX,
-                        map<BinaryData, StoredTx> &            stxToModify,
-                        map<BinaryData, StoredScriptHistory> & sshToModify,
-                        set<BinaryData> &                      keysToDelete,
-                        StoredUndoData *                       sud);
-
-   void applyModsToDB(  map<BinaryData, StoredTx> &            stxToModify,
-                        map<BinaryData, StoredScriptHistory> & sshToModify,
-                        set<BinaryData> &                      keysToDelete);
-
-
-   /////////////////////////////////////////////////////////////////////////////
-   StoredScriptHistory* makeSureSSHInMap(    
-                               BinaryDataRef uniqKey,
-                               BinaryDataRef hgtX,
-                               map<BinaryData, StoredScriptHistory> & sshMap,
-                               bool createIfDNE=true);
-
-   StoredTx* makeSureSTXInMap( BinaryDataRef txHash,
-                               map<BinaryData, StoredTx> & stxMap);
-
-   StoredTx* makeSureSTXInMap( uint32_t      height,
-                               uint8_t       dupID,
-                               uint16_t      txIndex,
-                               BinaryDataRef txHash,
-                               map<BinaryData, StoredTx> & stxMap);
-
-   void findSSHEntriesToDelete( map<BinaryData, StoredScriptHistory> & sshMap,
-                                set<BinaryData> & keysToDelete);
-
-
    void     setMaxOpenFiles(uint32_t n) {iface_->setMaxOpenFiles(n);}
    uint32_t getMaxOpenFiles(void)       {return iface_->getMaxOpenFiles();}
    void     setLdbBlockSize(uint32_t sz){iface_->setLdbBlockSize(sz);}
@@ -1004,6 +1011,10 @@ public:
    //bool estimateDBUpdateSize(
                         //map<BinaryData, StoredTx> &            stxToModify,
                         //map<BinaryData, StoredScriptHistory> & sshToModify);
+
+   vector<BinaryData> missingBlockHeaderHashes() const { return missingBlockHeaderHashes_; }
+   
+   vector<BinaryData> missingBlockHashes() const { return missingBlockHashes_; }
 };
 
 
@@ -1022,9 +1033,17 @@ public:
    
    BlockDataManager_LevelDB & getBDM(void) { return *bdm_; }
 
+   void DestroyBDM(void)
+   { 
+      BlockDataManager_LevelDB::DestroyInstance();
+      bdm_ = &(BlockDataManager_LevelDB::GetInstance());
+   }
+
+
 private:
    BlockDataManager_LevelDB* bdm_;
 };
 
+// kate: indent-width 3; replace-tabs on;
 
 #endif

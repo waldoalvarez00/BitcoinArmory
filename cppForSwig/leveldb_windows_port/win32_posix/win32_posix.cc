@@ -122,8 +122,10 @@ int open_win32(const char *path, int flag, int pmode)
 
 int open_win32(const char *path, int flag)
 {
-	/***In leveldb, Open(2) may be called to get a file descriptor for a directory. Win32's _open won't accept directories as entry so you're kebab. This port is particularly 
-	annoying as you need to simulate calls to a single posix function that split into 2 different types of routine based on the input.
+	/***In leveldb, Open(2) may be called to get a file descriptor for a directory. 
+	Win32's _open won't accept directories as entry so you're kebab. 
+	This port is particularly annoying as you need to simulate calls to a single 
+	posix function that split into 2 different types of routine based on the input.
 
 	This how this shit will go:
 	1) Open the path with WinAPI call
@@ -141,7 +143,8 @@ int open_win32(const char *path, int flag)
 	}
 
 	wchar_t *win32_path = posix_path_to_win32(path);
-	if(GetFileAttributesW(win32_path)==FILE_ATTRIBUTE_DIRECTORY) 
+	DWORD f = GetFileAttributesW(win32_path);
+	if(f & FILE_ATTRIBUTE_DIRECTORY) 
 	{
 		attributes |= FILE_FLAG_BACKUP_SEMANTICS;
 		desired_access |= GENERIC_WRITE; //grant additional write access to folders, can't flush the folder without it
@@ -252,7 +255,7 @@ int rmdir_resovled(wchar_t *win32_path)
 					if(wcscmp(killfile->wd_name, L".") && wcscmp(killfile->wd_name, L"..")) //skip all . and .. returned by dirent
 					{
 						wcscpy(filepath +fpl, killfile->wd_name);
-						if(GetFileAttributesW(filepath)==FILE_ATTRIBUTE_DIRECTORY) //check path is a folder
+						if(GetFileAttributesW(filepath) & FILE_ATTRIBUTE_DIRECTORY) //check path is a folder
 							rmdir_resovled(filepath); //if it's a folder, call rmdir on it
 						else
 							_wunlink(filepath); //else delete the file
@@ -294,7 +297,7 @@ int rmdir_win32(const char *path)
 		//get wild card
 		wchar_t *wildcard = (wchar_t*)malloc(sizeof(wchar_t)*MAX_PATH);
 		memset(wildcard, 0, sizeof(wchar_t)*MAX_PATH);
-		int l = wcslen(win32_path), s=l-2; //-2 for the *
+		int l = wcslen(win32_path), s=l-1; //-1 for the *
 		int wildcard_length=0;
 
 		while(s)
@@ -328,7 +331,7 @@ int rmdir_win32(const char *path)
 				if(wcscmp(dirp->wd_name, L".") && wcscmp(dirp->wd_name, L"..")) //skip all . and .. returned by dirent
 				{
 					wcscpy(delpath +dpl, dirp->wd_name);
-					if(GetFileAttributesW(delpath)==FILE_ATTRIBUTE_DIRECTORY) //check path is a folder
+					if(GetFileAttributesW(delpath) & FILE_ATTRIBUTE_DIRECTORY) //check path is a folder
 					{
 						//check path against wildcard
 						wcscpy(checkwc, dirp->wd_name);

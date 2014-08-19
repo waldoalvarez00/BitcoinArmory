@@ -1,26 +1,28 @@
 ################################################################################
 #                                                                              #
-# Copyright (C) 2011-2013, Armory Technologies, Inc.                           #
+# Copyright (C) 2011-2014, Armory Technologies, Inc.                           #
 # Distributed under the GNU Affero General Public License (AGPL v3)            #
 # See LICENSE or http://www.gnu.org/licenses/agpl.html                         #
 #                                                                              #
 ################################################################################
 import Queue
 import os.path
-import random
-import threading
-import traceback
 
 from armoryengine.ArmoryUtils import *
 from SDM import SatoshiDaemonManager
 from armoryengine.Timer import TimeThisFunction
 import CppBlockUtils as Cpp
+from armoryengine.BinaryUnpacker import BinaryUnpacker
+from armoryengine.BinaryPacker import UINT64
+
+BDMcurrentBlock = [UINT32_MAX, 0]
 
 
 def getCurrTimeAndBlock():
    time0 = long(RightNowUTC())
    if TheBDM.getBDMState()=='BlockchainReady':
-      return (time0, TheBDM.getTopBlockHeight())
+      if BDMcurrentBlock[1]: return (time0, BDMcurrentBlock[0])
+      else: return (time0, TheBDM.getTopBlockHeight())
    else:
       return (time0, UINT32_MAX)
    
@@ -55,6 +57,22 @@ BDMINPUTTYPE  = enum('RegisterAddr', \
                      'Passthrough', \
                      'Reset', \
                      'Shutdown')
+
+def newTheBDM(isOffline=False, blocking=False):
+   global TheBDM
+   TheBDM = BlockDataManagerThread(isOffline=isOffline, blocking=blocking)
+   
+
+# Make TheBDM act like it's a singleton. Always use the global singleton TheBDM
+# instance that exists in this module regardless of the instance that passed as self
+def ActLikeASingletonBDM(func):
+   def inner(*args, **kwargs):
+      if TheBDM and len(args) > 0:
+         newArgs = (TheBDM,) + args[1:]
+         return func(*newArgs, **kwargs)
+      else:
+         return func(*args, **kwargs)
+   return inner
 
 ################################################################################
 class BlockDataManagerThread(threading.Thread):
@@ -194,11 +212,25 @@ class BlockDataManagerThread(threading.Thread):
       self.btcdir = BTC_HOME_DIR
       self.ldbdir = LEVELDB_DIR
       self.lastPctLoad = 0
-
       
-         
+      
+   #############################################################################
+   @ActLikeASingletonBDM
+   def setDaemon(self, daemonic):
+      if not self.isDaemon():
+         super(BlockDataManagerThread, self).setDaemon(daemonic)
 
    #############################################################################
+   @ActLikeASingletonBDM
+   def start(self):
+      try:
+         super(BlockDataManagerThread, self).start()
+      except RuntimeError:
+         LOGWARN("Attempt to start singleton TheBDM that has already been started.")
+         pass
+      
+   #############################################################################
+   @ActLikeASingletonBDM
    def __getattr__(self, name):
       '''
       Anything that is not explicitly defined in this class should 
@@ -259,6 +291,7 @@ class BlockDataManagerThread(threading.Thread):
 
    
    #############################################################################
+   @ActLikeASingletonBDM
    def waitForOutputIfNecessary(self, expectOutput, rndID=0):
       # The get() command will block until the thread puts something there.
       # We don't always expect output, but we use this method to 
@@ -285,6 +318,7 @@ class BlockDataManagerThread(threading.Thread):
       
       
    #############################################################################
+   @ActLikeASingletonBDM
    def setBlocking(self, doblock=True, newTimeout=MT_WAIT_TIMEOUT_SEC):
       """
       If we want TheBDM to behave as a single-threaded app, we need to disable
@@ -303,6 +337,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def Reset(self, wait=None):
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
@@ -313,10 +348,12 @@ class BlockDataManagerThread(threading.Thread):
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getBlkMode(self):
       return self.blkMode
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getBDMState(self):
       if self.blkMode == BLOCKCHAINMODE.Offline:
          # BDM will not be able to provide any blockchain data, or scan
@@ -350,6 +387,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def predictLoadTime(self):
       # Apparently we can't read the C++ state while it's scanning, 
       # specifically getLoadProgress* methods.  Thus we have to resort
@@ -380,7 +418,7 @@ class BlockDataManagerThread(threading.Thread):
             if not self.lastPctLoad == pct1:
                LOGINFO('Reading blockchain, pct complete: %0.1f', 100*totalPct)
             self.lastPctLoad = totalPct 
-            return [currPhase,totalPct,rate,tleft]
+            return (currPhase,totalPct,rate,tleft)
       except:
          raise
          return [-1,-1,-1,-1]
@@ -389,6 +427,7 @@ class BlockDataManagerThread(threading.Thread):
    
       
    #############################################################################
+   @ActLikeASingletonBDM
    def execCleanShutdown(self, wait=True):
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
@@ -399,6 +438,7 @@ class BlockDataManagerThread(threading.Thread):
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
    #############################################################################
+   @ActLikeASingletonBDM
    def setSatoshiDir(self, newBtcDir):
       if not os.path.exists(newBtcDir):
          LOGERROR('setSatoshiDir: directory does not exist: %s', newBtcDir)
@@ -411,6 +451,7 @@ class BlockDataManagerThread(threading.Thread):
       self.btcdir = newBtcDir
 
    #############################################################################
+   @ActLikeASingletonBDM
    def setLevelDBDir(self, ldbdir):
 
       if not self.blkMode in (BLOCKCHAINMODE.Offline, BLOCKCHAINMODE.Uninitialized):
@@ -424,9 +465,11 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def setOnlineMode(self, goOnline=True, wait=None):
       LOGINFO('Setting online mode: %s (wait=%s)' % (str(goOnline), str(wait)))
       expectOutput = False
+      # Wait is tri-state - True, False, or None
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
@@ -442,11 +485,13 @@ class BlockDataManagerThread(threading.Thread):
       return self.waitForOutputIfNecessary(expectOutput, rndID)
    
    #############################################################################
+   @ActLikeASingletonBDM
    def isScanning(self):
       return (self.aboutToRescan or self.blkMode==BLOCKCHAINMODE.Rescanning)
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def readBlkFileUpdate(self, wait=True):
       """
       This method can be blocking... it always has been without a problem,
@@ -466,17 +511,20 @@ class BlockDataManagerThread(threading.Thread):
       
 
    #############################################################################
+   @ActLikeASingletonBDM
    def isInitialized(self):
       return self.blkMode==BLOCKCHAINMODE.Full and self.bdm.isInitialized()
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def isDirty(self):
       return self.bdm.isDirty()
    
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def rescanBlockchain(self, scanType='AsNeeded', wait=None):
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
@@ -491,6 +539,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def updateWalletsAfterScan(self, wait=True):
       """
       Be careful with this method:  it is asking the BDM thread to update 
@@ -517,6 +566,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def startWalletRecoveryScan(self, pywlt, wait=None):
       """
       A wallet recovery scan may require multiple, independent rescans.  This 
@@ -544,6 +594,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def __checkBDMReadyToServeData(self):
       if self.blkMode==BLOCKCHAINMODE.Rescanning:
          LOGERROR('Requested blockchain data while scanning.  Don\'t do this!')
@@ -565,6 +616,7 @@ class BlockDataManagerThread(threading.Thread):
       return True
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getTxByHash(self, txHash):
       """
       All calls that retrieve blockchain data are blocking calls.  You have 
@@ -592,6 +644,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    ############################################################################
+   @ActLikeASingletonBDM
    def getHeaderByHash(self, headHash):
       """
       All calls that retrieve blockchain data are blocking calls.  You have 
@@ -619,6 +672,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getBlockByHash(self,headHash):
       """
       All calls that retrieve blockchain data are blocking calls.  You have 
@@ -650,6 +704,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getAddressBook(self, wlt):
       """
       Address books are constructed from Blockchain data, which means this 
@@ -673,6 +728,7 @@ class BlockDataManagerThread(threading.Thread):
       return None
 
    #############################################################################
+   @ActLikeASingletonBDM
    def addNewZeroConfTx(self, rawTx, timeRecv, writeToFile, wait=None):
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
@@ -683,6 +739,7 @@ class BlockDataManagerThread(threading.Thread):
       return self.waitForOutputIfNecessary(expectOutput, rndID)
       
    #############################################################################
+   @ActLikeASingletonBDM
    def registerScrAddr(self, scrAddr, isFresh=False, wait=None):
       """
       This is for a generic address:  treat it as imported (requires rescan)
@@ -695,6 +752,7 @@ class BlockDataManagerThread(threading.Thread):
 
  
    #############################################################################
+   @ActLikeASingletonBDM
    def registerNewScrAddr(self, scrAddr, wait=None):
       """
       Variable isFresh==True means the address was just [freshly] created,
@@ -713,6 +771,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def registerImportedScrAddr(self, scrAddr, \
                                      firstTime=UINT32_MAX, \
                                      firstBlk=UINT32_MAX, \
@@ -728,13 +787,14 @@ class BlockDataManagerThread(threading.Thread):
          expectOutput = True
 
       rndID = int(random.uniform(0,100000000)) 
-      self.inputQueue.put([BDMINPUTTYPE.RegisterAddr, rndID, expectOutput, scrAddr, \
-                                   [firstTime, firstBlk, lastTime, lastBlk]])
+      self.inputQueue.put([BDMINPUTTYPE.RegisterAddr, rndID, expectOutput, \
+                           scrAddr, [firstTime, firstBlk, lastTime, lastBlk]])
 
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
          
    #############################################################################
+   @ActLikeASingletonBDM
    def registerWallet(self, wlt, isFresh=False, wait=None):
       """
       Will register a C++ wallet or Python wallet
@@ -753,10 +813,13 @@ class BlockDataManagerThread(threading.Thread):
             self.pyWltList.append(wlt)
 
       elif isinstance(wlt, Cpp.BtcWallet):
+         # We are using this branch to add multi-sig wallets, which aren't
+         # even help as python wallets, only low-level BtcWallets 
          naddr = wlt.getNumScrAddr()
 
          for a in range(naddr):
-            self.registerScrAddr(wlt.getScrAddrObjByIndex(a).getScrAddr(), isFresh, wait=wait)
+            self.registerScrAddr(wlt.getScrAddrObjByIndex(a).getScrAddr(), 
+                                                          isFresh, wait=wait)
 
          if not wlt in self.cppWltList:
             self.cppWltList.append(wlt)
@@ -775,6 +838,7 @@ class BlockDataManagerThread(threading.Thread):
    # I can do is create non-private versions of these methods that access BDM
    # methods directly, but should not be used under any circumstances, unless
    # we know for sure that the BDM ultimately called this method.
+   @ActLikeASingletonBDM
    def registerScrAddr_bdm_direct(self, scrAddr, timeInfo):
       """ 
       Something went awry calling __registerScrAddrNow from the PyBtcWallet
@@ -790,6 +854,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def scanBlockchainForTx_bdm_direct(self, cppWlt, startBlk=0, endBlk=UINT32_MAX):
       """ 
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
@@ -799,6 +864,7 @@ class BlockDataManagerThread(threading.Thread):
       self.bdm.scanRegisteredTxForWallet(cppWlt, startBlk, endBlk)
    
    #############################################################################
+   @ActLikeASingletonBDM
    def scanRegisteredTxForWallet_bdm_direct(self, cppWlt, startBlk=0, endBlk=UINT32_MAX):
       """ 
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
@@ -808,6 +874,7 @@ class BlockDataManagerThread(threading.Thread):
       self.bdm.scanRegisteredTxForWallet(cppWlt, startBlk, endBlk)
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getTopBlockHeight_bdm_direct(self):
       """ 
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
@@ -819,6 +886,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def getLoadProgress(self):
       """
       This method does not actually work!  The load progress in bytes is not
@@ -829,6 +897,7 @@ class BlockDataManagerThread(threading.Thread):
    
 
    #############################################################################
+   @ActLikeASingletonBDM
    def __registerScrAddrNow(self, scrAddr, timeInfo):
       """
       Do the registration right now.  This should not be called directly
@@ -840,7 +909,7 @@ class BlockDataManagerThread(threading.Thread):
          isFresh = timeInfo
          if isFresh:
             # We claimed to have just created this ScrAddr...(so no rescan needed)
-            self.masterCppWallet.addNewScrAddress_1_(scrAddr)
+            self.masterCppWallet.addNewScrAddress(scrAddr)
          else:
             self.masterCppWallet.addScrAddress_1_(scrAddr)
       else:
@@ -856,6 +925,7 @@ class BlockDataManagerThread(threading.Thread):
 
    #############################################################################
    @TimeThisFunction
+   @ActLikeASingletonBDM
    def __startLoadBlockchain(self):
       """
       This should only be called by the threaded BDM, and thus there should
@@ -896,11 +966,27 @@ class BlockDataManagerThread(threading.Thread):
       # We have the data, we're ready to go
       self.blkMode = BLOCKCHAINMODE.Rescanning
       self.aboutToRescan = False
+      
+      armory_homedir = ARMORY_HOME_DIR
+      blockdir = blkdir
+      leveldbdir = self.ldbdir
+      
+      if OS_WINDOWS:
+         if isinstance(ARMORY_HOME_DIR, unicode):
+            armory_homedir = ARMORY_HOME_DIR.encode('utf8')
+         if isinstance(blkdir, unicode):
+            blockdir = blkdir.encode('utf8')
+         if isinstance(self.ldbdir, unicode):
+            leveldbdir = self.ldbdir.encode('utf8')
+
+      LOGINFO('Setting Armory Home Dir: %s' % armory_homedir)
+      LOGINFO('Setting BlkFile Dir:     %s' % blockdir)
+      LOGINFO('Setting LevelDB Dir:     %s' % leveldbdir)
 
       self.bdm.SetDatabaseModes(ARMORY_DB_BARE, DB_PRUNE_NONE);
-      self.bdm.SetHomeDirLocation(ARMORY_HOME_DIR)
-      self.bdm.SetBlkFileLocation(str(blkdir))
-      self.bdm.SetLevelDBLocation(self.ldbdir)
+      self.bdm.SetHomeDirLocation(armory_homedir)
+      self.bdm.SetBlkFileLocation(blockdir)
+      self.bdm.SetLevelDBLocation(leveldbdir)
       self.bdm.SetBtcNetworkParams( GENESIS_BLOCK_HASH, \
                                     GENESIS_TX_HASH,    \
                                     MAGIC_BYTES)
@@ -924,6 +1010,7 @@ class BlockDataManagerThread(threading.Thread):
       
    #############################################################################
    @TimeThisFunction
+   @ActLikeASingletonBDM
    def __startRescanBlockchain(self, scanType='AsNeeded'):
       """
       This should only be called by the threaded BDM, and thus there should
@@ -968,12 +1055,15 @@ class BlockDataManagerThread(threading.Thread):
          self.bdm.doRebuildDatabases()
          self.blkMode = BLOCKCHAINMODE.Rescanning
 
+      # missingBlocks = self.bdm.missingBlockHashes()
+      
       self.bdm.scanBlockchainForTx(self.masterCppWallet)
       self.bdm.saveScrAddrHistories()
 
 
    #############################################################################
    @TimeThisFunction
+   @ActLikeASingletonBDM
    def __startRecoveryRescan(self, pywlt):
       """
       This should only be called by the threaded BDM, and thus there should
@@ -1022,6 +1112,7 @@ class BlockDataManagerThread(threading.Thread):
 
    #############################################################################
    @TimeThisFunction
+   @ActLikeASingletonBDM
    def __readBlockfileUpdates(self):
       ''' 
       This method can be blocking... it always has been without a problem,
@@ -1036,14 +1127,17 @@ class BlockDataManagerThread(threading.Thread):
       nblk = self.bdm.readBlkFileUpdate() 
 
       # On new blocks, re-save the histories
-      if nblk > 0:
-         self.bdm.saveScrAddrHistories()
+      # ACR: This was removed because the histories get saved already on the
+      #      call to TheBDM.updateWalletsAfterScan()
+      #if nblk > 0:
+         #self.bdm.saveScrAddrHistories()
 
       return nblk
          
 
    #############################################################################
    @TimeThisFunction
+   @ActLikeASingletonBDM
    def __updateWalletsAfterScan(self):
       """
       This will actually do a scan regardless of whether it is currently
@@ -1067,7 +1161,17 @@ class BlockDataManagerThread(threading.Thread):
 
 
       for pyWlt in self.pyWltList:
+         # We use "calledFromBDM" to avoid deadlocking -- no other messages
+         # on the BDM queue can be processed until this function returns, but 
+         # the syncWithBlockchain call will put a request on the queue
+         # and wait for the BDM to process it.  We use "calledFromBDM" to 
+         # request that the call go around the queue, right to the self.bdm
+         # object.
+         prevCFB = pyWlt.calledFromBDM
+         pyWlt.calledFromBDM = True
          pyWlt.syncWithBlockchain()
+         pyWlt.calledFromBDM = prevCFB
+
 
       for cppWlt in self.cppWltList:
          # The pre-leveldb version of Armory specifically required to call
@@ -1084,6 +1188,10 @@ class BlockDataManagerThread(threading.Thread):
          # which only scans the registered tx that are already collected 
          # (including new blocks, but not previous blocks).  
          #
+         # NOTE:  In versions 0.90-0.92, the following paragraph is not
+         #        actually true:  we don't have supernode support.  Yet,
+         #        we never converted this back to scanRegisteredTxForWallet.
+         #        Hmmm...
          # However, with the leveldb stuff only supporting super-node, there
          # is no rescanning, thus it's safe to always call scanBlockchainForTx,
          # which grabs everything from the database almost instantaneously.  
@@ -1099,6 +1207,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def __shutdown(self):
       if not self.blkMode == BLOCKCHAINMODE.Rescanning:
          self.bdm.saveScrAddrHistories()
@@ -1108,12 +1217,14 @@ class BlockDataManagerThread(threading.Thread):
       self.doShutdown = True
 
    #############################################################################
+   @ActLikeASingletonBDM
    def __fullRebuild(self):
       self.bdm.destroyAndResetDatabases()
       self.__reset()
       self.__startLoadBlockchain()
 
    #############################################################################
+   @ActLikeASingletonBDM
    def __reset(self):
       LOGERROR('Resetting BDM and all wallets')
       self.bdm.Reset()
@@ -1142,6 +1253,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
    #############################################################################
+   @ActLikeASingletonBDM
    def __getFullBlock(self, headerHash):
       headerObj = self.bdm.getHeaderByHash(headerHash)
       if not headerObj:
@@ -1165,6 +1277,7 @@ class BlockDataManagerThread(threading.Thread):
 
    
    #############################################################################
+   @ActLikeASingletonBDM
    def getBDMInputName(self, i):
       for name in dir(BDMINPUTTYPE):
          if getattr(BDMINPUTTYPE, name)==i:
@@ -1172,9 +1285,70 @@ class BlockDataManagerThread(threading.Thread):
 
    #############################################################################
    @TimeThisFunction
+   @ActLikeASingletonBDM
    def createAddressBook(self, cppWlt):
       return cppWlt.createAddressBook()
 
+   ###############################
+   # This is critical code used when kicking off ArmoryQt and armoryd. Ideally, all
+   # initialization would happen here, but there's too much GUI stuff to make it
+   # work. So, we'll do what we can here, which is a significant amount.
+   # INPUT: A Python wallet map, a C++ lockbox wallet map, a flag indicating if the
+   #        memory pool has been initialized, and the BDM.
+   # OUTPUT: The top block height and a flag indicating that the mem pool has been
+   #         initialized.
+   #######################################################################
+   @ActLikeASingletonBDM
+   def finishLoadBlockchainCommon(self, inWltMap, inLBWltMap, initMemPool):
+      retVal = self.getTopBlockHeight()
+   
+      # If necessary, initialize the mem pool.
+      if not initMemPool:
+         mempoolfile = os.path.join(ARMORY_HOME_DIR,'mempool.bin')
+         clearpoolfile = os.path.join(ARMORY_HOME_DIR,'clearmempool.flag')
+         if os.path.exists(clearpoolfile):
+            LOGINFO('clearmempool.flag found.  Clearing memory pool')
+            os.remove(clearpoolfile)
+            if os.path.exists(mempoolfile):
+               os.remove(mempoolfile)
+         elif os.path.exists(mempoolfile):
+            memfile = open(mempoolfile, 'rb')
+            memdata = memfile.read()
+            memfile.close()
+         
+            binunpacker = BinaryUnpacker(memdata)
+            try:
+               while binunpacker.getRemainingSize() > 0:
+                  binunpacker.get(UINT64)
+                  PyTx().unserialize(binunpacker)
+            except:
+               os.remove(mempoolfile)
+               LOGWARN('Memory pool file was corrupt and has been deleted. No further ' \
+                       'action is required.')
+                  
+         cppMempoolFile = mempoolfile
+         if OS_WINDOWS and isinstance(mempoolfile, unicode):
+            cppMempoolFile = mempoolfile.encode('utf8')
+         self.enableZeroConf(cppMempoolFile)
+   
+      # Sync each Python wallet.
+      for wltID in inWltMap.iterkeys():
+         LOGINFO('Syncing wallet: %s', wltID)
+         inWltMap[wltID].setBlockchainSyncFlag(BLOCKCHAIN_READONLY)
+         inWltMap[wltID].syncWithBlockchainLite(0)
+         inWltMap[wltID].detectHighestUsedIndex(True)  # expand wlt if necessary
+         inWltMap[wltID].fillAddressPool()
+   
+      # The lockboxes use C++ wallets 'til the 2.0 wallets are ready. We just need
+      # to scan each wallet.
+      for lbID,cppWallet in inLBWltMap.iteritems():
+         self.scanRegisteredTxForWallet(cppWallet, 0, wait=True)
+   
+      LOGINFO('Blockchain load and wallet sync finished')
+      return (retVal, True)
+
+
+   @ActLikeASingletonBDM
    def run(self):
       """
       This thread runs in an infinite loop, waiting for things to show up
@@ -1358,6 +1532,7 @@ class BlockDataManagerThread(threading.Thread):
          except:
             inputName = self.getBDMInputName(inputTuple[0])
             LOGERROR('Error processing BDM input')
+            #traceback.print_stack()
             LOGERROR('Received inputTuple: ' + inputName + ' ' + str(inputTuple))
             LOGERROR('Error processing ID (%d)', rndID)
             LOGEXCEPT('ERROR:')
@@ -1369,9 +1544,6 @@ class BlockDataManagerThread(threading.Thread):
       LOGINFO('BDM is shutdown.')
       
          
-
-
-
 ################################################################################
 # Make TheBDM reference the asyncrhonous BlockDataManager wrapper if we are 
 # running 
@@ -1404,8 +1576,18 @@ else:
 
    #if CLI_OPTIONS.doDebug or CLI_OPTIONS.netlog or CLI_OPTIONS.mtdebug:
    cppLogFile = os.path.join(ARMORY_HOME_DIR, 'armorycpplog.txt')
-   TheBDM.StartCppLogging(cppLogFile, 4)
-   TheBDM.EnableCppLogStdOut()
+   
+   cpplf = cppLogFile
+   if OS_WINDOWS and isinstance(cppLogFile, unicode):
+      cpplf = cppLogFile.encode('utf8')
+   
+   # For C++ logging, higher levels is more logging, 0 is disabled
+   # For Python logging (in ArmoryUtils) it's reversed
+   if CLI_OPTIONS.logDisable:
+      TheBDM.StartCppLogging(cpplf, 0)
+   else:
+      TheBDM.StartCppLogging(cpplf, 4)
+      TheBDM.EnableCppLogStdOut()
 
    # 32-bit linux has an issue with max open files.  Rather than modifying
    # the system, we can tell LevelDB to take it easy with max files to open
@@ -1425,6 +1607,6 @@ else:
 
 
 # Put the import at the end to avoid circular reference problem
-from armoryengine.PyBtcWallet import *
+from armoryengine.PyBtcWallet import PyBtcWallet, BLOCKCHAIN_READONLY
 from armoryengine.Transaction import PyTx
 

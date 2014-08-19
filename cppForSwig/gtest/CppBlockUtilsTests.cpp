@@ -14,7 +14,12 @@
 #include "../EncryptionUtils.h"
 
 #ifdef _MSC_VER
+   #ifdef mlock
+      #undef mlock
+      #undef munlock
+   #endif
    #include "win32_posix.h"
+	#undef close
 #endif
 
 #define READHEX BinaryData::CreateFromHex
@@ -2280,7 +2285,7 @@ TEST_F(BlockObjTest, OutPointSerialize)
    BinaryData prevIdx = READHEX(
       "01000000");
 
-   OutPoint op(rawOP.getPtr());
+   OutPoint op(rawOP.getPtr(), rawOP.getSize());
    EXPECT_EQ(op.getTxHash().getSize(), 32);
    EXPECT_EQ(op.getTxOutIndex(), 1);
    EXPECT_EQ(op.getTxHash(), prevHash);
@@ -2315,7 +2320,7 @@ TEST_F(BlockObjTest, TxInNoInit)
 TEST_F(BlockObjTest, TxInUnserialize)
 {
    BinaryRefReader brr(rawTxIn_);
-   uint32_t len = rawTxIn_.getSize();
+   const uint32_t len = rawTxIn_.getSize();
    BinaryData srcAddr = BtcUtils::getHash160( READHEX("04"
       "5d74feae58c4c36d7c35beac05eddddc78b3ce4b02491a2eea72043978056a8b"
       "c439b99ddaad327207b09ef16a8910828e805b0cc8c11fba5caea2ee939346d7"));
@@ -2323,16 +2328,15 @@ TEST_F(BlockObjTest, TxInUnserialize)
       "0044fbc929d78e4203eed6f1d3d39c0157d8e5c100bbe0886779c0ebf6a69324"
       "01000000");
 
-   vector<TxIn> txins(7);
-   txins[0] = TxIn(rawTxIn_.getPtr()); 
-   txins[1] = TxIn(rawTxIn_.getPtr(), len); 
-   txins[2] = TxIn(rawTxIn_.getPtr(), len, TxRef(), 12); 
-   txins[3].unserialize(rawTxIn_.getPtr());
-   txins[4].unserialize(rawTxIn_.getRef());
-   txins[5].unserialize(brr);
-   txins[6].unserialize_swigsafe_(rawTxIn_);
+   vector<TxIn> txins(6);
+   txins[0].unserialize_checked(rawTxIn_.getPtr(), len); 
+   txins[1].unserialize_checked(rawTxIn_.getPtr(), len, len); 
+   txins[2].unserialize_checked(rawTxIn_.getPtr(), len, len, TxRef(), 12); 
+   txins[3].unserialize(rawTxIn_.getRef());
+   txins[4].unserialize(brr);
+   txins[5].unserialize_swigsafe_(rawTxIn_);
 
-   for(uint32_t i=0; i<7; i++)
+   for(uint32_t i=0; i<6; i++)
    {
       EXPECT_TRUE( txins[i].isInitialized());
       EXPECT_EQ(   txins[i].serialize().getSize(), len);
@@ -2363,16 +2367,15 @@ TEST_F(BlockObjTest, TxOutUnserialize)
    uint32_t len = rawTxOut_.getSize();
    BinaryData dstAddr = READHEX("8dce8946f1c7763bb60ea5cf16ef514cbed0633b");
 
-   vector<TxOut> txouts(7);
-   txouts[0] = TxOut(rawTxOut_.getPtr()); 
-   txouts[1] = TxOut(rawTxOut_.getPtr(), len); 
-   txouts[2] = TxOut(rawTxOut_.getPtr(), len, TxRef(), 12); 
-   txouts[3].unserialize(rawTxOut_.getPtr());
-   txouts[4].unserialize(rawTxOut_.getRef());
-   txouts[5].unserialize(brr);
-   txouts[6].unserialize_swigsafe_(rawTxOut_);
+   vector<TxOut> txouts(6);
+   txouts[0].unserialize_checked(rawTxOut_.getPtr(), len); 
+   txouts[1].unserialize_checked(rawTxOut_.getPtr(), len, len); 
+   txouts[2].unserialize_checked(rawTxOut_.getPtr(), len, len, TxRef(), 12); 
+   txouts[3].unserialize(rawTxOut_.getRef());
+   txouts[4].unserialize(brr);
+   txouts[5].unserialize_swigsafe_(rawTxOut_);
 
-   for(uint32_t i=0; i<7; i++)
+   for(uint32_t i=0; i<6; i++)
    {
       EXPECT_TRUE( txouts[i].isInitialized());
       EXPECT_EQ(   txouts[i].getSize(), len);
@@ -2444,11 +2447,11 @@ TEST_F(BlockObjTest, TxUnserialize)
 
    Tx tx;
    vector<Tx> txs(10);
-   txs[0] = Tx(rawTx0_.getPtr()); 
+   txs[0] = Tx(rawTx0_.getPtr(), len); 
    txs[1] = Tx(brr);  brr.resetPosition();
    txs[2] = Tx(rawTx0_);
    txs[3] = Tx(rawTx0_.getRef());
-   txs[4].unserialize(rawTx0_.getPtr());
+   txs[4].unserialize(rawTx0_.getPtr(), len);
    txs[5].unserialize(rawTx0_);
    txs[6].unserialize(rawTx0_.getRef());
    txs[7].unserialize(brr);  brr.resetPosition();
@@ -6075,6 +6078,57 @@ TEST_F(BlockUtilsBare, Load5Blocks_FullReorg)
    EXPECT_EQ(wlt.getFullBalance(), 160*COIN);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+TEST_F(BlockUtilsBare, CorruptedBlock)
+{
+   BtcWallet wlt;
+   wlt.addScrAddress(scrAddrA_);
+   wlt.addScrAddress(scrAddrB_);
+   wlt.addScrAddress(scrAddrC_);
+   TheBDM.registerWallet(&wlt);
+   TheBDM.registerNewScrAddr(scrAddrD_);
+
+   BtcWallet wlt2;
+   wlt2.addScrAddress(scrAddrD_);
+   
+   TheBDM.doInitialSyncOnLoad(); 
+   TheBDM.scanBlockchainForTx(wlt);
+   TheBDM.scanBlockchainForTx(wlt2);
+
+   // corrupt blk_5A
+   {
+      const std::string src = "../reorgTest/blk_5A.dat";
+      const std::string dst = blk0dat_;
+      
+      const uint64_t srcsz = BtcUtils::GetFileSize(src);
+      
+      BinaryData temp((size_t)srcsz);
+      ifstream is(src.c_str(), ios::in  | ios::binary);
+      is.read((char*)temp.getPtr(), srcsz);
+      is.close();
+      
+      ofstream os(dst.c_str(), ios::out | ios::binary);
+      os.write((char*)temp.getPtr(), 100);
+      os.write((char*)temp.getPtr()+120, srcsz-100-20); // erase 20 bytes
+      os.close();
+   }
+
+   TheBDM.readBlkFileUpdate();
+   
+
+   TheBDM.scanBlockchainForTx(wlt);
+   TheBDM.scanBlockchainForTx(wlt2);
+
+   ScrAddrObj * scrobj;
+   scrobj = &wlt.getScrAddrObjByKey(scrAddrA_);
+   EXPECT_EQ(scrobj->getFullBalance(),100*COIN);
+   scrobj = &wlt.getScrAddrObjByKey(scrAddrB_);
+   EXPECT_EQ(scrobj->getFullBalance(), 0*COIN);
+   //scrobj = &wlt.getScrAddrObjByKey(scrAddrD_);
+   //EXPECT_EQ(scrobj->getFullBalance(),140*COIN);
+
+   EXPECT_EQ(wlt.getFullBalance(), 150*COIN);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 TEST_F(BlockUtilsBare, Load5Blocks_RescanOps)
@@ -7183,7 +7237,6 @@ protected:
    }
 
 
-
 #if ! defined(_MSC_VER) && ! defined(__MINGW32__)
 
    /////////////////////////////////////////////////////////////////////////////
@@ -7324,37 +7377,40 @@ class TestCryptoECDSA : public ::testing::Test
 {
 protected:
    /////////////////////////////////////////////////////////////////////////////
-   virtual void SetUp(void) 
+   virtual void SetUp(void)
    {
       verifyX = READHEX("39a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2");
       verifyY = READHEX("3cbe7ded0e7ce6a594896b8f62888fdbc5c8821305e2ea42bf01e37300116281");
 
       multScalarA = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
       multScalarB = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
-      multRes     = READHEX("805714a252d0c0b58910907e85b5b801fff610a36bdf46847a4bf5d9ae2d10ed");
 
-      multScalar   = READHEX("04bfb2dd60fa8921c2a4085ec15507a921f49cdc839f27f0f280e9c1495d44b5");
-      multPointX   = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
-      multPointY   = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
+      multRes = READHEX("805714a252d0c0b58910907e85b5b801fff610a36bdf46847a4bf5d9ae2d10ed");
+
+      multScalar = READHEX("04bfb2dd60fa8921c2a4085ec15507a921f49cdc839f27f0f280e9c1495d44b5");
+      multPointX = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
+      multPointY = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
       multPointRes = READHEX("7f8bd85f90169a606b0b4323c70e5a12e8a89cbc76647b6ed6a39b4b53825214c590a32f111f857573cf8f2c85d969815e4dd35ae0dc9c7e868195c309b8bada");
 
       addAX = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
-      addAY  = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
-      addBX  = READHEX("5a784662a4a20a65bf6aab9ae98a6c068a81c52e4b032c0fb5400c706cfccc56");
-      addBY  = READHEX("7f717885be239daadce76b568958305183ad616ff74ed4dc219a74c26d35f839");
+      addAY = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
+      addBX = READHEX("5a784662a4a20a65bf6aab9ae98a6c068a81c52e4b032c0fb5400c706cfccc56");
+      addBY = READHEX("7f717885be239daadce76b568958305183ad616ff74ed4dc219a74c26d35f839");
       addRes = READHEX("fe2f7c8109d9ae628856d51a02ab25300a8757e088fc336d75cb8dc4cc2ce3339013be71e57c3abeee6ad158646df81d92f8c0778f88100eeb61535f9ff9776d");
 
-      invAX  = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
-      invAY  = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
+      invAX = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
+      invAY = READHEX("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
       invRes = READHEX("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798b7c52588d95c3b9aa25b0403f1eef75702e84bb7597aabe663b82f6f04ef2777");
 
-      compPointPrv1   = READHEX("000f479245fb19a38a1954c5c7c0ebab2f9bdfd96a17563ef28a6a4b1a2a764ef4");
-      compPointPub1   = READHEX("02e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29");
+      compPointPrv1 = READHEX("000f479245fb19a38a1954c5c7c0ebab2f9bdfd96a17563ef28a6a4b1a2a764ef4");
+      compPointPub1 = READHEX("02e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29");
       uncompPointPub1 = READHEX("04e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d292728ad8d58a140050c1016e21f285636a580f4d2711b7fac3957a594ddf416a0");
 
-      compPointPrv2   = READHEX("00e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35");
-      compPointPub2   = READHEX("0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2");
+      compPointPrv2 = READHEX("00e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35");
+      compPointPub2 = READHEX("0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2");
       uncompPointPub2 = READHEX("0439a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c23cbe7ded0e7ce6a594896b8f62888fdbc5c8821305e2ea42bf01e37300116281");
+
+      invModRes = READHEX("000000000000000000000000000000000000000000000000000000000000006b");
 
       LOGDISABLESTDOUT();
    }
@@ -7394,6 +7450,7 @@ protected:
    SecureBinaryData compPointPrv2;
    SecureBinaryData uncompPointPub2;
    SecureBinaryData compPointPub2;
+   SecureBinaryData invModRes;
 };
 
 // Verify that a point known to be on the secp256k1 curve is recognized as such.
@@ -8221,6 +8278,16 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    }
 }
 
+
+// Verify that some public keys (compressed and uncompressed) are valid.
+////////////////////////////////////////////////////////////////////////////////
+TEST_F(TestCryptoECDSA, VerifyPubKeyValidity)
+{
+   EXPECT_TRUE(CryptoECDSA().VerifyPublicKeyValid(compPointPub1));
+   EXPECT_TRUE(CryptoECDSA().VerifyPublicKeyValid(compPointPub2));
+   EXPECT_TRUE(CryptoECDSA().VerifyPublicKeyValid(uncompPointPub1));
+   EXPECT_TRUE(CryptoECDSA().VerifyPublicKeyValid(uncompPointPub2));
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /* Never got around to finishing this...

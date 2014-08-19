@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright(C) 2011-2013, Armory Technologies, Inc.                         //
+//  Copyright (C) 2011-2014, Armory Technologies, Inc.                        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -126,8 +126,8 @@ class GlobalDBUtilities
 {
 public:
 
-   static uint32_t   hgtxToHeight(BinaryData hgtx);
-   static uint8_t    hgtxToDupID(BinaryData hgtx);
+   static uint32_t   hgtxToHeight(const BinaryData& hgtx);
+   static uint8_t    hgtxToDupID(const BinaryData& hgtx);
    static BinaryData heightAndDupToHgtx(uint32_t hgt, uint8_t dup);
 
    /////////////////////////////////////////////////////////////////////////////
@@ -291,7 +291,8 @@ public:
                         merkle_(0), 
                         isMainBranch_(false),
                         blockAppliedToDB_(false), 
-						merkleIsPartial_(false) {}
+                        merkleIsPartial_(false),
+                        hasBlockHeader_(false) {}
                            
 
    bool isInitialized(void) const {return dataCopy_.getSize() > 0;}
@@ -370,6 +371,8 @@ public:
    ARMORY_DB_TYPE  unserDbType_;
    DB_PRUNE_TYPE   unserPrType_;
    MERKLE_SER_TYPE unserMkType_;
+   
+   bool hasBlockHeader_;
    
 };
 

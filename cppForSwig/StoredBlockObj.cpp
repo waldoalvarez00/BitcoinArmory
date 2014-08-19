@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright(C) 2011-2013, Armory Technologies, Inc.                         //
+//  Copyright (C) 2011-2014, Armory Technologies, Inc.                        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -198,6 +198,7 @@ void StoredHeader::createFromBlockHeader(BlockHeader & bh)
    blockHeight_ = bh.getBlockHeight();
    duplicateID_ = UINT8_MAX;
    isMainBranch_ = bh.isMainBranch();
+   hasBlockHeader_ = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1191,7 +1192,9 @@ TxOut StoredTxOut::getTxOutCopy(void) const
       LOGERR << "Attempted to get TxOut copy but not initialized";
       return TxOut();
    }
-   return TxOut(dataCopy_.getPtr());
+   TxOut o;
+   o.unserialize_checked(dataCopy_.getPtr(), dataCopy_.getSize());
+   return o;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2826,14 +2829,14 @@ BinaryData GlobalDBUtilities::getBlkDataKeyNoPrefix( uint32_t height,
 }
 
 /////////////////////////////////////////////////////////////////////////////
-uint32_t GlobalDBUtilities::hgtxToHeight(BinaryData hgtx)
+uint32_t GlobalDBUtilities::hgtxToHeight(const BinaryData& hgtx)
 {
    return (READ_UINT32_BE(hgtx) >> 8);
 
 }
 
 /////////////////////////////////////////////////////////////////////////////
-uint8_t GlobalDBUtilities::hgtxToDupID(BinaryData hgtx)
+uint8_t GlobalDBUtilities::hgtxToDupID(const BinaryData& hgtx)
 {
    return (READ_UINT32_BE(hgtx) & 0x7f);
 }
@@ -2845,3 +2848,4 @@ BinaryData GlobalDBUtilities::heightAndDupToHgtx(uint32_t hgt, uint8_t dup)
    return WRITE_UINT32_BE(hgtxInt);
 }
 
+// kate: indent-width 3; replace-tabs on;

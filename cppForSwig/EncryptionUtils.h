@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright(C) 2011-2013, Armory Technologies, Inc.                         //
+//  Copyright (C) 2011-2014, Armory Technologies, Inc.                        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -204,7 +204,8 @@ public:
    // This would be a static method, as would be appropriate, except SWIG won't
    // play nice with static methods.  Instead, we will just use 
    // SecureBinaryData().GenerateRandom(32), etc
-   SecureBinaryData GenerateRandom(uint32_t numBytes);
+   SecureBinaryData GenerateRandom(uint32_t numBytes, 
+                              SecureBinaryData extraEntropy=SecureBinaryData());
 
    void lockData()
    {
@@ -326,7 +327,8 @@ public:
    CryptoECDSA() {}
 
    /////////////////////////////////////////////////////////////////////////////
-   static BTC_PRIVKEY CreateNewPrivateKey();
+   static BTC_PRIVKEY CreateNewPrivateKey(
+                              SecureBinaryData extraEntropy=SecureBinaryData());
 
    /////////////////////////////////////////////////////////////////////////////
    static BTC_PRIVKEY ParsePrivateKey(SecureBinaryData const & privKeyData);
@@ -375,13 +377,14 @@ public:
    // SWIG to take BTC_PUBKEY and BTC_PRIVKEY
 
    /////////////////////////////////////////////////////////////////////////////
-   SecureBinaryData GenerateNewPrivateKey();
+   SecureBinaryData GenerateNewPrivateKey(
+                              SecureBinaryData extraEntropy=SecureBinaryData());
    
    /////////////////////////////////////////////////////////////////////////////
    SecureBinaryData ComputePublicKey(SecureBinaryData const & cppPrivKey);
 
    /////////////////////////////////////////////////////////////////////////////
-   bool VerifyPublicKeyValid(SecureBinaryData const & pubKey65);
+   bool VerifyPublicKeyValid(SecureBinaryData const & pubKey);
 
    /////////////////////////////////////////////////////////////////////////////
    bool CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
@@ -418,6 +421,9 @@ public:
                            SecureBinaryData const & chainCode,
                            SecureBinaryData* multiplierOut=NULL);
 
+   /////////////////////////////////////////////////////////////////////////////
+   // We need some direct access to Crypto++ math functions
+   SecureBinaryData InvMod(const SecureBinaryData& m);
 
    /////////////////////////////////////////////////////////////////////////////
    // Some standard ECC operations

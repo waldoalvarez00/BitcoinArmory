@@ -1,6 +1,6 @@
 ################################################################################
 #                                                                              #
-# Copyright (C) 2011-2013, Armory Technologies, Inc.                           #
+# Copyright (C) 2011-2014, Armory Technologies, Inc.                           #
 # Distributed under the GNU Affero General Public License (AGPL v3)            #
 # See LICENSE or http://www.gnu.org/licenses/agpl.html                         #
 #                                                                              #
@@ -15,6 +15,7 @@ import urllib
 from armorycolors import Colors, htmlColor
 from armoryengine.ArmoryUtils import *
 from armoryengine.BinaryUnpacker import *
+from armoryengine.MultiSigUtils import *
 
 
 SETTINGS_PATH   = os.path.join(ARMORY_HOME_DIR, 'ArmorySettings.txt')
@@ -37,6 +38,15 @@ VERTICAL = 'vertical'
 HORIZONTAL = 'horizontal'
 CHANGE_ADDR_DESCR_STRING = '[[ Change received ]]'
 HTTP_VERSION_FILE = 'https://bitcoinarmory.com/versions.txt'
+BUG_REPORT_URL = 'https://bitcoinarmory.com/scripts/receive_debug.php'
+PRIVACY_URL = 'https://bitcoinarmory.com/privacy-policy'
+# For announcements handling
+ANNOUNCE_FETCH_INTERVAL = 1 * HOUR
+if CLI_OPTIONS.testAnnounceCode:
+   HTTP_ANNOUNCE_FILE = \
+      'https://s3.amazonaws.com/bitcoinarmory-testing/testannounce.txt'
+else:
+   HTTP_ANNOUNCE_FILE = 'https://bitcoinarmory.com/atiannounce.txt'
 
 # Keep track of dialogs and wizard that are executing
 runningDialogsList = []
@@ -115,30 +125,6 @@ def VLINE(style=QFrame.Plain):
    return qf
 
 
-################################################################################
-def getVersionURL(withExtraFields=False, justHash=False):
-   argsMap = {}
-   argsMap['ver'] = getVersionString(BTCARMORY_VERSION)
-
-   if withExtraFields:
-      if OS_WINDOWS:
-         argsMap['os'] = 'win'
-      elif OS_LINUX:
-         argsMap['os'] = 'lin'
-      elif OS_MACOSX:
-         argsMap['os'] = 'mac'
-      else:
-         argsMap['os'] = 'unk'
-   
-      try:
-         argsMap['osvar'] = OS_VARIANT[0].lower()
-      except:
-         argsMap['osvar'] = 'unk'
-   
-      argsMap['id'] = binary_to_hex(hash256(USER_HOME_DIR)[:4])
-      
-   return HTTP_VERSION_FILE + '?' + urllib.urlencode(argsMap)
-
 
 # Setup fixed-width and var-width fonts
 def GETFONT(ftype, sz=10, bold=False, italic=False):
@@ -146,10 +132,15 @@ def GETFONT(ftype, sz=10, bold=False, italic=False):
    if ftype.lower().startswith('fix'):
       if OS_WINDOWS:
          fnt = QFont("Courier", sz)
+      elif OS_MACOSX:
+         fnt = QFont("Menlo", sz)
       else: 
          fnt = QFont("DejaVu Sans Mono", sz)
    elif ftype.lower().startswith('var'):
-      fnt = QFont("Verdana", sz)
+      if OS_MACOSX:
+         fnt = QFont("Lucida Grande", sz)
+      else:
+         fnt = QFont("Verdana", sz)
       #if OS_WINDOWS:
          #fnt = QFont("Tahoma", sz)
       #else: 
@@ -157,6 +148,8 @@ def GETFONT(ftype, sz=10, bold=False, italic=False):
    elif ftype.lower().startswith('money'):
       if OS_WINDOWS:
          fnt = QFont("Courier", sz)
+      elif OS_MACOSX:
+         fnt = QFont("Menlo", sz)
       else: 
          fnt = QFont("DejaVu Sans Mono", sz)
    else:
@@ -247,7 +240,7 @@ def relaxedSizeNChar(obj, nChar):
 #############################################################################
 def determineWalletType(wlt, wndw):
    if wlt.watchingOnly:
-      if wndw.getWltSetting(wlt.uniqueIDB58,'IsMine'):
+      if wndw.getWltSetting(wlt.uniqueIDB58, 'IsMine'):
          return [WLTTYPES.Offline, 'Offline']
       else:
          return [WLTTYPES.WatchOnly, 'Watching-Only']
@@ -255,6 +248,7 @@ def determineWalletType(wlt, wndw):
       return [WLTTYPES.Crypt, 'Encrypted']
    else:
       return [WLTTYPES.Plain, 'No Encryption']
+
 
 
 
@@ -305,6 +299,7 @@ class QRichLabel(QLabel):
       # Fixes a problem with QLabel resizing based on content
       # ACR:  ... and makes other problems.  Removing for now.
       #self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+      #self.setMinimumHeight(int(relaxedSizeStr(self, 'QWERTYqypgj')[1]))
 
    def setText(self, text, color=None, size=None, bold=None, italic=None):
       text = unicode(text)
@@ -331,31 +326,33 @@ class QRichLabel(QLabel):
 
 
 class QMoneyLabel(QRichLabel):
-   def __init__(self, nSatoshi, ndec=8, maxZeros=2, wColor=True, wBold=False):
+   def __init__(self, nSatoshi, ndec=8, maxZeros=2, wColor=True, 
+                              wBold=False, txtSize=10):
       QLabel.__init__(self, coin2str(nSatoshi))
 
-      self.setValueText(nSatoshi, ndec, maxZeros, wColor, wBold)
+      self.setValueText(nSatoshi, ndec, maxZeros, wColor, wBold, txtSize)
 
 
-   def setValueText(self, nSatoshi, ndec=None, maxZeros=None, wColor=None, wBold=None):
+   def setValueText(self, nSatoshi, ndec=None, maxZeros=None, wColor=None, 
+                                             wBold=None, txtSize=10):
       """
       When we set the text of the QMoneyLabel, remember previous values unless
       explicitly respecified
       """
-      if not ndec==None:
+      if not ndec is None:
          self.ndec = ndec
 
-      if not maxZeros==None:
+      if not maxZeros is None:
          self.max0 = maxZeros
 
-      if not wColor==None:
+      if not wColor is None:
          self.colr = wColor
 
-      if not wBold==None:
+      if not wBold is None:
          self.bold = wBold
          
 
-      theFont = GETFONT("Fixed", 10)
+      theFont = GETFONT("Fixed", txtSize)
       if self.bold:
          theFont.setWeight(QFont.Bold)
 
@@ -441,12 +438,15 @@ class QLabelButton(QLabel):
       self.setStyleSheet(ssStr)
 
 ################################################################################
-def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr=None, noStr=None): 
+# The optionalMsg argument is not word wrapped so the caller is responsible for limiting
+# the length of the longest line in the optionalMsg
+def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr=None, noStr=None, 
+                                                      optionalMsg=None): 
    """
    Creates a message box with custom button text and icon
    """
 
-   class dlgWarn(QDialog):
+   class dlgWarn(ArmoryDialog):
       def __init__(self, dtype, dtitle, wmsg, withCancel=False, yesStr=None, noStr=None):
          super(dlgWarn, self).__init__(None)
          
@@ -474,9 +474,9 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr=None, noStr=None):
          lblMsg.setTextFormat(Qt.RichText)
          lblMsg.setWordWrap(True)
          lblMsg.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+         lblMsg.setOpenExternalLinks(True)
          w,h = tightSizeNChar(lblMsg, 70)
          lblMsg.setMinimumSize( w, 3.2*h )
-
          buttonbox = QDialogButtonBox()
 
          if dtype==MSGBOX.Question:
@@ -489,14 +489,14 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr=None, noStr=None):
             buttonbox.addButton(btnYes,QDialogButtonBox.AcceptRole)
             buttonbox.addButton(btnNo, QDialogButtonBox.RejectRole)
          else:
-            if not yesStr: yesStr = '&OK'
-            if not noStr:  noStr = '&Cancel'
+            cancelStr = '&Cancel' if (noStr is not None or withCancel) else ''
+            yesStr    = '&OK' if (yesStr is None) else yesStr
             btnOk     = QPushButton(yesStr)
-            btnCancel = QPushButton(noStr)
+            btnCancel = QPushButton(cancelStr)
             self.connect(btnOk,     SIGNAL('clicked()'), self.accept)
             self.connect(btnCancel, SIGNAL('clicked()'), self.reject)
             buttonbox.addButton(btnOk, QDialogButtonBox.AcceptRole)
-            if withCancel or noStr:
+            if cancelStr:
                buttonbox.addButton(btnCancel, QDialogButtonBox.RejectRole)
 
          spacer = QSpacerItem(20, 10, QSizePolicy.Fixed, QSizePolicy.Expanding)
@@ -505,7 +505,14 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr=None, noStr=None):
          layout.addItem(  spacer,         0,0, 1,2)
          layout.addWidget(msgIcon,        1,0, 1,1)
          layout.addWidget(lblMsg,         1,1, 1,1)
-         layout.addWidget(buttonbox,      3,0, 1,2)
+         if optionalMsg:
+            optionalTextLabel = QLabel(optionalMsg)
+            optionalTextLabel.setTextFormat(Qt.RichText)
+            optionalTextLabel.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            w,h = tightSizeNChar(optionalTextLabel, 70)
+            optionalTextLabel.setMinimumSize( w, 3.2*h )
+            layout.addWidget(optionalTextLabel, 2,0,1,2)
+         layout.addWidget(buttonbox, 3,0, 1,2)
          layout.setSpacing(20)
          self.setLayout(layout)
          self.setWindowTitle(dtitle)
@@ -524,7 +531,7 @@ def MsgBoxWithDNAA(wtype, title, msg, dnaaMsg, wCancel=False, \
    checkbox.  Will return a pair  (response, DNAA-is-checked)
    """
 
-   class dlgWarn(QDialog):
+   class dlgWarn(ArmoryDialog):
       def __init__(self, dtype, dtitle, wmsg, dmsg=None, withCancel=False): 
          super(dlgWarn, self).__init__(None)
          
@@ -570,7 +577,6 @@ def MsgBoxWithDNAA(wtype, title, msg, dnaaMsg, wCancel=False, \
             self.connect(btnNo,  SIGNAL('clicked()'), self.reject)
             buttonbox.addButton(btnYes,QDialogButtonBox.AcceptRole)
             buttonbox.addButton(btnNo, QDialogButtonBox.RejectRole)
-
          else:
             btnOk = QPushButton('Ok')
             self.connect(btnOk, SIGNAL('clicked()'), self.accept)
@@ -601,7 +607,7 @@ def MsgBoxWithDNAA(wtype, title, msg, dnaaMsg, wCancel=False, \
    return (result, dlg.chkDnaa.isChecked())
 
  
-def makeLayoutFrame(dirStr, widgetList, style=QFrame.NoFrame):
+def makeLayoutFrame(dirStr, widgetList, style=QFrame.NoFrame, condenseMargins=False):
    frm = QFrame()
    frm.setFrameStyle(style)
 
@@ -637,19 +643,23 @@ def makeLayoutFrame(dirStr, widgetList, style=QFrame.NoFrame):
       else:
          frmLayout.addWidget(w)
 
-   frmLayout.setContentsMargins(5,5,5,5)
+   if condenseMargins:
+      frmLayout.setContentsMargins(3,3,3,3)
+      frmLayout.setSpacing(3)
+   else:
+      frmLayout.setContentsMargins(5,5,5,5)
    frm.setLayout(frmLayout)
    return frm
    
 
-def addFrame(widget, style=STYLE_SUNKEN):
-   return makeLayoutFrame(HORIZONTAL, [widget], style)
+def addFrame(widget, style=STYLE_SUNKEN, condenseMargins=False):
+   return makeLayoutFrame(HORIZONTAL, [widget], style, condenseMargins)
    
-def makeVertFrame(widgetList, style=QFrame.NoFrame):
-   return makeLayoutFrame(VERTICAL, widgetList, style)
+def makeVertFrame(widgetList, style=QFrame.NoFrame, condenseMargins=False):
+   return makeLayoutFrame(VERTICAL, widgetList, style, condenseMargins)
 
-def makeHorizFrame(widgetList, style=QFrame.NoFrame):
-   return makeLayoutFrame(HORIZONTAL, widgetList, style)
+def makeHorizFrame(widgetList, style=QFrame.NoFrame, condenseMargins=False):
+   return makeLayoutFrame(HORIZONTAL, widgetList, style, condenseMargins)
 
 
 def QImageLabel(imgfn, size=None, stretch='NoStretch'):
@@ -704,6 +714,22 @@ def saveTableView(qtbl):
 
 
 
+################################################################################
+# This class is intended to be an abstract frame class that
+# will hold all of the functionality that is common to all 
+# Frames used in Armory. 
+# The Frames that extend this class should contain all of the
+# display and control components for some screen used in Armory
+# Putting this content in a frame allows it to be used on it's own
+# in a dialog or as a component in a larger frame.
+class ArmoryFrame(QFrame):
+   def __init__(self, parent, main):
+      super(ArmoryFrame, self).__init__(parent)
+      self.main = main
+
+      # Subclasses should implement a method that returns a boolean to control
+      # when done, accept, next, or final button should be enabled.
+      self.isComplete = None
 
 
 ################################################################################
