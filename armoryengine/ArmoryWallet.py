@@ -1,13 +1,21 @@
 
 
 ################################################################################
-CRYPT_KEY_SRC = enum('PASSWORD', 'MULTIPWD', 'PARCHAIN', 'EKEY_OBJ', 'RAW_EKEY')
+NULLSTR   = lambda numBytes=0: '\x00'*numBytes
+NULLSBD   = lambda numBytes=0: SecureBinaryData(numBytes)
+NULLKDF   = "IDENTITY"
+NULLCRYPT = "IDENTITY"
+
+CRYPT_KEY_SRC = enum('PASSWORD', 'MULTIPWD', 'PARCHAIN', 'RAWKEY32')
 CRYPT_IV_SRC  = enum('STOREDIV', 'PUBKEY20')
-NULLSTR = lambda numBytes: '\x00'*numBytes
-NULLSBD = lambda: SecureBinaryData(0)
-NULLKDF = NULLSTR(8)
-KNOWN_CRYPTO = {'AE256CFB': {'blocksize': 16, 'keysize': 32}, \
+KNOWN_CRYPTO = {'IDENTITY': {'blocksize':  1, 'keysize':  0}, 
+                'AE256CFB': {'blocksize': 16, 'keysize': 32},
                 'AE256CBC': {'blocksize': 16, 'keysize': 32} }
+
+KNOWN_KDFALGOS = {'IDENTITY': [], 
+                  'ROMIXOV2': ['memReqd','numIter','salt'],
+                  'SCRYPT__': ['N','r','p', 'salt'] } # not actually avail yet
+
 
 def roundUpMod(val, mod):
    return ((int(val)- 1) / mod + 1) * mod
@@ -167,9 +175,12 @@ class WalletEntry(object):
       # all hidden/opaque if it's encrypted
       buPayload = BinaryUnpacker(serPayload)
       plType = buPayload.get(BINARY_CHUNK, 4)
-      plReqd = buPayload.get(UINT8)
+      plFlags= buPayload.get(UINT8)
       plSize = buPayload.get(VAR_INT)
       plData = buPayload.getRemainingString()[:plSize]
+
+      plBits = BitSet().fromValue(plFlags)
+      plReqd = plBits.getBit(0)
 
       # This is the magic call:  create an object of the type referenced by
       # the 4-byte payload type, unserialize from the remaining data
@@ -194,9 +205,12 @@ class WalletEntry(object):
       paddedObj = padString(serObject, lenPadded)
       isReqd    = self.entryCode in WalletEntry.REQUIRED_TYPES
 
+      plBits = BitSet(8)
+      plBits.setBit(0, isReqd)
+
       payload = BinaryPacker() 
       bpPayload.put(BINARY_CHUNK, self.entryCode,   widthBytes=4) 
-      bpPayload.put(UINT8,  1 if isReqd else 0)
+      bpPayload.put(UINT8,  plBits.toValue())
       bpPayload.put(VAR_INT,  lenObject)
       bpPayload.put(BINARY_CHUNK, paddedObj)
 
@@ -225,7 +239,7 @@ class WalletEntry(object):
    #############################################################################
    def getEkeyFromWallet(self, ekeyID):
       if self.wltFileRef is None:
-         raise WalletExistsError('This wallet entry has not wallet file!')
+         raise WalletExistsError('This wallet entry has no wallet file!')
 
       ekey = self.wltFileRef.ekeyMap.get(ekeyID)
       if ekey is None:
@@ -267,8 +281,8 @@ class WalletEntry(object):
 
 
    #############################################################################
+   """
    def serializeWalletEntry(self):
-      """ 
       Note that if we use padding, that weBytes still refers to the original
       length of the serialized data.  This is so that we know how to separate
       the serialized data from the padding bytes.  However, we still want to 
@@ -282,7 +296,6 @@ class WalletEntry(object):
       the encrypted form will fit in the same place as the unencrypted form.
       We choose 16 by default, since that is the blocksize of AES256. 
 
-      """
 
       # This gets the derived class's serialize method and static entry code
       wePlain   = self.serialize()
@@ -329,16 +342,16 @@ class WalletEntry(object):
       bp.put(BINARY_CHUNK, weChk,                            widthBytes= 4)
 
       return bp.getBinaryString()
+      """
 
 
    #############################################################################
+   """
    def unserializeWalletEntry(self, toUnpack, fileOffset=None)
-      """
       We will always be reading WalletEntry objs from a single BinaryUnpacker
       object which unpacks the entire file contiguously.  Therefore, the 
       getPosition call will return the same value as the starting byte in
       the file
-      """
       if isinstance(toUnpack, BinaryUnpacker):
          binUnpacker = toUnpack
          if fileOffset is None:
@@ -423,6 +436,7 @@ class WalletEntry(object):
       self.parentRoot160 = weRoot
       self.wltStartByte = fileOffset
       return self
+      """
 
    #############################################################################
    def setLockTimeout(self, newTimeout):
@@ -438,8 +452,8 @@ class WalletEntry(object):
 
 
    #############################################################################
+   """ 
    def lock(self, encryptKey=None, encryptIV=None):
-      """ 
       It's up to the caller to check beforehand if an encryption key or IV
       is needed, and how to get it.  Check the self.outerCryptInfo
 
@@ -447,7 +461,6 @@ class WalletEntry(object):
       object.  If the data itself has encryption (inner encryption, such
       as for private key data in an ArmoryAddress object), that is irrelevant
       to this method
-      """
 
       if not self.outerCryptInfo.useEncryption():
          LOGWARN('Trying to lock unencrypted data...?')
@@ -474,10 +487,11 @@ class WalletEntry(object):
       self.payloadCrypt = self.outerCryptInfo.encrypt(plain, encryptKey, encryptIV)
       self.payloadPlain = None
       return
+   """
 
    #############################################################################
+   """
    def unlock(self, encryptKey, encryptIV=None):
-      """ 
       It's up to the caller to check beforehand if an encryption key or IV
       is needed, and how to get it.  Check the self.outerCryptInfo
 
@@ -485,7 +499,7 @@ class WalletEntry(object):
       object.  If the data itself has encryption (inner encryption, such
       as for private key data in an ArmoryAddress object), that is irrelevant
       to this method
-      """
+
       if not self.outerCryptInfo.useEncryption():
          LOGWARN('Trying to unlock unencrypted data...?')
          return
@@ -506,6 +520,7 @@ class WalletEntry(object):
       payloadClass = self.FILECODEMAP[self.entryCode]
       self.payloadPlain = payloadClass().unserialize(plain)
       self.payloadPlain.wltEntryRef = self
+   """
 
 
 
@@ -1303,22 +1318,43 @@ class ArmoryCryptInfo(object):
    that was used to encrypt it.  Then the calling code can go get that object
    and do what is needed for it.   
 
+   In many ways, this data structure doesn't have to be rigorous.  It's still
+   up to the calling code to make sure the key material and KDFs are available
+   for encrypting and decrypting.  This simply provides information that the
+   calling code can use to know how to encrypt & decrypt.
+
    Frequently, this encryption info will contain initialization vectors (IVs), 
    generated randomly at creation time, or references to what is to be used as
    the IV (such as using the hash160 of the addr).
 
    ArmoryCryptInfo objects carry four pieces of data:
-         (1) KDF algorithm & params   (via ID)  (8)
-         (2) Encryption algo & params (via ID)  (8)
-         (3) Encryption key source              (8)
-         (4) Initialization Vect source         (8)
+         (1) KDF object ID           (8)   # KDF object has params
+         (2) Encryption algo         (8)   # name of encryption algorithm
+         (3) Encryption key source   (8)   # ID of master key or sentinel
+         (4) Init Vect source        (8)   # 8-byte IV or sentinel  
+
+   Encryption key (ekey) source is typically either the 8-byte ID of a 
+   master encryption key object that should be stored in the same file,
+   or a sentinel value from CRYPT_KEY_SRC that indicates where the key
+   material should come from.  In the case of encrypting non-security-
+   sensitive objects in a backup file, we might use the chaincode of
+   the parent key object as the key material (so you need the WO wallet
+   in order to decrypt, but this file is stored somewhere without that).
+
+   Init vect source is the same:  sometimes we simply generate an IV to
+   be stored with the ArmoryCryptInfo object, and sometimes we simply use
+   a sentinel from CRYPT_IV_SRC to identify where to get it.  The most
+   common would be PUBKEY20, which is used when encrypting a Bitcoin 
+   private key and the public key is stored next to the encrypted priv
+   key.  PUBKEY20 means the IV is not supplied, but instead you should
+   use the first 16 bytes of the public key as the IV.  
 
    The examples below use the following IDs, though they would normally be
    hash of the parameters used:
 
-         KDF object with ID      '11112222aaaabbbb'   hash(ROMixOver2 w/ params)
-         Crypto obj with ID      'ccccdddd88889999'   hash(AES256-CFB generic)
-         Master key ID           '9999999932323232'   hash(WalletEntry object)
+         KDF object to use       '11112222'   hash(kdfObj.serialize())[:8]
+         Crypto algorithm name   'AE256CBC'
+         Master key ID           '99998888'   hash(ekey.serialize())[:8]
 
 
    Anything in all capitals letters are sentinel values which mean: 
@@ -1326,51 +1362,55 @@ class ArmoryCryptInfo(object):
    the specified data"
 
 
-   Master Private Key in wallet will use:
-             ArmoryCryptInfo( '11112222aaaabbbb',  
-                              'ccccdddd88889999', 
-                              'PASSPHRASEPLEASE', 
-                              '<SerializedIV>')
+   Master Private Key in wallet will use (the calling code needs to 
+   request a password from the user):
 
-   Private keys encrypted with master private key, use:
-             ArmoryCryptInfo( '0000000000000000',  
-                              'ccccdddd88889999',   
-                              '9999999932323232',  
-                              'PUBLICKEYHASH160')
-   (Note no KDF:  because we use a KDF to protect master key... once
-   the master key is unlocked, we just use the master key w/o KDF for
-   the individual private keys) 
+             ArmoryCryptInfo( '11112222',  
+                              'AE256CBC', 
+                              'PASSWORD', 
+                              '<StorIV>')
+
+   Private keys encrypted with master private key:
+   (Note we only use KDFs with password-protected objects -- in this case
+   we are encrypted with a full-entropy 32-byte key, so no KDF is needed;
+   however that master key will need to be decrypted first to decrypt this
+   object, which will probably require a password & KDF)
+
+             ArmoryCryptInfo( '00000000',  
+                              'AE256CBC',   
+                              '99998888',  
+                              'PUBKEY20')
 
 
    Bare private key encryption w/o master key (use KDF & password):
-             ArmoryCryptInfo( '11112222aaaabbbb',   
-                              'ccccdddd88889999',   
-                              'PASSPHRASEPLEASE',  
-                              'PUBLICKEYHASH160')
+             ArmoryCryptInfo( '11112222',   
+                              'AE256CBC',   
+                              'PASSWORD',  
+                              'PUBKEY20')
    
    Encrypt P2SH scripts, labels, and meta-data in insecure backup file:
-             ArmoryCryptInfo( '0000000000000000',  
-                              'ccccdddd88889999',  
-                              'PARENTCHAINCODE' ,  
-                              '<SerializedIV>')
+             ArmoryCryptInfo( '00000000',  
+                              'AE256CBC',  
+                              'PARCHAIN' ,  
+                              '<StorIV>')
 
-   Encrypt Public Keys & Addresses as WalletEntries:
-             ArmoryCryptInfo( '11112222aaaabbbb',   
-                              'ccccdddd88889999',   
-                              'ROOTCHAINCODE256',  
-                              '<SerializedIV>')
+   Encrypt Public Keys & Addresses as outer encryption of WalletEntries:
+             ArmoryCryptInfo( '11112222',   
+                              'AE256CFB',   
+                              'PASSWORD',  
+                              '<StorIV>')
 
    No encryption 
-             ArmoryCryptInfo( '0000000000000000',  
-                              '0000000000000000',  
-                              '0000000000000000',  
-                              '0000000000000000')
+             ArmoryCryptInfo( '00000000',  
+                              '00000000',  
+                              '00000000',  
+                              '00000000')
    """
 
    ############################################################################
-   def __init__(self, kdfID=NULLSTR(8), \
-                      encrAlgo=NULLSTR(8), \
-                      keysrc=NULLSTR(8), \
+   def __init__(self, kdfID=NULLKDF,
+                      encrAlgo=NULLCRYPT, 
+                      keysrc=NULLSTR(8),
                       ivsrc=NULLSTR(8)):
 
       if kdfID is None:
@@ -1391,10 +1431,11 @@ class ArmoryCryptInfo(object):
 
    ############################################################################
    def noEncryption(self):
-      return (self.kdfObjID==NULLSTR(8) and \
-              self.encryptAlgo==NULLSTR(8) and \
-              self.keySource==NULLSTR(8) and \
-              self.ivSource==NULLSTR(8))
+      return (self.encryptAlgo==NULLCRYPT)
+      #return (self.kdfObjID==NULLKDF and \
+              #self.encryptAlgo==NULLCRYPT and \
+              #self.keySource==NULLSTR(8) and \
+              #self.ivSource==NULLSTR(8))
 
    #############################################################################
    def useEncryption(self):
@@ -1422,13 +1463,13 @@ class ArmoryCryptInfo(object):
    ############################################################################
    def setIV(self, newIV):
       if not self.ivSource is NULLSTR(8):
-         LOGWARNING('Setting IV on einfo object with non-zero IV')
+         raise KeyDataError('Attempted to set IV on einfo that already has IV')
       
       if not isinstance(newIV, str):
          newIV = newIV.toBinStr()
 
       if len(newIV)>8:
-         LOGWARNING('Supplied IV is not 8 bytes. Truncating.')
+         raise KeyDataError('Attempted to set IV to non-8-byte string')
       elif len(newIV)<8:
          raise BadInputError('Supplied IV is less than 8 bytes.  Aborting')
 
@@ -1449,21 +1490,21 @@ class ArmoryCryptInfo(object):
    def getBlockSize(self):
       if not KNOWN_CRYPTO.has_key(self.encryptAlgo):
          raise EncryptionError, 'Unknown crypto blocksize: %s' % self.encryptAlgo
-      else:
-         return KNOWN_CRYPTO[self.encryptAlgo]['blocksize']
+
+      return KNOWN_CRYPTO[self.encryptAlgo]['blocksize']
 
 
    ############################################################################
-   def getKeySize(self):
+   def getExpectedInputSize(self):
       # This is the keysize expected for this *ArmoryCryptInfo* object, not the
       # encryptAlgo of it.  In other words, this is to let us know the expected
       # size of the input -- if this ArmoryCryptInfo uses a KDF, there is no 
       # expected size.  Only if there is no KDF but does have encryptAlgo, then 
       # we return the key size of that algo.
-      if self.useKeyDerivFunc() or self.encryptAlgo:
+      if self.useKeyDerivFunc() or self.noEncryption():
          return 0
-      elif(self.encryptAlgo.startswith('AE256'):
-         return 32
+      elif self.encryptAlgo in KNOWN_CRYPTO:
+         return KNOWN_CRYPTO[self.encryptAlgo]['keysize']
       else:
          raise EncryptionError, 'Unknown encryption keysize'
 
@@ -1599,7 +1640,7 @@ class ArmoryCryptInfo(object):
    @VerifyArgTypes(plaintext=SecureBinaryData, 
                    keyData=SecureBinaryData,  
                    ivData=SecureBinaryData)
-   def encrypt(self, plaintext, keyData=None, ivData=None, ekeyObj=None, kdfObj=None):
+   def encrypt(self, plaintext, keyData=None, ivData=None, kdfObj=None, ekeyObj=None):
       """
       Ways this function is used:
 
@@ -1650,6 +1691,8 @@ class ArmoryCryptInfo(object):
       object for the cipher blocksize, and pad it before passing in (and also
       take note somewhere of what the original datasize was).
       """
+      if self.encryptAlgo=='IDENTITY':
+         return plaintext.copy()  
 
       # Verify that the plaintext data has correct padding
       if not (plaintext.getSize() % self.getBlockSize() == 0):
@@ -1678,10 +1721,12 @@ class ArmoryCryptInfo(object):
    @VerifyArgTypes(ciphertext=SecureBinaryData, 
                    keyData=SecureBinaryData,  
                    ivData=SecureBinaryData)
-   def decrypt(self, ciphertext, keyData=None, ivData=None, ekeyObj=None, kdfObj=None):
+   def decrypt(self, ciphertext, keyData=None, ivData=None, kdfObj=None, ekeyObj=None):
       """
       See comments for encrypt function -- this function works the same way
       """
+      if self.encryptAlgo=='IDENTITY':
+         return ciphertext.copy()  
 
       # Make sure all the data is in SBD form -- will also be easier to destroy
       if not (ciphertext.getSize() % self.getBlockSize() == 0):
@@ -1722,10 +1767,6 @@ class KdfObject(object):
    of LUT operations is cut in half relative to described ROMix algorithm,
    in order to allow larger memory usage on slower systems.
    """
-   KDF_ALGORITHMS = { 'identity': [], 
-                      'romixov2': ['memReqd','numIter','salt'],
-                      'scrypt__': ['n','r','i'] } # not actually avail yet
-
    #############################################################################
    def __init__(self, kdfName=None, **params):
 
@@ -1743,14 +1784,14 @@ class KdfObject(object):
          return
          
 
-      if not kdfName.lower() in self.KDF_ALGORITHMS:
+      if not kdfName.upper() in KNOWN_KDFALGOS:
          # Make sure we recognize the algo
          LOGERROR('Attempted to create unknown KDF object:  name=%s', kdfName)
          return
 
       # Check that the keyword args passed to this function includes all 
       # required args for the specified KDF algorithm 
-      reqdArgs = self.KDF_ALGORITHMS[kdfName.lower()]
+      reqdArgs = KNOWN_KDFALGOS[kdfName.upper()]
       for arg in reqdArgs:
          if not arg in params:
             LOGERROR('KDF name=%s:   not enough input arguments', kdfName)
@@ -1759,11 +1800,11 @@ class KdfObject(object):
             
 
       # Right now there is only one algo (plus identity-KDF).  You can add new
-      # algorithms via "KDF_ALGORITHMS" and then updating this method to 
+      # algorithms via KNOWN_KDFALGOS and then updating this method to 
       # create a callable KDF object
-      if kdfName.lower()=='identity':
+      if kdfName.upper()=='IDENTITY':
          self.execKDF = lambda x: SecureBinaryData(x)
-      if kdfName.lower()=='romixov2':
+      if kdfName.upper()=='ROMIXOV2':
 
          memReqd = params['memReqd']
          numIter = params['numIter']
@@ -1798,13 +1839,13 @@ class KdfObject(object):
    #############################################################################
    def serialize(self):
       bp = BinaryPacker()
-      if self.kdfName.lower()=='romixov2':
+      if self.kdfName.upper()=='ROMIXOV2':
          bp.put(BINARY_CHUNK,  self.kdfname,           widthBytes= 8)
-         bp.put(BINARY_CHUNK,  'sha512',               widthBytes= 8)
+         bp.put(BINARY_CHUNK,  'sha512__',             widthBytes= 8)
          bp.put(UINT32,        self.memReqd)          #widthBytes= 4
          bp.put(UINT32,        self.numIter)          #widthBytes= 4
          bp.put(VAR_STR,       self.salt.toBinStr())
-      elif self.kdfName.lower()=='identity':
+      elif self.kdfName.upper()=='IDENTITY':
          bp.put(BINARY_CHUNK,  'Identity',             widthBytes= 8)
 
       return bp.getBinaryString()
@@ -1814,16 +1855,16 @@ class KdfObject(object):
       bu = makeBinaryUnpacker(toUnpack)
       kdfName = bu.get(BINARY_CHUNK, 8)
 
-      if not kdfName.lower() in self.KDF_ALGORITHMS:
+      if not kdfName.upper() in KNOWN_KDFALGOS:
          LOGERROR('Unknown KDF in unserialize:  %s', kdfName)
          return None
      
       # Start the KDF-specific processing
-      if kdfName.lower()=='identity':
-         self.__init__('Identity')
-      elif kdfName.lower()=='romixov2':
+      if kdfName.upper()=='IDENTITY':
+         self.__init__('IDENTITY')
+      elif kdfName.upper()=='ROMIXOV2':
          useHash = bu.get(BINARY_CHUNK,  8)
-         if not useHash.lower().startswith('sha512'):
+         if not useHash.upper().startswith('sha512'):
             raise KdfError('ROMixOv2 KDF only works with sha512: found %s', useHash)
 
          mem   = bu.get(UINT32)
@@ -1845,16 +1886,18 @@ class KdfObject(object):
       
       LOGINFO("Creating new KDF object")
 
-      if not kdfName.lower() in KdfObject.KDF_ALGORITHMS:
+      if not kdfName.upper() in KNOWN_KDFALGOS:
          raise KdfError('Unknown KDF name in createNewKDF:  %s' % kdfName)
          return None
 
       kdfOut = None
 
-      if kdfName.lower()=='identity':
+      if kdfName.upper()=='IDENTITY':
          LOGINFO('Creating identity KDF')
          kdfOut = KdfObject('Identity')
-      elif kdfName.lower()=='romixov2':
+      elif kdfName.upper()=='SCRYPT__':
+         raise NotImplementedError('KDF=scrypt not implemented yet!')
+      elif kdfName.upper()=='ROMIXOV2':
          LOGINFO('Creating ROMixOv2 KDF')
          targSec = kdfCreateArgs['targSec']
          maxMem  = kdfCreateArgs['maxMem']
@@ -1898,8 +1941,6 @@ class EncryptionKey(object):
    time to distribute if the passphrase is forgotten, and you want to hire
    computing power to help you recover it.
    """
-
-   REGISTERED_EKEYS = { }
 
    #############################################################################
    def __init__(self, keyID=None, ckey=None, einfo=None, 
@@ -2033,8 +2074,7 @@ class EncryptionKey(object):
       """
       This method assumes you already have a KDF you want to use and is 
       referenced by the first arg.  If not, please create the KDF and
-      add it to the wallet first (and register it with KdfObject class)
-      before using this method.
+      add it to the wallet first before using this method.
 
       Generally, ArmoryCryptInfo objects can have a null KDF, but master
       encryption keys are almost always protected by a passphrase so it 
@@ -2066,7 +2106,8 @@ class EncryptionKey(object):
          newMaster = SecureBinaryData().GenerateRandom(32)
 
       self.ekeyID = calcEKeyID(newMaster)
-      self.masterKeyCrypt = self.keyCryptInfo.encrypt(newMaster, passphrase)
+      self.masterKeyCrypt = self.keyCryptInfo.encrypt(newMaster, passphrase, 
+                                                                       kdfObj)
 
       # We might have decided to encrypt a test string with this key, so that
       # later if the user forgets their password they can distribute just the
@@ -2086,7 +2127,8 @@ class EncryptionKey(object):
          #        the claimant will have to put (masterKey||testStrEncr) 
          #        onto the stack, which will be hashed three times and 
          #        compared against self.keyTripleHash.
-         minfo = ArmoryCryptInfo(NULLKDF, encryptEKeyAlgo, 'RAW_EKEY', self.ekeyID)
+         raise NotImplementedError
+         minfo = ArmoryCryptInfo(NULLKDF, encryptEKeyAlgo, 'RAWKEY32', self.ekeyID)
          rand16 = SecureBinaryData().GenerateRandom(16)
          self.testStringPlain = SecureBinaryData('ARMORYENCRYPTION') + rand16
          self.testStringEncr  = minfo.encrypt(self.testStringPlain, newMaster)
@@ -2173,7 +2215,7 @@ class EncryptionKey(object):
       kdfid  = self.keyCryptInfo.kdfObjID
       #kdfObj = KdfObject.getRegisteredKDF(kdfid)
 
-      if not kdfObj.kdfName.lower()=='romixov2':
+      if not kdfObj.kdfName.upper()=='romixov2':
          raise UnrecognizedCrypto('Unknown KDF')
 
       encryptAlgo = self.keyCryptInfo.encryptAlgo
@@ -2461,9 +2503,10 @@ class MultiPwdEncryptionKey(object):
 
 
    #############################################################################
-   def CreateNewMultiPwdKey(self, kdfObj, encryptFragAlgo, 
-                                  M, N, sbdPasswdList, labelList, 
-                                  preGenKey=None):
+   @staticmethod
+   def CreateNewMultiPwdKey(encryptFragAlgo, 
+                            M, N, sbdPasswdList, kdfObj, labelList, 
+                            preGenKey=None):
 
       """
       This method assumes you already have a KDF you want to use and is 
@@ -2509,10 +2552,11 @@ class MultiPwdEncryptionKey(object):
          self.efrags = []
          for i in range(N):
             iv = SecureBinaryData().GenerateRandom(8)
-            einfo = ArmoryCryptInfo(kdfID, encryptFragAlgo, 'PASSWORD', iv)
+            einfo = ArmoryCryptInfo(kdfObjList[i].getKdfID(), encryptFragAlgo, 
+                                                                'PASSWORD', iv)
             pfrag = SecureBinaryData(plainFrags[i])
 
-            self.efrags.append(einfo.encrypt(pfrag, sbdPasswdList[i]))
+            self.efrags.append(einfo.encrypt(pfrag, sbdPasswdList[i], kdfObj))
             self.einfos.append(einfo)
             self.labels.append(labelList[i])
             pfrag.destroy()
@@ -2574,12 +2618,11 @@ class MultiPwdEncryptionKey(object):
          raise PassphraseError('All new passwords must be non-empty')
 
       # Not creating a new key, but the process is the same; use preGenKey arg
-      self.CreateNewMultiPwdKey(newKdfID,
-                                newEncryptAlgo,
-                                self.M, self.N,
-                                newPassList,
-                                newLabels,
-                                preGenKey=self.masterKeyPlain)
+      self = CreateNewMultiPwdKey(newEncryptAlgo,
+                                  self.M, self.N,
+                                  newPassList,
+                                  newLabels,
+                                  preGenKey=self.masterKeyPlain)
 
       self.lock()
       
@@ -2730,7 +2773,7 @@ class RootRelationship(object):
 
 
 #############################################################################
-class ArmoryAddress(object):
+class ArmoryAddress(WalletEntry):
 
    def __init__(self):
       pass
@@ -2739,9 +2782,11 @@ class ArmoryAddress(object):
 PRIV_KEY_AVAIL = enum('None', 'Plain', 'Encrypted', 'NextUnlock')
 AEKTYPE = enum('Uninitialized', 'BIP32', 'ARMORY135', 'JBOK')
 
+
+
 ################################################################################
 ################################################################################
-class ArmoryExtendedKey(object):
+class ArmoryExtendedKey(WalletEntry):
    def __init__(self):
       self.isWatchOnly     = False
       self.privCryptInfo   = ArmoryCryptInfo(None)
@@ -2759,15 +2804,30 @@ class ArmoryExtendedKey(object):
       self.walletFileRef   = None  # ref to the ArmoryWalletFile for this key
 
    #############################################################################
-   def createFromKeyPair(self, cppExtKeyObj):
+   def createFromEncryptedKeyData(self, 
+                                  privCrypt=None, sbdPub=None, sbdChain=None,    
+                        privCryptInfo=None, parentID=None, parentRef=None,
+                        derivePath=None, wltRef=None):
+      
+      privCrypt = NULLSBD()
+      privPlain = NULLSBD()
+
+      try:
+         if privCryptInfo is None or privCryptInfo.noEncryption:
+            plainPriv = sbdPriv.copy()
+         else:
+            self.
+         
+         if sbdPriv and not sbdPub:
+            sbdPub = CryptoECDSA().ComputePublicKey(sbdPriv)
+      
+      
+      finally:
+         plainPriv.destroy()
+
+      
       
 
-   # spawnChild defined in derived classes
-   #def spawnChild(self, childID, ekeyObj=None, keyData=None, privSpawnReqd=False):
-      #if self.aekType==AEKTYPE.JBOK:
-         ## It's not that we can't do this -- just call SecureRandom(32).  
-         ## It's that we don't support JBOK wallets because they're terrible
-         #raise NotImplementedError('Cannot spawn from JBOK key.')
       
 
 
@@ -2871,10 +2931,87 @@ class ArmoryExtendedKey(object):
          self.relockAtTime = RightNow() + self.keyLifetime
 
 
+   #############################################################################
+   def __signData(self, dataToSign, deterministicSig=False, normSig='Dontcare'):
+      """
+      This returns the raw data, signed using the CryptoECDSA module.  This 
+      should probably not be called directly by a top-level script, but 
+      instead the backbone of a bunch of standard methods for signing 
+      transactions, messages, perhaps Proof-of-Reserve trees, etc.
+
+      "normSig" is based on a proposal to only allow even s-values, or 
+      odd s-values to limit transaction malleability.  We might as well
+      put it here, though the default is not to mess with the outpout
+      of the SignData call.
+      """
+      if self.useEncryption() and self.isLocked():
+         raise WalletLockError('Cannot sign with locked priv key')
+      
+      try:
+         self.unlock()
+
+         if deterministicSig:
+            raise NotImplementedError('Cannot do deterministic signing yet')
+            sig = CryptoECDSA().SignData_RFC6979(dataToSign, self.sbdPrivKeyPlain)
+         else:
+            sig = CryptoECDSA().SignData(dataToSign, self.binPrivKey32_Plain)
+
+         sigstr = sig.toBinStr()
+
+         rBin = sigstr[:32 ]
+         sBin = sigstr[ 32:]
+
+         if not normSig=='Dontcare':
+            # normSig will either be 'even' or 'odd'.  If the calculated
+            # s-value does not match, then use -s mod N which will be 
+            # correct
+            raise NotImplementedError('This code is not yet tested!')
+            sInt = binary_to_int(sBin, BIGENDIAN)
+            if (normSig=='even' and sInt%2==1) or \
+               (normSig=='odd'  and sInt%2==0):
+               sInt = (-sInt) % SECP256K1_MOD
+               
+            sBin = int_to_binary(sInt, widthBytes=32, endOut=BIGENDIAN)
+
+         return (rBin, sBin)
+
+      except:
+         LOGEXCEPT('Error generating signature')
+      finally:
+         self.sbdPrivKeyPlain.destroy()
+      
+
+   #############################################################################
+   def signTransaction(self, serializedTx, deterministicSig=False):
+      rBin,sBin = self.__signData(serializedTx, deterministicSig)
+      return createSigScriptFromRS(rBin, sBin)
+
+      
+   #############################################################################
+   def signMessage(self, msg, deterministicSig=False):
+      """
+      Returns just raw (r,s) pair instead of a sigscript because this is 
+      raw message signing, not transaction signing.  We match Bitcoin-Qt
+      behavior which is to prefix the message with "Bitcoin Signed Message:" 
+      in order to guarantee that someone cannot be tricked into signing
+      a real transaction:  instead of signing the input, MSG, it will only 
+      sign hash("Bitcoin Signed Message:\n" + MSG) which cannot be a
+      transaction
+      """
+      raise NotImplementedError('Currently this function is not tested')
+      msgPrefix = 'Bitcoin Signed Message:\n'
+      bp = BinaryPacker()
+      bp.put(VAR_INT,  len(msgPrefix))
+      bp.put(BINARY_CHUNK, msgPrefix)
+      bp.put(VAR_INT,  len(msg))
+      bp.put(BINARY_CHUNK, msg)
+      msgToSign = hash256(bp.getBinaryString())
+      return self.__signData(msgToSign, deterministicSig)
+
 
 
 ################################################################################
-class AddressLabel(object):
+class AddressLabel(WalletEntry):
   
    FILECODE = 'LABL' 
 
@@ -2896,7 +3033,7 @@ class AddressLabel(object):
 
 
 ################################################################################
-class TxComment(object):
+class TxComment(WalletEntry):
 
    FILECODE = 'COMM'
 
@@ -2919,14 +3056,16 @@ class TxComment(object):
 
 ################################################################################
 ################################################################################
-class ArmoryFileHeader(object):
+class ArmoryFileHeader(WalletEntry):
   
    FILECODE = 'HEAD' 
 
    #############################################################################
    def __init__(self):
+      # Note, we use a different fileID than wallet 1.35 so that older versions
+      # of Armory don't attempt to load the 2.0 wallets
       LOGDEBUG('Creating file header')
-      self.fileID        = '\xbaARMORY\xab'
+      self.fileID        = '\xa0ARMORY\x0a'
       self.armoryVer     = getVersionInt(ARMORY_WALLET_VERSION)
       self.flags         = BitSet(64)
       self.createTime    = UINT64_MAX
@@ -2992,7 +3131,7 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
 
 
    #############################################################################
-   def spawnChild(self, ekeyObj=None, keyData=None, privSpawnReqd=False):
+   def spawnChild(self, keyData=None, kdfObjID=None, ekeyObj=None, privSpawnReqd=False):
       """
       We require some fairly complicated logic here, due to the fact that a
       user with a full, private-key-bearing wallet, may try to generate a new
@@ -3269,6 +3408,9 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
       The whole thing is the wallet locator, and if the wallet has no
       floating chains, it only needs to attempt decryption of the first
       16 bytes for each root (should be a small number).  
+
+      P.S. - At the time of this writing this is a stub and I have no
+             idea if this is what we want.
       """
    
       if encryptWithParentChain:
@@ -3289,7 +3431,7 @@ class ArmoryImportedKey(ArmoryExtendedKey):
 # of BIP32 tree for which we don't have the rootroot (maybe it's a piece 
 # of a BIP32 tree belonging to someone else given to us to generate payment 
 # addresses, or for a multisig wallet.  ARM135 is the old Armory wallet 
-# algorithm that was used for the first 2-3 years of Armory's existence.  
+# algorithm that was used for the first 3 years of Armory's existence.  
 # JBOK stands for "Just a bunch of keys" (like RAID-JBOD).  JBOK mode will
 # most likely only be used for imported keys and old Bitcoin Core wallets.
 ROOTTYPE = enum('BIP32_Root', 'BIP32_Floating', 'ARM135_Root', 'JBOK')
@@ -3430,8 +3572,8 @@ class ArmoryRoot(ArmoryExtendedKey):
 
    #############################################################################
    def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
-                                 ekeyObj=None, keyData=None, seedBytes=20,
-                                 extraEntropy=None):
+                                 kdfObj=None, ekeyObj=None, keyData=None, 
+                                 seedBytes=20, extraEntropy=None):
       """
       The last few arguments identify how we plan to encrypt the seed and 
       master node information.  We plan to write this stuff to file right
