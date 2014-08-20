@@ -112,6 +112,8 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertFalse(aci.useKeyDerivFunc())
       self.assertFalse(aci.hasStoredIV())
       self.assertRaises(KeyDataError, aci.getEncryptKeySrc)
+      ser = aci.serialize()
+      self.assertEqual( aci.serialize(),  ArmoryCryptInfo.unserialize(ser).serialize())
 
       aci = ArmoryCryptInfo(NULLKDF,'AE256CBC','fakkeyid','anything')
       self.assertFalse(aci.noEncryption())
@@ -119,6 +121,8 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertFalse(aci.useKeyDerivFunc())
       self.assertTrue(aci.hasStoredIV())
       self.assertEqual(aci.getEncryptKeySrc(), (CRYPT_KEY_SRC.EKEY_OBJ, 'fakkeyid'))
+      ser = aci.serialize()
+      self.assertEqual( aci.serialize(),  ArmoryCryptInfo.unserialize(ser).serialize())
 
       aci = ArmoryCryptInfo(NULLKDF,'AE256CBC','fakkeyid','PUBKEY20')
       self.assertFalse(aci.noEncryption())
@@ -126,6 +130,8 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertFalse(aci.useKeyDerivFunc())
       self.assertFalse(aci.hasStoredIV())
       self.assertEqual(aci.getEncryptKeySrc(), (CRYPT_KEY_SRC.EKEY_OBJ, 'fakkeyid'))
+      ser = aci.serialize()
+      self.assertEqual( aci.serialize(),  ArmoryCryptInfo.unserialize(ser).serialize())
       
       aci = ArmoryCryptInfo('fakkdfid','AE256CBC','PASSWORD','anything')
       self.assertFalse(aci.noEncryption())
@@ -133,6 +139,8 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertTrue(aci.useKeyDerivFunc())
       self.assertTrue(aci.hasStoredIV())
       self.assertEqual(aci.getEncryptKeySrc(), (CRYPT_KEY_SRC.PASSWORD, ''))
+      ser = aci.serialize()
+      self.assertEqual( aci.serialize(),  ArmoryCryptInfo.unserialize(ser).serialize())
 
       aci = ArmoryCryptInfo('fakkdfid','AE256CBC','PARCHAIN','PUBKEY20')
       self.assertFalse(aci.noEncryption())
@@ -140,23 +148,97 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertTrue(aci.useKeyDerivFunc())
       self.assertFalse(aci.hasStoredIV())
       self.assertEqual(aci.getEncryptKeySrc(), (CRYPT_KEY_SRC.PARCHAIN, ''))
+      ser = aci.serialize()
+      self.assertEqual( aci.serialize(),  ArmoryCryptInfo.unserialize(ser).serialize())
 
    
    #############################################################################
-   def testACI_encrypt_rawkey(self):
+   def testACI_endecrypt_rawkey(self):
       aci = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 'RAWKEY32', 'randomIV')
-
       self.assertTrue(aci.hasStoredIV())
+
       rawKey32 = SecureBinaryData('\x3a'*32)
-      plain = SecureBinaryData('test____encrypt_')
-      result = aci.encrypt(plain, rawKey32)
-      print 'Encrypted master key:', result.toHexStr()
+      origPlain = SecureBinaryData('test_encrypt____')  # need to encrypt len%16=0
+
+      result = aci.encrypt(origPlain, rawKey32)
       decrypted = aci.decrypt(result, rawKey32)
-      print 'Decrypted master key:', decrypted.toBinStr()
-
-      self.assertEqual(decrypted, plain)
+      self.assertEqual(decrypted, origPlain)
       
+      rawKey33_bad = SecureBinaryData('\x3a'*33)
+      self.assertRaises(EncryptionError, aci.encrypt, origPlain, rawKey33_bad)
+      self.assertRaises(InitVectError, aci.encrypt, origPlain, rawKey32, 
+                                                ivData=SecureBinaryData('aaa'))
 
+      plain_bad = SecureBinaryData('test_encrypt___')  # not padded
+      self.assertRaises(EncryptionError, aci.encrypt, plain_bad, rawKey32)
+
+      plain_bad = SecureBinaryData('test_encrypt_____')  # not padded
+      self.assertRaises(EncryptionError, aci.encrypt, plain_bad, rawKey32)
+      self.assertEqual(aci.tempKeyDecrypt.getSize(), 0)
+
+
+      # Try it with something longer than one blocksize
+      origPlain = SecureBinaryData('test_encrypt___test_encrypt_____test_encrypt____')  
+      result = aci.encrypt(origPlain, rawKey32)
+      decrypted = aci.decrypt(result, rawKey32)
+      self.assertEqual(decrypted, origPlain)
+
+
+   #############################################################################
+   def testACI_endecrypt_password(self):
+      memReqd = 4194304
+      numIter = 3
+      salt    = SecureBinaryData(hex_to_binary( \
+                  '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
+      passwd = SecureBinaryData('TestPassword')
+      expectKey = SecureBinaryData(hex_to_binary( \
+                  'affc2dbe749a9f5b3c01b4a88fb150fcdb7b10187555e9009265eec911108e8b'))
+      kdf = KdfObject('ROMIXOV2', memReqd=memReqd, numIter=numIter, salt=salt)
+      kdfID = hex_to_binary('92c130cd7399b061')
+
+      aci = ArmoryCryptInfo(kdfID, 'AE256CBC', 'PASSWORD', 'randomIV')
+      self.assertTrue(aci.hasStoredIV())
+
+      origPlain = SecureBinaryData('test_encrypt____')  # need to encrypt len%16=0
+
+      # This key we know should come out of the KDF for its params and pwd
+      self.assertEqual(kdf.execKDF(passwd), expectKey)
+      expectEncrypted = CryptoAES().EncryptCBC(origPlain, expectKey, aci.getEncryptIVSrc()[2])
+
+      computedEncrypted = aci.encrypt(origPlain, passwd, kdfObj=kdf)
+      self.assertEqual(expectEncrypted, computedEncrypted)
+
+      decrypted = aci.decrypt(computedEncrypted, passwd, kdfObj=kdf)
+      self.assertEqual(decrypted, origPlain)
+
+
+      # Try it passing in a kdf map
+      kdfmap = {kdf.getKdfID(): kdf}
+      computedEncrypted = aci.encrypt(origPlain, passwd, kdfObj=kdfmap)
+      decrypted = aci.decrypt(computedEncrypted, passwd, kdfObj=kdfmap)
+      self.assertEqual(decrypted, origPlain)
+      self.assertEqual(decrypted.getSize(), 16)
+
+      # Try it with something longer than one blocksize
+      origPlain = SecureBinaryData('test_encrypt___test_encrypt_____test_encrypt____')  
+      result = aci.encrypt(origPlain, passwd, kdfObj=kdf)
+      decrypted = aci.decrypt(result, passwd, kdfObj=kdf)
+      self.assertEqual(decrypted, origPlain)
+      self.assertEqual(decrypted.getSize(), 48)
+
+      # Now some things that shoudl cause us to fail
+      self.assertRaises(InitVectError, aci.encrypt, origPlain, passwd, 
+                                                ivData=SecureBinaryData('aaa'))
+
+      # Pass it a map that doesn't have the kdf in it
+      self.assertRaises(KdfError, aci.encrypt, origPlain, passwd, kdfObj={})
+
+      # Repeat the not-properly-padded tests 
+      plain_bad = SecureBinaryData('test_encrypt___')  # not padded
+      self.assertRaises(EncryptionError, aci.encrypt, plain_bad, passwd)
+      plain_bad = SecureBinaryData('test_encrypt_____')  # not padded
+      self.assertRaises(EncryptionError, aci.encrypt, plain_bad, passwd)
+      self.assertEqual(aci.tempKeyDecrypt.getSize(), 0)
 
 
 ################################################################################
@@ -219,12 +301,12 @@ class ArmoryKDFTests(unittest.TestCase):
                   '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
       
       passwd = SecureBinaryData('TestPassword')
-      expectOut = SecureBinaryData(hex_to_binary( \
+      expectKey = SecureBinaryData(hex_to_binary( \
                   'affc2dbe749a9f5b3c01b4a88fb150fcdb7b10187555e9009265eec911108e8b'))
 
       kdf = KdfObject('ROMIXOV2', memReqd=memReqd, numIter=numIter, salt=salt)
       actualOut = kdf.execKDF(passwd)
-      self.assertEqual(actualOut, expectOut)
+      self.assertEqual(actualOut, expectKey)
 
 
    #############################################################################
@@ -281,7 +363,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
       salt    = SecureBinaryData(hex_to_binary( \
                   '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
       self.passwd = SecureBinaryData('TestPassword')
-      expectOut = SecureBinaryData(hex_to_binary( \
+      expectKey = SecureBinaryData(hex_to_binary( \
                   'affc2dbe749a9f5b3c01b4a88fb150fcdb7b10187555e9009265eec911108e8b'))
       self.kdf = KdfObject('ROMIXOV2', memReqd=memReqd, numIter=numIter, salt=salt)
       self.kdfID = hex_to_binary('92c130cd7399b061')
