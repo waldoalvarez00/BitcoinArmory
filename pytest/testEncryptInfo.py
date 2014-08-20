@@ -17,6 +17,7 @@ sys.path.append('..')
 import unittest
 import sys
 sys.path.append('..')
+import textwrap
 
 from armoryengine.ArmoryEncryption import *
 
@@ -140,6 +141,40 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertFalse(aci.hasStoredIV())
       self.assertEqual(aci.getEncryptKeySrc(), (CRYPT_KEY_SRC.PARCHAIN, ''))
 
+   
+   #############################################################################
+   def testACI_encrypt_rawkey(self):
+      aci = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 'RAWKEY32', 'randomIV')
+
+      self.assertTrue(aci.hasStoredIV())
+      rawKey32 = SecureBinaryData('\x3a'*32)
+      plain = SecureBinaryData('test____encrypt_')
+      result = aci.encrypt(plain, rawKey32)
+      print 'Encrypted master key:', result.toHexStr()
+      decrypted = aci.decrypt(result, rawKey32)
+      print 'Decrypted master key:', decrypted.toBinStr()
+
+      self.assertEqual(decrypted, plain)
+      
+
+
+
+################################################################################
+################################################################################
+class ArmoryKDFTests(unittest.TestCase):
+
+   def setUp(self):
+      pass
+      
+   def tearDown(self):
+      pass
+
+   def assertNoRaise(self, func, *args, **kwargs):
+      try:
+         func(*args, **kwargs)
+      except Exception as e:
+         self.fail("Assert raised in assertNoRaise:" + str(e))
+         
 
    #############################################################################
    def testConstructKDF(self):
@@ -159,6 +194,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       niter = 2
       salt  = hex_to_binary('5c'*16)
       kdf = KdfObject('ROMIXOV2', memReqd=mem, numIter=niter, salt=salt)
+      expectedID = hex_to_binary('a69c7bf79583f155')
 
       bp = BinaryPacker()
       bp.put(BINARY_CHUNK, 'ROMIXOV2')
@@ -168,14 +204,15 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       bp.put(VAR_STR,      '\x5c'*16)
       expectedSerialize = bp.getBinaryString()
       self.assertEqual(kdf.serialize(), expectedSerialize)
-      self.assertEqual(kdf.getKdfID(), computeChecksum(expectedSerialize,8))
+      self.assertEqual(kdf.getKdfID(), expectedID)
       
       kdf = KdfObject().unserialize(expectedSerialize)
       self.assertEqual(kdf.serialize(), expectedSerialize)
       
 
+   #############################################################################
    def testRunKDF(self):
-      
+      # These KDF params were taken directly from a testnet wallet in 0.92
       memReqd = 4194304
       numIter = 3
       salt    = SecureBinaryData(hex_to_binary( \
@@ -188,6 +225,114 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       kdf = KdfObject('ROMIXOV2', memReqd=memReqd, numIter=numIter, salt=salt)
       actualOut = kdf.execKDF(passwd)
       self.assertEqual(actualOut, expectOut)
+
+
+   #############################################################################
+   def testCreateNewKDF(self):
+      timeTgt = 0.5
+      memTgt  = 64*KILOBYTE
+
+      self.assertNoRaise(KdfObject.CreateNewKDF, 'IDENTITY')
+      self.assertRaises(KeyError, KdfObject.CreateNewKDF, 'ROMIXOV2')
+
+      newkdf = KdfObject.CreateNewKDF('ROMIXOV2', targSec=timeTgt, maxMem=memTgt)
+
+
+      start = RightNow()
+      newkdf.execKDF(SecureBinaryData('TestPassword'))
+      timeTaken = RightNow() - start
+
+      if not (timeTgt/3 < timeTaken < 1.5*timeTgt):
+         print '%s:  KDF computational-target test failed' % self.id()
+         print textwrap.dedent("""
+            THIS TEST SHOUILD BE DISABLED IF THE TESTING ENV IS NOT CONSISTENT
+            The computational test may execute under different loads than the final
+            execution.  We expect compute time to between T/2 and T, and we explicitly 
+            check for between T/3 and 1.5*T to accommodate small inconsistencies.
+            This is expected to always pass, but it is feasible that conditions are
+            not such that we can expect this to pass consistently.""")
+         print 'Time Target: %0.2f' % timeTgt
+         print 'Actual Time: %0.2f' % timeTaken
+         self.fail('KDF computational-target test failed')
+         
+
+      if not (newkdf.memReqd == memTgt):
+         print '%s:  KDF computational-target test failed' % self.id()
+         print textwrap.dedent("""
+            THIS TEST SHOULD BE DISABLED IF TESTING ENV IS EXCEPTIONALLY SLOW
+            We have chosen a low max memory for the time target (%0.2f sec) so   
+            that it's likely the KDF will hit that limit and be required to 
+            increase numIter instead.  If this test is run on an exceptionally 
+            slow machine (RPi?), this might not be the case.  In that case, 
+            this test should be disabled.""" % timeTgt)
+         print 'Mem Expected: %d' % int(memTgt)
+         print 'Actual Mem:   %d' % int(newkdf.memReqd)
+         self.assertTrue( newkdf.getMemoryReqtBytes() == memTgt)
+
+
+################################################################################
+################################################################################
+class ArmoryEncryptKeyTests(unittest.TestCase):
+
+   def setUp(self):
+      # Use the KDF from KDF tests.  We already know its ID, pwd output, etc.
+      memReqd = 4194304
+      numIter = 3
+      salt    = SecureBinaryData(hex_to_binary( \
+                  '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
+      self.passwd = SecureBinaryData('TestPassword')
+      expectOut = SecureBinaryData(hex_to_binary( \
+                  'affc2dbe749a9f5b3c01b4a88fb150fcdb7b10187555e9009265eec911108e8b'))
+      self.kdf = KdfObject('ROMIXOV2', memReqd=memReqd, numIter=numIter, salt=salt)
+      self.kdfID = hex_to_binary('92c130cd7399b061')
+      
+      self.rawKey32 = SecureBinaryData('\x3a'*32)
+
+
+   def tearDown(self):
+      pass
+
+   def assertNoRaise(self, func, *args, **kwargs):
+      try:
+         func(*args, **kwargs)
+      except Exception as e:
+         self.fail('Assert raised in assertNoRaise: "' + str(e) + '"')
+
+
+   #############################################################################
+   def testEkeyConstruct_NULL(self):
+      self.assertNoRaise(EncryptionKey)
+         
+      ekey = EncryptionKey()
+      self.assertEqual(ekey.ekeyID,          NULLSBD())
+      self.assertEqual(ekey.masterKeyCrypt,  NULLSBD())
+      self.assertEqual(ekey.masterKeyPlain,  NULLSBD())
+      self.assertEqual(ekey.testStringEncr,  NULLSBD())
+      self.assertEqual(ekey.testStringPlain, NULLSBD())
+      self.assertEqual(ekey.keyTripleHash,   NULLSBD())
+      self.assertEqual(ekey.relockAtTime,    0)
+      self.assertEqual(ekey.lockTimeout,     10)
+
+      self.assertTrue(ekey.keyCryptInfo.noEncryption())
+
+      self.assertRaises(EncryptionError, ekey.getEncryptionKeyID)
+   
+
+   #############################################################################
+   def testEkeyCreate(self):
+
+      ekey = EncryptionKey()
+      self.assertRaises(UnrecognizedCrypto, 
+                     ekey.CreateNewMasterKey, self.kdf, 'UNK', self.passwd)
+
+      #ekey.CreateNewMasterKey(self.kdf, 'AE256CBC', self.passwd, 
+                                                      #preGenKey=self.rawKey32)
+      
+      
+
+
+
+
 
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
