@@ -39,6 +39,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
          self.fail("Assert raised in assertNoRaise:" + str(e))
          
 
+   #############################################################################
    def testStretchIV(self):
       ivShort = SecureBinaryData(hex_to_binary('00112233445566'))
       iv8     = SecureBinaryData(hex_to_binary('0011223344556677'))
@@ -75,6 +76,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertEqual(stretchIV(ivShort, 16).toBinStr(),  shaIV7.toBinStr()[:16])
 
 
+   #############################################################################
    def testEkeyID(self):
       keySBD = SecureBinaryData(hex_to_binary('0011223344556677'))
       keyStr =                  hex_to_binary('0011223344556677')
@@ -87,6 +89,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       
       
 
+   #############################################################################
    def testACI_construct(self):
       aci = ArmoryCryptInfo()
       self.assertEqual(aci.kdfObjID, NULLKDF)
@@ -99,6 +102,8 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertNoRaise(ArmoryCryptInfo, encrAlgo="IDENTITY")
       self.assertRaises(UnrecognizedCrypto, ArmoryCryptInfo, encrAlgo="UNK")
 
+
+   #############################################################################
    def testACI_boolmethods(self):
       aci = ArmoryCryptInfo()
       self.assertTrue(aci.noEncryption())
@@ -134,6 +139,55 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       self.assertTrue(aci.useKeyDerivFunc())
       self.assertFalse(aci.hasStoredIV())
       self.assertEqual(aci.getEncryptKeySrc(), (CRYPT_KEY_SRC.PARCHAIN, ''))
+
+
+   #############################################################################
+   def testConstructKDF(self):
+      mem   = 64*KILOBYTE
+      niter = 2
+      salt  = hex_to_binary('5c'*16)
+
+      self.assertNoRaise(KdfObject)
+      self.assertNoRaise(KdfObject, 'IDENTITY')
+      self.assertRaises(BadInputError, KdfObject, 'ROMIXOV2')
+      self.assertNoRaise(KdfObject, 'ROMIXOV2', memReqd=mem, numIter=niter, salt=salt)
+
+
+   #############################################################################
+   def testKDFSerUnserRT(self):
+      mem   = 64*KILOBYTE
+      niter = 2
+      salt  = hex_to_binary('5c'*16)
+      kdf = KdfObject('ROMIXOV2', memReqd=mem, numIter=niter, salt=salt)
+
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, 'ROMIXOV2')
+      bp.put(BINARY_CHUNK, 'sha512__')
+      bp.put(UINT32,       int(64*KILOBYTE))
+      bp.put(UINT32,       2)
+      bp.put(VAR_STR,      '\x5c'*16)
+      expectedSerialize = bp.getBinaryString()
+      self.assertEqual(kdf.serialize(), expectedSerialize)
+      self.assertEqual(kdf.getKdfID(), computeChecksum(expectedSerialize,8))
+      
+      kdf = KdfObject().unserialize(expectedSerialize)
+      self.assertEqual(kdf.serialize(), expectedSerialize)
+      
+
+   def testRunKDF(self):
+      
+      memReqd = 4194304
+      numIter = 3
+      salt    = SecureBinaryData(hex_to_binary( \
+                  '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
+      
+      passwd = SecureBinaryData('TestPassword')
+      expectOut = SecureBinaryData(hex_to_binary( \
+                  'affc2dbe749a9f5b3c01b4a88fb150fcdb7b10187555e9009265eec911108e8b'))
+
+      kdf = KdfObject('ROMIXOV2', memReqd=memReqd, numIter=numIter, salt=salt)
+      actualOut = kdf.execKDF(passwd)
+      self.assertEqual(actualOut, expectOut)
 
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
