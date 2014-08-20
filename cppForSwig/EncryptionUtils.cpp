@@ -496,12 +496,6 @@ BTC_PRIVKEY CryptoECDSA::CreateNewPrivateKey(SecureBinaryData entropy)
 }
 
 
-// Create a new ECDSA private key based off 32 bytes of PRNG-generated data.
-////////////////////////////////////////////////////////////////////////////////
-SecureBinaryData CryptoECDSA::GenerateNewPrivateKey()
-{
-   return SecureBinaryData().GenerateRandom(32);
-}
 
 
 // Create a new Crypto++ ECDSA private key using an incoming private key. The
@@ -649,21 +643,20 @@ bool CryptoECDSA::CheckPubPrivKeyMatch(BTC_PRIVKEY const & cppPrivKey,
 // RETURN: Bool indicating if there's a match (true) or not (false).
 /////////////////////////////////////////////////////////////////////////////
 bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
-                                       SecureBinaryData const & pubKey65)
+                                       SecureBinaryData const & pubKey33or65)
 {
    assert(privKey32.getSize() == 32);
-   assert(pubKey65.getSize() == 65);
+   assert(pubKey33or65.getSize() == 33 || pubKey33or65.getSize()==65);
    
-   kjsfljflke_induce_compile_error why does this not handle compressed keys?
-if(CRYPTO_DEBUG)
+   if(CRYPTO_DEBUG)
    {
       cout << "CheckPubPrivKeyMatch:" << endl;
       cout << "   BinPrv: " << privKey32.toHexStr() << endl;
-      cout << "   BinPub: " << pubKey65.toHexStr() << endl;
+      cout << "   BinPub: " << pubKey33or65.toHexStr() << endl;
    }
 
    BTC_PRIVKEY privKey = ParsePrivateKey(privKey32);
-   BTC_PUBKEY  pubKey  = ParsePublicKey(pubKey65);
+   BTC_PUBKEY  pubKey  = ParsePublicKey(pubKey33or65);
    return CheckPubPrivKeyMatch(privKey, pubKey);
 }
 
@@ -672,28 +665,23 @@ if(CRYPTO_DEBUG)
 // INPUT:  A compressed or uncompressed public key
 // OUTPUT: None
 // RETURN: Bool indicating if the key's on the curve (true) or not (false).
-bool CryptoECDSA::VerifyPublicKeyValid(SecureBinaryData const & pubKey)
+bool CryptoECDSA::VerifyPublicKeyValid(SecureBinaryData const & pubKey33or65)
 {
-   assert(pubKey65.getSize() == 65);
+   assert(pubKey33or65.getSize() == 65);
 
-   salkjfldksjafe same here
    if(CRYPTO_DEBUG)
    {
-      cout << "BinPub: " << pubKey.toHexStr() << endl;
+      cout << "BinPub: " << pubKey33or65.toHexStr() << endl;
    }
 
    SecureBinaryData keyToCheck(65);
 
    // To support compressed keys, we'll just check to see if a key is compressed
    // and then decompress it.
-   if(pubKey.getSize() == 33) 
-   {
-      keyToCheck = UncompressPoint(pubKey);
-   }
+   if(pubKey33or65.getSize() == 33) 
+      keyToCheck = UncompressPoint(pubKey33or65);
    else 
-   {
-      keyToCheck = pubKey;
-   }
+      keyToCheck = pubKey33or65;
 
    // Basically just copying the ParsePublicKey method, but without
    // the assert that would throw an error from C++
@@ -1690,7 +1678,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
 ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed)
 {
    HDWalletCryptoSeed newSeed(seed);
-   ExtendedKey masterKey(newSeed.getMasterKey(), newSeed.getMasterChainCode());
+   ExtendedKey masterKey(newSeed.getMasterKey(), newSeed.getMasterChain());
    return masterKey;
 }
 

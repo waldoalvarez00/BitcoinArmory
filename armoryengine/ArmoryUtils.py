@@ -2287,6 +2287,18 @@ def binaryBits_to_difficulty(b):
 def difficulty_to_binaryBits(i):
    pass
 
+
+def roundUpMod(val, mod):
+   return ((int(val)- 1) / mod + 1) * mod
+
+
+def padString(s, mod, pad='\x00'):
+   currSz = len(s)
+   needSz = roundUpMod(currSz, mod)
+   return s + pad*(needSz-currSz)
+
+
+
 ################################################################################
 def CreateQRMatrix(dataToEncode, errLevel=QRErrorCorrectLevel.L):
    dataLen = len(dataToEncode)
