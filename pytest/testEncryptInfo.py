@@ -539,6 +539,8 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
       self.assertEqual(ekey.unserialize(serEkey).serialize(), serEkey)
       self.assertTrue(ekey.isLocked())
 
+      # ekey was just unserialzied, which means the kdf obj refs are gone
+      # (They are set in createNewMasterKey, but lost when ser-unser)
       self.assertRaises(KdfError, ekey.unlock, SamplePasswd)
       ekey.unlock(SamplePasswd, self.kdf)
       self.assertEqual(ekey.masterKeyPlain, SampleMasterEKey)
@@ -695,14 +697,13 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.passwds  = ['p455w04d', u'foreignpwd', u'unicodepwd\u2122', 'pwd']
       self.passwds  = [SecureBinaryData(toBytes(p)) for p in self.passwds]
       self.kdfs = []
+      self.kdfIDs = []
       for i in range(4):
          self.kdfs.append( KdfObject(SampleKdfAlgo, 
                                      memReqd=SampleKdfMem, 
                                      numIter=SampleKdfIter, 
                                      salt=self.kdfSalts[i]) )
-
-
-
+         self.kdfIDs.append(self.kdfs[-1].getKdfID())
 
    def tearDown(self):
       pass
@@ -731,7 +732,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
    
 
    #############################################################################
-   def testEkeyCreate(self):
+   def testMkeyCreate(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
       mkey.createNewMasterKey(self.kdfs[:N], SampleCryptAlgo, 
@@ -753,7 +754,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   def testEkeyUnlockRelock(self):
+   def testMkeyUnlockRelock(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
       mkey.createNewMasterKey(self.kdfs[:N], SampleCryptAlgo, 
@@ -775,6 +776,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
          self.assertTrue(mkey.unlock(gl))
          self.assertTrue(mkey.masterKeyPlain.getSize() > 0)
+         self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
          self.assertTrue(mkey.lock())
          self.assertTrue(mkey.isLocked())
          self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
@@ -791,23 +793,26 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.assertTrue(mkey.verifyPassphraseList(goodLists[0]))
 
 
-"""
    #############################################################################
-   @unittest.skip('')
-   def testEkeySerUnserRT(self):
-      mkey = EncryptionKey()
-      mkey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
-                           preGenKey=SampleMasterEKey, preGenIV8=SampleCryptIV8)
+   def testMkeySerUnserRT(self):
+      M,N = 2,3
+      mkey = MultiPwdEncryptionKey()
+      mkey.createNewMasterKey(self.kdfs[:N], SampleCryptAlgo, 
+                                M, self.passwds[:N], self.labels[:N],
+                                preGenKey=SampleMasterEKey)
 
       # Manually construct the expected serialization of the mkey
       bp = BinaryPacker()
       aci = ArmoryCryptInfo(SampleKdfID, SampleCryptAlgo, 'PASSWORD', SampleCryptIV8)
       bp.put(BINARY_CHUNK, SampleMasterEkeyID)
-      bp.put(VAR_STR,      SampleMasterCrypt.toBinStr())
-      bp.put(VAR_STR,      aci.serialize())
-      bp.put(VAR_STR,      '')
-      bp.put(VAR_STR,      '')
-      bp.put(VAR_STR,      '')
+      bp.put(UINT8,        2)
+      bp.put(UINT8,        3)
+      for i in range(3):
+         iv = mkey.einfos[i].ivSource
+         aci = ArmoryCryptInfo(self.kdfIDs[i], SampleCryptAlgo, 'PASSWORD', iv)
+         bp.put(VAR_STR,  aci.serialize())
+         bp.put(VAR_STR,  mkey.efrags[i].toBinStr())
+         bp.put(VAR_UNICODE,  self.labels[i])
       expectedSer = bp.getBinaryString()
 
       self.assertTrue(mkey.isLocked())
@@ -817,33 +822,30 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.assertEqual(mkey.unserialize(serEkey).serialize(), serEkey)
       self.assertTrue(mkey.isLocked())
 
-      self.assertRaises(KdfError, mkey.unlock, SamplePasswd)
-      mkey.unlock(SamplePasswd, self.kdf)
+      self.assertRaises(KdfError, mkey.unlock, self.passwds[:N])
+      mkey.unlock(self.passwds[:N], self.kdfs[:N])
       self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
-      self.assertEqual(mkey.masterKeyCrypt, SampleMasterCrypt)
       self.assertFalse(mkey.isLocked())
 
       mkey.lock()
       self.assertTrue(mkey.isLocked())
       self.assertEqual(mkey.masterKeyPlain, NULLSBD())
-      self.assertEqual(mkey.masterKeyCrypt, SampleMasterCrypt)
 
-      mkey.setKdfObjectRef(self.kdf)
-      mkey.unlock(SamplePasswd)
+      mkey.setKdfObjectRefList(self.kdfs[:N])
+      mkey.unlock(self.passwds[:N])
       self.assertFalse(mkey.isLocked())
       self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
-      self.assertEqual(mkey.masterKeyCrypt, SampleMasterCrypt)
 
       mkey.lock()
       self.assertTrue(mkey.isLocked())
       self.assertEqual(mkey.masterKeyPlain, NULLSBD())
-      self.assertEqual(mkey.masterKeyCrypt, SampleMasterCrypt)
       
 
+"""
    #############################################################################
    @unittest.skip('')
    @unittest.skipIf(skipLongTests(), '')
-   def testEkeyTimeout(self):
+   def testMkeyTimeout(self):
       mkey = EncryptionKey()
       mkey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
                            preGenKey=SampleMasterEKey, preGenIV8=SampleCryptIV8)

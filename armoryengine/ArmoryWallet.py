@@ -128,7 +128,11 @@ class ArmoryWalletFile(object):
    
          
    #############################################################################
-   def changePrivateKeyEncryption(self, encryptInfoObj):
+   def changeMasterKeyEncryptParams(self, ekeyID, oldParams, newParams):
+      # We can either change encryption or kdf params of a single password,
+      # or switch from single-password to multi-password or back.  To switch
+      # types of password protection, we'll need to write the new entry and 
+      # then delete the old one.
       raise NotImplementedError
 
    #############################################################################
