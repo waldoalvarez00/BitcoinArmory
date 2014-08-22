@@ -703,6 +703,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
 
 
+
    def tearDown(self):
       pass
 
@@ -738,6 +739,10 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
                                 preGenKey=SampleMasterEKey)
 
 
+      ser = mkey.serialize()
+      self.assertEqual(ser, mkey.unserialize(ser).serialize())
+      self.assertEqual(mkey.getEncryptionKeyID(), SampleMasterEkeyID)
+
       # Try passing key data not the right size
       self.assertRaises(KeyDataError, mkey.createNewMasterKey, 
                            self.kdfs[:N], SampleCryptAlgo, 
@@ -745,31 +750,48 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
                            preGenKey=SamplePlainStr)
       
       
-      ser = mkey.serialize()
-      self.assertEqual(ser, mkey.unserialize(ser).serialize())
-      self.assertEqual(mkey.getEncryptionKeyID(), SampleMasterEkeyID)
+
+
+   #############################################################################
+   def testEkeyUnlockRelock(self):
+      M,N = 2,3
+      mkey = MultiPwdEncryptionKey()
+      mkey.createNewMasterKey(self.kdfs[:N], SampleCryptAlgo, 
+                                M, self.passwds[:N], self.labels[:N],
+                                preGenKey=SampleMasterEKey)
+
+      goodLists = []
+      goodLists.append([self.passwds[0], self.passwds[1], self.passwds[2]])
+      goodLists.append([NULLSBD()      , self.passwds[1], self.passwds[2]])
+      goodLists.append([self.passwds[0], NULLSBD(),       self.passwds[2]])
+      goodLists.append([self.passwds[0], self.passwds[1], NULLSBD()      ])
+
+      badLists = []
+      badLists.append([NULLSBD(),       NULLSBD(),       NULLSBD()     ])
+      badLists.append([NULLSBD(),       self.passwds[1], NULLSBD()     ])
+      badLists.append([self.passwds[0], self.passwds[1]])  # short list, good pwds
+
+      for gl in goodLists:
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         self.assertTrue(mkey.unlock(gl))
+         self.assertTrue(mkey.masterKeyPlain.getSize() > 0)
+         self.assertTrue(mkey.lock())
+         self.assertTrue(mkey.isLocked())
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+
+      for bl in badLists:
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         self.assertRaises(PassphraseError, mkey.unlock, bl)
+         self.assertTrue(mkey.isLocked())
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         
+
+      badPwdList = [SecureBinaryData('abc'), SecureBinaryData('123'), NULLSBD()]
+      self.assertFalse(mkey.verifyPassphraseList(badPwdList))
+      self.assertTrue(mkey.verifyPassphraseList(goodLists[0]))
 
 
 """
-   #############################################################################
-   @unittest.skip('')
-   def testEkeyUnlockRelock(self):
-      mkey = EncryptionKey()
-      mkey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
-                           preGenKey=SampleMasterEKey, preGenIV8=SampleCryptIV8)
-
-      self.assertEqual(mkey.masterKeyCrypt, SampleMasterCrypt)
-
-      self.assertTrue(mkey.unlock(SamplePasswd, justVerify=True))
-      self.assertFalse(mkey.unlock(SecureBinaryData('Badpwd'), justVerify=True))
-
-      mkey.unlock(SamplePasswd)
-      self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
-      self.assertEqual(mkey.masterKeyCrypt, SampleMasterCrypt)
-      mkey.lock(SamplePasswd)
-      self.assertEqual(mkey.masterKeyPlain.getSize(), 0)
-
-
    #############################################################################
    @unittest.skip('')
    def testEkeySerUnserRT(self):

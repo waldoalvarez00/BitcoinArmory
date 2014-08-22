@@ -12,8 +12,10 @@
 # Orig Date:  20 November, 2011
 #
 ################################################################################
-from armoryengine.ArmoryUtils import LITTLEENDIAN, int_to_binary, packVarInt
-UINT8, UINT16, UINT32, UINT64, INT8, INT16, INT32, INT64, VAR_INT, VAR_STR, FLOAT, BINARY_CHUNK = range(12)
+from armoryengine.ArmoryUtils import LITTLEENDIAN, int_to_binary, packVarInt, \
+                                                toUnicode, toBytes, lenBytes
+UINT8, UINT16, UINT32, UINT64, INT8, INT16, INT32, INT64,  \
+         VAR_INT, VAR_STR, VAR_UNICODE, FLOAT, BINARY_CHUNK = range(13)
 from struct import pack, unpack
 
 class PackerError(Exception): pass
@@ -71,6 +73,9 @@ class BinaryPacker(object):
       elif varType == VAR_STR:
          self.binaryConcat += packVarInt(len(theData))[0]
          self.binaryConcat += theData
+      elif varType == VAR_UNICODE:
+         self.binaryConcat += packVarInt(lenBytes(theData))[0]
+         self.binaryConcat += toBytes(theData)
       elif varType == FLOAT:
          self.binaryConcat += pack(E+'f', theData)
       elif varType == BINARY_CHUNK:

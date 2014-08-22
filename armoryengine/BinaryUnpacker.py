@@ -30,8 +30,9 @@ def makeBinaryUnpacker(toUnpack):
 ################################################################################
 ################################################################################
 from struct import pack, unpack
-from BinaryPacker import UINT8, UINT16, UINT32, UINT64, INT8, INT16, INT32, INT64, VAR_INT, VAR_STR, FLOAT, BINARY_CHUNK
-from armoryengine.ArmoryUtils import LITTLEENDIAN, unpackVarInt, LOGERROR
+from BinaryPacker import *
+from armoryengine.ArmoryUtils import LITTLEENDIAN, unpackVarInt, LOGERROR, \
+                                                toUnicode, toBytes, lenBytes
 
 class UnpackerError(Exception): pass
 
@@ -119,6 +120,12 @@ class BinaryUnpacker(object):
          sizeCheck(1)
          [value, nBytes] = unpackVarInt(self.binaryStr[pos:pos+9])
          binOut = self.binaryStr[pos+nBytes:pos+nBytes+value]
+         self.advance(nBytes+value)
+         return binOut
+      elif varType == VAR_UNICODE:
+         sizeCheck(1)
+         [value, nBytes] = unpackVarInt(self.binaryStr[pos:pos+9])
+         binOut = toUnicode(self.binaryStr[pos+nBytes:pos+nBytes+value])
          self.advance(nBytes+value)
          return binOut
       elif varType == FLOAT:
