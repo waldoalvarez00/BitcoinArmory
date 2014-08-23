@@ -709,14 +709,25 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.labels   = ['JoePassword', u'PwdAlice', u'DoItRight\u2122']
       self.passwds  = ['p455w04d', u'foreignpwd', u'unicodepwd\u2122']
       self.passwds  = [SecureBinaryData(toBytes(p)) for p in self.passwds]
+      self.passwds2 = [[MPEK_FRAG_TYPE.PASSWORD, p] for p in self.passwds]
       self.kdfs = []
       self.kdfIDs = []
+
+      # Create 3 KDFs
       for i in range(3):
          self.kdfs.append( KdfObject(SampleKdfAlgo, 
                                      memReqd=SampleKdfMem, 
                                      numIter=SampleKdfIter, 
                                      salt=self.kdfSalts[i]) )
          self.kdfIDs.append(self.kdfs[-1].getKdfID())
+
+      # Manually compute what the three plaintext frags will be
+      self.pfrags = []
+      for i in range(3):
+         xypairs = SplitSecret(SampleMasterEKey.toBinStr(), 2,3, 32)
+         self.pfrags = [pair[1] for pair in xypairs]
+
+
 
    def tearDown(self):
       pass
@@ -763,27 +774,36 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
                            M, self.passwds, self.labels,
                            preGenKey=SamplePlainStr)
       
+      self.passwds[1] = NULLSBD()
+      self.assertRaises(BadInputError, mkey.createNewMasterKey, 
+                           self.kdfs, SampleCryptAlgo, 
+                           M, self.passwds, self.labels,
+                           preGenKey=SamplePlainStr)
       
 
 
    #############################################################################
-   def testMkeyUnlockRelock(self):
+   def testMkeyUnlockRelock_Passwords(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
       mkey.createNewMasterKey(self.kdfs, SampleCryptAlgo, 
                                 M, self.passwds, self.labels,
                                 preGenKey=SampleMasterEKey)
 
+
+      NULLPASSWD = [MPEK_FRAG_TYPE.NONE, NULLSBD()]
+
       goodLists = []
-      goodLists.append([NULLSBD()      , self.passwds[1], self.passwds[2]])
-      goodLists.append([self.passwds[0], NULLSBD(),       self.passwds[2]])
-      goodLists.append([self.passwds[0], self.passwds[1], NULLSBD()      ])
-      goodLists.append([self.passwds[0], self.passwds[1], self.passwds[2]])
+      goodLists.append([NULLPASSWD,       self.passwds2[1], self.passwds2[2]])
+      goodLists.append([self.passwds2[0], NULLPASSWD,       self.passwds2[2]])
+      goodLists.append([self.passwds2[0], self.passwds2[1], NULLPASSWD,     ])
+      goodLists.append([self.passwds2[0], self.passwds2[1], self.passwds2[2]])
 
       badLists = []
-      badLists.append([NULLSBD(),       NULLSBD(),       NULLSBD()     ])
-      badLists.append([NULLSBD(),       self.passwds[1], NULLSBD()     ])
-      badLists.append([self.passwds[0], self.passwds[1]])  # short list, good pwds
+      badLists.append([NULLPASSWD,       NULLPASSWD,       NULLPASSWD,    ])
+      badLists.append([NULLPASSWD,       self.passwds2[1], NULLPASSWD,    ])
+      badLists.append([self.passwds2[0], self.passwds2[1]])  # short list, good pwds
+      ###########
 
       for gl in goodLists:
          self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
@@ -801,10 +821,57 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
          
 
-      badPwdList = [SecureBinaryData('abc'), SecureBinaryData('123'), NULLSBD()]
+      pwdpair = lambda s: [MPEK_FRAG_TYPE.PASSWORD, SecureBinaryData(s)]
+      badPwdList = [pwdpair('abc'), pwdpair('123'), NULLPASSWD]
       self.assertFalse(mkey.verifyPassphraseList(badPwdList))
       self.assertTrue(mkey.verifyPassphraseList(goodLists[0]))
 
+
+   #############################################################################
+   """
+   def testMkeyUnlockRelock_PwdFrags(self):
+      M,N = 2,3
+      mkey = MultiPwdEncryptionKey()
+      mkey.createNewMasterKey(self.kdfs, SampleCryptAlgo, 
+                                M, self.passwds, self.labels,
+                                preGenKey=SampleMasterEKey)
+
+
+      NULLPASSWD = [MPEK_FRAG_TYPE.NONE, NULLSBD()]
+
+      goodLists = []
+      goodLists.append([NULLPASSWD,       self.passwds2[1], self.passwds2[2]])
+      goodLists.append([self.passwds2[0], NULLPASSWD,       self.passwds2[2]])
+      goodLists.append([self.passwds2[0], self.passwds2[1], NULLPASSWD,     ])
+      goodLists.append([self.passwds2[0], self.passwds2[1], self.passwds2[2]])
+
+      badLists = []
+      badLists.append([NULLPASSWD,       NULLPASSWD,       NULLPASSWD,    ])
+      badLists.append([NULLPASSWD,       self.passwds2[1], NULLPASSWD,    ])
+      badLists.append([self.passwds2[0], self.passwds2[1]])  # short list, good pwds
+      ###########
+
+      for gl in goodLists:
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         self.assertTrue(mkey.unlock(gl))
+         self.assertTrue(mkey.masterKeyPlain.getSize() > 0)
+         self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
+         self.assertTrue(mkey.lock())
+         self.assertTrue(mkey.isLocked())
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+
+      for bl in badLists:
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         self.assertRaises(PassphraseError, mkey.unlock, bl)
+         self.assertTrue(mkey.isLocked())
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         
+
+      pwdpair = lambda s: [MPEK_FRAG_TYPE.PASSWORD, SecureBinaryData(s)]
+      badPwdList = [pwdpair('abc'), pwdpair('123'), NULLPASSWD]
+      self.assertFalse(mkey.verifyPassphraseList(badPwdList))
+      self.assertTrue(mkey.verifyPassphraseList(goodLists[0]))
+   """
 
    #############################################################################
    def testMkeySerUnserRT(self):
@@ -835,8 +902,8 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.assertEqual(mkey.unserialize(serEkey).serialize(), serEkey)
       self.assertTrue(mkey.isLocked())
 
-      self.assertRaises(KdfError, mkey.unlock, self.passwds)
-      mkey.unlock(self.passwds, kdfObjList=self.kdfs)
+      self.assertRaises(KdfError, mkey.unlock, self.passwds2)
+      mkey.unlock(self.passwds2, kdfObjList=self.kdfs)
       self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
       self.assertFalse(mkey.isLocked())
 
@@ -845,7 +912,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.assertEqual(mkey.masterKeyPlain, NULLSBD())
 
       mkey.setKdfObjectRefList(self.kdfs)
-      mkey.unlock(self.passwds)
+      mkey.unlock(self.passwds2)
       self.assertFalse(mkey.isLocked())
       self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
 
