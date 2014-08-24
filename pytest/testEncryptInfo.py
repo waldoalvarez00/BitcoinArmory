@@ -48,7 +48,7 @@ LOGERROR('LOGGING IS ENABLED:  APPROX 20 ERROR MESSAGES IS NORMAL')
 LOGERROR('If the tests pass ("OK" is at the end), you can ignore the errors')
 
 
-def skipMostTests():
+def skipFlagExists():
    if os.path.exists('skipmosttests.flag'):
       print 'SKIPPING MOST TESTS.  REMOVE skipMostTests.flag TO REENABLE'
       return True
@@ -77,7 +77,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
          
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testStretchIV(self):
       ivShort = SecureBinaryData(hex_to_binary('00112233445566'))
       iv8     = SecureBinaryData(hex_to_binary('0011223344556677'))
@@ -115,7 +115,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeyID(self):
       keySBD = SecureBinaryData(hex_to_binary('0011223344556677'))
       keyStr = keySBD.toBinStr()
@@ -129,7 +129,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testACI_construct(self):
       aci = ArmoryCryptInfo()
       self.assertEqual(aci.kdfObjID, NULLKDF)
@@ -144,7 +144,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testACI_boolmethods(self):
       aci = ArmoryCryptInfo()
       self.assertTrue(aci.noEncryption())
@@ -193,7 +193,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testACI_endecrypt_ident(self):
       aci = ArmoryCryptInfo('IDENTITY', 'IDENTITY')
       self.assertFalse(aci.useEncryption())
@@ -203,7 +203,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
       
    
    #############################################################################
-   @unittest.skipIf(skipMostTests(), '')
+   @unittest.skipIf(skipFlagExists(), '')
    def testACI_endecrypt_rawkey(self):
       aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, 'RAWKEY32', SampleCryptIV8)
       self.assertTrue(aci.hasStoredIV())
@@ -235,7 +235,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testACI_endecrypt_password(self):
       kdf = KdfObject(SampleKdfAlgo, memReqd=SampleKdfMem, 
                                      numIter=SampleKdfIter, 
@@ -291,7 +291,7 @@ class ArmoryCryptInfoTest(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testACI_endecrypt_passwd_supplyIV(self):
       kdf = KdfObject(SampleKdfAlgo, memReqd=SampleKdfMem, 
                                      numIter=SampleKdfIter, 
@@ -338,7 +338,7 @@ class ArmoryKDFTests(unittest.TestCase):
          
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testConstructKDF(self):
       mem   = 64*KILOBYTE
       niter = 2
@@ -351,7 +351,7 @@ class ArmoryKDFTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testKDFSerUnserRT(self):
       mem   = 64*KILOBYTE
       niter = 2
@@ -374,7 +374,7 @@ class ArmoryKDFTests(unittest.TestCase):
       
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testRunKDF(self):
       # These KDF params were taken directly from a testnet wallet in 0.92
       
@@ -387,7 +387,7 @@ class ArmoryKDFTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testCreateNewKDF(self):
       timeTgt = 0.5
       memTgt  = 64*KILOBYTE
@@ -454,7 +454,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeyConstruct_Default(self):
       self.assertNoRaise(EncryptionKey)
          
@@ -475,7 +475,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
    
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeyCreate(self):
       ekey = EncryptionKey()
       self.assertRaises(UnrecognizedCrypto, 
@@ -508,7 +508,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeyUnlockRelock(self):
       ekey = EncryptionKey()
       ekey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
@@ -528,7 +528,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeySerUnserRT(self):
       ekey = EncryptionKey()
       ekey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
@@ -580,7 +580,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
       
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeyTimeout(self):
       ekey = EncryptionKey()
       ekey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
@@ -606,7 +606,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testEkeyChangePwd(self):
       oldPwd = SamplePasswd
       badPwd = SecureBinaryData('BadPassword')
@@ -667,7 +667,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
       testChangeEncryptParams(None,   newAlgo, None  )
       testChangeEncryptParams(newKdf, newAlgo, newPwd)
 
-      if not skipMostTests():
+      if not skipFlagExists():
          # Test changing two at a time
          testChangeEncryptParams(newKdf, None,    newPwd)
          testChangeEncryptParams(newKdf, newAlgo, None  )
@@ -741,7 +741,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testMkeyConstruct_Default(self):
       self.assertNoRaise(MultiPwdEncryptionKey)
          
@@ -758,7 +758,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
    
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testMkeyCreate(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
@@ -786,7 +786,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testMkeyUnlockRelock_Passwords(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
@@ -832,7 +832,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testMkeyUnlockRelock_PwdFrags(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
@@ -879,7 +879,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testMkeySerUnserRT(self):
       M,N = 2,3
       mkey = MultiPwdEncryptionKey()
@@ -928,13 +928,13 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       
 
 
-
    #############################################################################
+   @unittest.skipIf(skipFlagExists(),'')
    def testMkeyChangeSomePasswords(self):
       """
       This is actually quite different from the regular ekey tests.  We don't
-      test changing any encryption or KDF params, only subsets of passwords. 
-      Of interest is both:
+      test changing any encryption or KDF params, but do have to try lots of 
+      subsets of passwords.  Of interest are both:
          (1) What keys are provided to unlock the key to change pwds
          (2) What pwds are being changed (changing pwds not used for unlocking)
       There's a lot of unique combinations, but with 2-of-3 
@@ -1014,6 +1014,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          self.assertFalse(mkey.isLocked())
          self.assertFalse(mkeyCmp.isLocked())
          self.assertEqual(mkey.masterKeyPlain,  mkeyCmp.masterKeyPlain)
+         self.assertEqual(mkey.masterKeyPlain,  SampleMasterEKey)
 
          mkey.lock()
          mkeyCmp.lock()
@@ -1029,11 +1030,18 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          newunlock2 = [finalPwdList2[0], finalPwdList2[1], finalPwdList2[2]]
          self.assertTrue(mkey.verifyPassphraseList(newunlock2))
          
+         for i in range(3):
+            self.assertEqual(mkey.labels[i], newLabels[i])
+
+         serMkey = mkey.serialize()
+         mkey2 = MultiPwdEncryptionKey().unserialize(serMkey)
+         self.assertEqual(serMkey, mkey2.serialize())
 
 
       # Test changing some passwords.  The first two args are just lists of ints
       # Change all passwords
       testChangeSomePwds([0,1,2], [0,1,2])
+      testChangeSomePwds([0,1,2], [0,1,2], newLbls)
       testChangeSomePwds([0,1],   [0,1,2])
       testChangeSomePwds([0,2],   [0,1,2])
       testChangeSomePwds([1,2],   [0,1,2])
@@ -1053,6 +1061,91 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       testChangeSomePwds([0,1],   [1])
       testChangeSomePwds([0,1],   [2])  # change a pwd that wasn't entered!
 
+      testChangeSomePwds([0,1],   [2], newLbls)  # change a pwd that wasn't entered!
+
+   #############################################################################
+   @unittest.skipIf(skipFlagExists(),'')
+   def testMkeyChangeEncryptionMofN(self):
+      """
+      These tests don't have to be as rigorous, because the test will actually
+      look a lot like the code itself:  mkey will overwrite itself with a new
+      fragmentation of the master key
+      """
+      oldM,oldN = 2,3
+      newM,newN = 3,5
+
+      oldPwds  = self.passwds
+      oldPwds2 = self.passwds2
+
+      newPwds  = [SecureBinaryData(int_to_hex(i+10000)) for i in range(newN)]
+      newPwds2 = [[MPEK_FRAG_TYPE.PASSWORD, p.copy()] for p in newPwds]
+
+      newLbls = ['NewLabel%d'%i for i in range(newN)]
+
+      newAlgo = 'AE256CFB'
+      newKdfs = []
+      newKdfIDs = []
+      for i in range(newN):
+         newKdfs.append( KdfObject(SampleKdfAlgo, 
+                                   memReqd=SampleKdfMem, 
+                                   numIter=SampleKdfIter, 
+                                   salt=int_to_binary(i, widthBytes=1)*16))
+         newKdfIDs.append(self.kdfs[-1].getKdfID())
+
+      mkey = MultiPwdEncryptionKey()
+      mkey.createNewMasterKey(self.kdfs, SampleCryptAlgo, oldM, self.passwds, 
+                              self.labels, preGenKey=SampleMasterEKey)
+
+      oldEkeyID = mkey.ekeyID
+         
+
+   
+      NULLPASSWD = [MPEK_FRAG_TYPE.NONE, NULLSBD()]
+      mkey.changeMultiEncryption(self.kdfs,
+                                 [oldPwds2[0], NULLPASSWD, oldPwds2[2]],
+                                 newKdfs, 
+                                 newAlgo,
+                                 newM,
+                                 newPwds,
+                                 newLbls)
+                              
+      
+      
+      self.assertEqual(mkey.M, newM)
+      self.assertEqual(mkey.N, newN)
+      self.assertEqual(mkey.ekeyID, oldEkeyID)
+      for i in range(newN):
+         self.assertEqual(mkey.labels[i], newLbls[i])
+
+
+      self.assertTrue(mkey.verifyPassphraseList([ newPwds2[0],
+                                                  newPwds2[1],
+                                                  newPwds2[2],
+                                                  newPwds2[3],
+                                                  newPwds2[4] ]))
+                                  
+      self.assertTrue(mkey.verifyPassphraseList([ newPwds2[0],
+                                                  NULLPASSWD,
+                                                  newPwds2[2],
+                                                  newPwds2[3],
+                                                  newPwds2[4] ]))
+
+      self.assertTrue(mkey.verifyPassphraseList([ NULLPASSWD,
+                                                  NULLPASSWD,
+                                                  newPwds2[2],
+                                                  newPwds2[3],
+                                                  newPwds2[4] ]))
+
+      self.assertRaises(PassphraseError, mkey.verifyPassphraseList, 
+                                                [ NULLPASSWD,
+                                                  NULLPASSWD,
+                                                  newPwds2[2],
+                                                  newPwds2[3],
+                                                  NULLPASSWD  ])
+
+
+      mkey.unlock([NULLPASSWD, NULLPASSWD, newPwds2[2], newPwds2[3], newPwds2[4]])
+      self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
 
 
 
@@ -1072,6 +1165,39 @@ class ArmoryChainedACITests(unittest.TestCase):
                            preGenKey=SampleMasterEKey, preGenIV8=SampleCryptIV8)
       self.ekeyID = self.ekey.ekeyID
 
+      # For multi-pwd key encryption
+      self.M,self.N = 2,3
+      self.kdfList  = []
+      self.pwdList  = []
+      self.lblList  = []
+      for i in range(self.N):
+         self.kdfList.append(KdfObject('ROMIXOV2', memReqd=32768, numIter=1, salt='\x32'*16))
+         self.pwdList.append(SecureBinaryData('password%d'%i))
+         self.lblList.append(u'NewLabel%d'%i)
+
+      self.mkey = MultiPwdEncryptionKey()
+      self.mkey.createNewMasterKey(self.kdfList, 'AE256CBC', self.M, 
+                                   self.pwdList, self.lblList, 
+                                   preGenKey=SampleMasterEKey)
+      self.mkeyID = self.mkey.ekeyID
+
+      xypairs = SplitSecret(SampleMasterEKey.toBinStr(), 2,3, 32)
+      pfrags  = [SecureBinaryData(pair[1]) for pair in xypairs]
+
+      self.unlockPwd = []
+      NULLPASSWD = [MPEK_FRAG_TYPE.NONE, NULLSBD()]
+      self.unlockPwd.append([ [MPEK_FRAG_TYPE.PASSWORD,  self.pwdList[0]],
+                              [MPEK_FRAG_TYPE.NONE,      NULLSBD()      ],
+                              [MPEK_FRAG_TYPE.PASSWORD,  self.pwdList[2]] ])
+
+      self.unlockPwd.append([ [MPEK_FRAG_TYPE.PASSWORD,  self.pwdList[0]],
+                              [MPEK_FRAG_TYPE.PASSWORD,  self.pwdList[1]], 
+                              [MPEK_FRAG_TYPE.PASSWORD,  self.pwdList[2]] ])
+
+      self.unlockPwd.append([ [MPEK_FRAG_TYPE.PASSWORD,  self.pwdList[0]],
+                              [MPEK_FRAG_TYPE.NONE,      self.pwdList[1]], 
+                              [MPEK_FRAG_TYPE.PLAINFRAG, pfrags[2]      ] ])
+
 
    def tearDown(self):
       pass
@@ -1084,7 +1210,7 @@ class ArmoryChainedACITests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipMostTests(),'')
+   @unittest.skipIf(skipFlagExists(),'')
    def testACI_chained_endecrypt(self):
 
       # Manual/direct encryption with master key
@@ -1163,7 +1289,86 @@ class ArmoryChainedACITests(unittest.TestCase):
 
 
 
+   #############################################################################
+   def testACI_chained_endecrypt_multipwd(self):
 
+      # Manual/direct encryption with master key
+      expectCrypt = CryptoAES().EncryptCBC(SamplePlainStr, SampleMasterEKey, SampleCryptIV16)
+
+      # Now attempt the same encryption using chained ACI
+      aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, self.mkeyID, SampleCryptIV8)
+      self.assertTrue(self.mkey.isLocked())
+      computeCrypt = aci.encrypt(SamplePlainStr, self.unlockPwd[0], kdfObj=self.kdfList, ekeyObj=self.mkey)
+      self.assertTrue(self.mkey.isLocked())
+      self.assertEqual(computeCrypt, expectCrypt)
+      
+      # Check that it works with the 
+      kdfmap = {}
+      for kdf in self.kdfList:
+         kdfmap[kdf.getKdfID()] = kdf
+
+      mkeymap= {self.mkeyID: self.mkey}
+      self.assertTrue(self.mkey.isLocked())
+      computeCrypt = aci.encrypt(SamplePlainStr, self.unlockPwd[0], kdfObj=kdfmap, ekeyObj=mkeymap)
+      self.assertTrue(self.mkey.isLocked())
+      self.assertEqual(computeCrypt, expectCrypt)
+
+      # Test that decryption works the same way
+      self.assertTrue(self.mkey.isLocked())
+      plainAgain = aci.decrypt(computeCrypt, self.unlockPwd[0], kdfObj=kdfmap, ekeyObj=mkeymap)
+      self.assertTrue(self.mkey.isLocked())
+      self.assertEqual(plainAgain, SamplePlainStr)
+
+
+      # Try using a KDF with a master encryption key (error)
+      aci = ArmoryCryptInfo(self.kdf, SampleCryptAlgo, self.ekeyID, SampleCryptIV8)
+      self.assertRaises(EncryptionError, aci.encrypt, SamplePlainStr, self.unlockPwd[0], 
+                                                   kdfObj=self.kdf, ekeyObj=self.mkey)
+
+      # Try using a non-matching mkey ID (error)
+      aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, 'FAKEEKID', SampleCryptIV8)
+      self.assertRaises(EncryptionError, aci.encrypt, SamplePlainStr, self.unlockPwd[0], 
+                                                   kdfObj=self.kdf, ekeyObj=self.mkey)
+
+
+      # Try not passing in a password (mkey is locked) (error)
+      aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, self.ekeyID, SampleCryptIV8)
+      self.assertTrue(self.mkey.isLocked())
+      self.assertRaises(EncryptionError, aci.encrypt, SamplePlainStr, 
+                                                   kdfObj=self.kdf, ekeyObj=self.mkey)
+      self.assertTrue(self.mkey.isLocked())
+      
+      # Test unlocking the mkey first, then not passing in any unlock params
+      self.mkey.unlock(self.unlockPwd[0])
+      self.assertFalse(self.mkey.isLocked())
+      computeCrypt = aci.encrypt(SamplePlainStr, ekeyObj=self.mkey)
+      self.assertFalse(self.mkey.isLocked()) # should stay unlocked 
+      self.assertEqual(computeCrypt, expectCrypt)
+      self.mkey.lock()
+      self.assertTrue(self.mkey.isLocked())
+      
+      # Now we confirm again that it's locked and if fails without a pwd
+      aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, self.ekeyID, SampleCryptIV8)
+      self.assertRaises(EncryptionError, aci.encrypt, SamplePlainStr, 
+                                                   kdfObj=self.kdf, ekeyObj=self.mkey)
+
+      # Now try to unlock without supplying a kdfObj -- this should work 
+      # because we supplied the kdf object to the mkey when we created it,
+      # so it should have it in its kdfRef member.  
+      self.assertTrue(self.mkey.isLocked()) 
+      computeCrypt = aci.encrypt(SamplePlainStr, self.unlockPwd[0], ekeyObj=self.mkey)
+      self.assertTrue(self.mkey.isLocked()) 
+      self.assertEqual(computeCrypt, expectCrypt)
+
+      # Now we create a new, identical mkey but without a valid kdfRef
+      newMkey = MultiPwdEncryptionKey().unserialize(self.mkey.serialize())
+      self.assertTrue(newMkey.isLocked()) 
+      computeCrypt = aci.encrypt(SamplePlainStr, self.unlockPwd[0], kdfObj=self.kdfList, ekeyObj=newMkey)
+      self.assertTrue(newMkey.isLocked()) 
+      self.assertEqual(computeCrypt, expectCrypt)
+
+      # Now we should throw an error when we omit the kdf object
+      self.assertRaises(KdfError, aci.encrypt, SamplePlainStr, self.unlockPwd[0], ekeyObj=newMkey)
 
 
 
