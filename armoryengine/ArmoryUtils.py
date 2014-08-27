@@ -1908,6 +1908,81 @@ def bitset_to_int(bitset):
 
 
 
+################################################################################
+class BitSet(object):
+   ############################################################
+   def __init__(self, numBits=0):
+      if not numBits%8 == 0:
+         LOGWARN('Number of bits must be a multiple of 8.  Rounding up...')
+
+      self.bitList = [0] * roundUpMod(numBits, 8)
+
+   ############################################################
+   def getNumBits(self):
+      return len(self.bitList)
+
+   
+   ############################################################
+   def setBit(self, index, val):
+      try:
+         val = int(val)
+      except:
+         raise BadInputError('Invalid setBit call: "%s"' % str(val))
+
+      if not val in [0,1]:
+         raise BadInputError('Input value must be 0 or 1, got %d' % val) 
+
+      self.bitList[index] = val
+
+   ############################################################
+   def getBit(self, index):
+      return self.bitList[index]
+
+   ############################################################
+   def getBitString(self):
+      return ''.join(['1' if b else '0' for b in self.bitList])
+
+   ############################################################
+   def toInteger(self):
+      n = 0
+      for i,bit in enumerate(self.bitList[::-1]):
+         n += bit * (2**i)
+      return n
+      
+
+   ############################################################
+   @staticmethod
+   def CreateFromInteger(ival, numBits=0):
+
+   
+      # Could use log(ival, 2) but no need for transcendental functions
+      blist = []
+      while ival>0:
+         ival,r = divmod(ival,2)
+         blist.append(r)
+         
+      if numBits == 0:
+         numBits = len(blist)
+      else:
+         if len(blist) > numBits:
+            raise BadInputError('Requested nBits cannot contain input integer')
+
+         if not numBits%8 == 0:
+            # Will be updated below
+            LOGWARN('Number of bits must be a multiple of 8.  Rounding up...')
+
+      numBits = roundUpMod(numBits, 8)
+
+      while len(blist) < numBits:
+         blist.append(0)
+
+      bs = BitSet(len(blist))
+      bs.bitList = blist[::-1]
+      return bs
+         
+
+
+
 EmptyHash = hex_to_binary('00'*32)
 
 

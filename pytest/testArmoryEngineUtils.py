@@ -510,7 +510,75 @@ class BinaryPackerUnpackerTest(unittest.TestCase):
       self.assertRaises(UnpackerError, bu.get, UNKNOWN_TYPE)
       self.assertRaises(UnpackerError, bu.get, BINARY_CHUNK, 1)
 
+
+################################################################################
+class BitSetTests(unittest.TestCase):
+
+   #############################################################################
+   def testBitSets(self):
+      bs = BitSet()
+      self.assertEqual(bs.getNumBits(), 0)
+      self.assertEqual(bs.toInteger(), 0)
+      self.assertEqual(bs.getBitString(), '')
+
+      bs = BitSet(0)
+      self.assertEqual(bs.getNumBits(), 0)
+      self.assertEqual(bs.toInteger(), 0)
+      self.assertEqual(bs.getBitString(), '')
+      
+      bs = BitSet(1)
+      self.assertEqual(bs.getNumBits(), 8)
+      self.assertEqual(bs.toInteger(), 0)
+      self.assertEqual(bs.getBitString(), '00000000')
+      
+      bs = BitSet(7)
+      self.assertEqual(bs.getNumBits(), 8)
+      self.assertEqual(bs.toInteger(), 0)
+      self.assertEqual(bs.getBitString(), '00000000')
+
+      bs = BitSet(8)
+      self.assertEqual(bs.getNumBits(), 8)
+      self.assertEqual(bs.toInteger(), 0)
+      self.assertEqual(bs.getBitString(), '00000000')
+
+      bs = BitSet(9)
+      self.assertEqual(bs.getNumBits(), 16)
+      self.assertEqual(bs.toInteger(), 0)
+      self.assertEqual(bs.getBitString(), '00000000'*2)
+
+      bs = BitSet.CreateFromInteger(9)
+      self.assertEqual(bs.getNumBits(), 8)
+      self.assertEqual(bs.toInteger(), 9)
+      self.assertEqual(bs.getBitString(), '00001001')
+
+      bs = BitSet.CreateFromInteger(9, 14)
+      self.assertEqual(bs.getNumBits(), 16)
+      self.assertEqual(bs.toInteger(), 9)
+      self.assertEqual(bs.getBitString(), '0000000000001001')
+
+      bs = BitSet.CreateFromInteger(9, 16)
+      self.assertEqual(bs.getNumBits(), 16)
+      self.assertEqual(bs.toInteger(), 9)
+      self.assertEqual(bs.getBitString(), '0000000000001001')
+
+
+      bs = BitSet.CreateFromInteger(9)
+      self.assertEqual(bs.getNumBits(), 8)
+      self.assertEqual(bs.toInteger(), 9)
+      self.assertEqual(bs.getBitString(), '00001001')
+      bs.setBit(0, 1)
+      self.assertEqual(bs.getBitString(), '10001001')
+      self.assertEqual(bs.toInteger(), 137)
+      bs.setBit(7, 1)
+      self.assertEqual(bs.getBitString(), '10001001')
+      self.assertEqual(bs.toInteger(), 137)
+      bs.setBit(7, 0)
+      self.assertEqual(bs.getBitString(), '10001000')
+      self.assertEqual(bs.toInteger(), 136)
+      self.assertRaises(IndexError, bs.setBit, 9, 1)
+
+
 # Running tests with "python <module name>" will NOT work for any Armory tests
 # You must run tests with "python -m unittest <module name>" or run all tests with "python -m unittest discover"
-# if __name__ == "__main__":
-#    unittest.main()
+if __name__ == "__main__":
+   unittest.main()

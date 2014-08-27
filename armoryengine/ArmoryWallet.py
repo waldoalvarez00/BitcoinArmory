@@ -724,60 +724,6 @@ class ArmoryWalletFile(object):
 
 
 
-
-#############################################################################
-#############################################################################
-class ZeroData(object):
-   """
-   Creates a chunk of zeros of size nBytes.  But to ensure it can be 
-   unserialized without knowing its size, we put it's VAR_INT size 
-   up front, and then write nBytes of zeros minus the VAR_INT size.
-   """
-
-   FILECODE = 'ZERO'
-
-
-   def __init__(self, weBytes=0):
-      self.nBytes = 0
-      self.zeros = ''
-      emptyWE = self.serializeWalletEntry()
-      
-
-
-   def serialize(self):
-      if self.nBytes==0:
-         raise UninitializedError
-
-      viSize = packVarInt(self.nBytes)[1]
-      bp = BinaryPacker()
-      bp.put(VAR_INT, self.nBytes)
-      bp.put(BINARY_CHUNK, '\x00'*(self.nBytes - viSize))
-      return bp.getBinaryString()
-
-   
-   def unserialize(self, zeroStr):
-      bu = makeBinaryUnpacker(zeroStr)
-
-      # We do the before/after thing in case a non-canonical VAR_INT was
-      # used.  Such as using a 4-byte VAR_INT to represent what only need
-      # a 2-byte VAR_INT
-      beforeVI = bu.getPosition()
-      nb = bu.get(VAR_INT)
-      afterVI = bu.getPosition()
-      viSize = afterVI - beforeVI
-      zstr = bu.get(BINARY_CHUNK, nb - viSize)
-
-      if not zstr=='\x00'*(nb-viSize):
-         LOGERROR('Expected all zero bytes, but got something else')
-      
-      self.__init__(nb)
-      return self
-      
-
-
-   
-
-
 #############################################################################
 #############################################################################
 class RootRelationship(object):
