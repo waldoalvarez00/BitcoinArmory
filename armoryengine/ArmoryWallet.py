@@ -73,6 +73,14 @@ class ArmoryWalletFile(object):
       # Perhaps later find a way decrypt and put them into the other maps
       self.opaqueList  = []
 
+      # List of all WalletEntry objects that had a file code we didn't 
+      # recognize.  Perhaps these were created by a newer version of
+      # Armory, or will be consumed by a module/plugin
+      self.unrecognizedList  = []
+
+      # List of all WalletEntry objects that had an unrecoverable error
+      self.unrecoverableList  = []
+
       # If != None, it means that this wallet holds only a subset of data 
       # in the parent file.  Probably just addr/tx comments and P2SH scripts
       self.masterWalletRef = None
@@ -256,6 +264,11 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    def doFileOperation(self, operationType, theData, loc=None):
+      """
+      This is intended to be used for one-shot safe writing to file. 
+      Normally, you would batch your updates using addFileOperationToQueue
+      and then call applyUpdates() when you're done.
+      """
       if not len(self.updateQueue)==0:
          LOGERROR('Wallet update queue not empty!  Applying previously')
          LOGERROR('queued operations before executing this update.')
@@ -265,100 +278,80 @@ class ArmoryWalletFile(object):
           
 
    #############################################################################
-   def addFileOperationToQueue(self, operationType, theData, fileLoc=None):
+   @VerifyArgTypes(operationType=str, wltEntry=WalletEntry)
+   def addFileOperationToQueue(self, operationType, wltEntry)
       """
-      This will add lower-level data to the queue to be applied in a
-      batch operation.  Two ways to do direct, low-level operations, 
+      This will add/update/delete a wallet entry . 
+      batch operation.  
       a shortcut method for operating with WalletEntry objects.
 
-         (opType, theData) ~ ('Append',      'Some data to append')
-         (opType, theData) ~ ('Modify',      'Overwrite beginning of file', 0)
-         (opType, theData) ~ ('Modify',      'Overwrite something else', N)
-         (opType, theData) ~ ('AddEntry',    WalletEntryObj)
-         (opType, theData) ~ ('UpdateEntry', WalletEntryObj)
-         (opType, theData) ~ ('DeleteEntry', WalletEntryObj)
-         (opType, theData) ~ ('DeleteEntry', WalletEntryStartByte)
+          ('AddEntry',    WalletEntryObj)
+          ('UpdateEntry', WalletEntryObj)
+          ('DeleteEntry', WalletEntryObj)
 
       If one of the "entry" versions is used, it will simply pull the
       necessary information out of the object and do an "Append' or "Modify'
       as necessary.
       """
          
-      
-      isWltEntryObj = isinstance(theData, WalletEntry)
-
       # The data to eventually be added to the file, or overwrite previous data
-      newData = None
+      serData = None
 
       # Convert the "___Entry" commands into the lower-level Append/Modify cmds
       if operationType.lower()=='addentry':
          # Add a new wallet entry to this wallet file
-         if not isWltEntryObj:
-            LOGERROR('Must supply WalletEntry object to use "addEntry" cmd')
-            raise BadInputError
-         if data already in wallet:
-            skip
-         newData = theData.serialize()
+         if wltEntry.wltByteLoc >= 0:
+            return 
          operationType = 'Append'
+         serData = we.serialize()
       elif operationType.lower()=='updateentry':
          # Update an existing entry -- delete and append if size changed
-         if not isWltEntryObj:
-            LOGERROR('Must supply WalletEntry object to use "updateEntry" cmd')
-            raise BadInputError
-         newData = theData.serialize()
-         oldData = self.readWalletEntry(theData.wltStartByte).serialize()
-         if len(newData)==len(oldData):
-            fileLoc = theData.wltStartByte
+         # wltEntrySz is the size of the WE when it was last read from 
+         # the wallet file.  If its size has changed, its serialized size
+         # will be different than that
+         serData = we.serialize()
+         if len(we.serializeEntry())==we.wltEntrySz:
+            fileLoc = we.wltStartByte
             operationType = 'Modify'
          else:
-            LOGINFO('WalletEntry replace != size (%s).  ', theData.entryCode)
+            LOGINFO('WalletEntry replace != size (%s).  ', we.entryCode)
             LOGINFO('Delete&Append')
-            self.addFileOperationToQueue('DeleteEntry', theData.wltStartByte)
+            self.addFileOperationToQueue('DeleteEntry', we.wltStartByte)
             operationType = 'Append'
       elif operationType.lower()=='deleteentry':
          # Delete an entry from the wallet
-         fileLoc = theData.wltStartByte if isWltEntryObj else theData
-         if not isinstance(theData, (int,long)):
+         fileLoc = we.wltStartByte 
+         if not isinstance(we, (int,long)):
             LOGERROR('Delete entry only using WltEntry object or start byte')
             return
 
-         oldData = self.readWalletEntry(fileLoc).serialize()
-         totalBytes = len(oldData)
-         # TODO figure out how to set up the deleted entry
-         delBytes = oldData.getPayloadSize(padding=True)
-         newData = ZeroData(delBytes).serialize()
+         delBytes = wltEntrySz
+         serData = ZeroData(delBytes).serialize()
          operationType = 'Modify'
-            
-         if isWltEntryObj:
-            LOGERROR('TODO: figure out what I want to do with deleted WltEntry')
-            theData.wltStartByte = -1
 
-      else:
-         if not isinstance(theData, basestring):
-            LOGERROR('Can only add/update wallet data with string or unicode type!')
-            return
+         # We already know that the entry is going away, set the start byte now
+         we.wltStartByte = -1
+         we.wltEntrySz = -1
 
-         newData = theData[:]
 
       #####
       # This is where it actually gets added to the queue.
       if operationType.lower()=='append':
          if isWltEntryObj:
-            theData.wltStartByte =  self.lastFilesize
-         self.lastFilesize += len(newData)
-         self.updateQueue.append([WLT_UPDATE_ADD, newData])
-   
+            we.wltStartByte =  self.lastFilesize
+         self.lastFilesize += len(serData)
+         self.updateQueue.append([WLT_UPDATE_ADD, serData])
       elif operationType.lower()=='modify':
          if not fileLoc:
             LOGERROR('Must supply start byte of modification')
             raise BadInputError
-         self.updateQueue.append([WLT_UPDATE_MODIFY, [newData, fileLoc]])
+         self.updateQueue.append([WLT_UPDATE_MODIFY, [serData, fileLoc]])
 
       #####
       # Tell the WalletEntry object when to expect its internal state to be 
       # consistent with the wallet file
       if isWltEntryObj:
-         theData.syncWhenUpdateCount = self.updateCount + 1
+         we.syncWhenUpdateCount = self.updateCount + 1
          
          
 
@@ -740,8 +733,15 @@ class ZeroData(object):
    unserialized without knowing its size, we put it's VAR_INT size 
    up front, and then write nBytes of zeros minus the VAR_INT size.
    """
-   def __init__(self, nBytes=0):
-      self.nBytes = nBytes
+
+   FILECODE = 'ZERO'
+
+
+   def __init__(self, weBytes=0):
+      self.nBytes = 0
+      self.zeros = ''
+      emptyWE = self.serializeWalletEntry()
+      
 
 
    def serialize(self):
@@ -794,6 +794,8 @@ class RootRelationship(object):
    public chains to fully communicate a watching-only version of the 
    multi-sig.  
    """
+   FILECODE = 'RLAT'
+
    def __init__(self, M=None, N=None, siblingList=None, labels=None):
       self.M = M if M else 0
       self.N = N if N else 0
@@ -877,6 +879,8 @@ class RootRelationship(object):
 
 #############################################################################
 class ArmoryAddress(WalletEntry):
+
+   FILECODE = 'ADDR'
 
    def __init__(self):
       pass
@@ -2051,7 +2055,7 @@ WalletEntry.addClassToMap('ROOT', ArmoryRoot, ISREQUIRED)
 WalletEntry.addClassToMap('LABL', AddressLabel)
 WalletEntry.addClassToMap('COMM', TxComment)
 WalletEntry.addClassToMap('LBOX', MultiSigLockbox)
-WalletEntry.addClassToMap('ZERO', ZeroData,)
+WalletEntry.addClassToMap('ZERO', ZeroData)
 WalletEntry.addClassToMap('RLAT', RootRelationship, ISREQUIRED)
 WalletEntry.addClassToMap('EKEY', EncryptionKey)
 WalletEntry.addClassToMap('MKEY', MultiPwdEncryptionKey)

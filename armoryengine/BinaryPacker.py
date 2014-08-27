@@ -70,10 +70,8 @@ class BinaryPacker(object):
          self.binaryConcat += pack(E+'q', theData)
       elif varType == VAR_INT:
          self.binaryConcat += packVarInt(theData)[0]
-      elif varType == VAR_STR:
-         self.binaryConcat += packVarInt(len(theData))[0]
-         self.binaryConcat += theData
-      elif varType == VAR_UNICODE:
+      elif varType in [VAR_STR, VAR_UNICODE]:
+         # VAR_UNICODE is unpacked differently for unicode, but same for pack
          self.binaryConcat += packVarInt(lenBytes(theData))[0]
          self.binaryConcat += toBytes(theData)
       elif varType == FLOAT:

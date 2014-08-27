@@ -539,7 +539,7 @@ class ArmoryEncryptKeyTests(unittest.TestCase):
       aci = ArmoryCryptInfo(SampleKdfID, SampleCryptAlgo, 'PASSWORD', SampleCryptIV8)
       bp.put(BINARY_CHUNK, SampleMasterEkeyID)
       bp.put(VAR_STR,      SampleMasterCrypt.toBinStr())
-      bp.put(VAR_STR,      aci.serialize())
+      bp.put(BINARY_CHUNK, aci.serialize())
       bp.put(VAR_STR,      '')
       bp.put(VAR_STR,      '')
       bp.put(VAR_STR,      '')
@@ -896,7 +896,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       for i in range(3):
          iv = mkey.einfos[i].ivSource
          aci = ArmoryCryptInfo(self.kdfIDs[i], SampleCryptAlgo, 'PASSWORD', iv)
-         bp.put(VAR_STR,  aci.serialize())
+         bp.put(BINARY_CHUNK,  aci.serialize())
          bp.put(VAR_STR,  mkey.efrags[i].toBinStr())
          bp.put(VAR_UNICODE,  self.labels[i])
       expectedSer = bp.getBinaryString()

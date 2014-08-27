@@ -30,6 +30,8 @@ class PluginObject(object):
 
    tabName = 'Exchange Rates'
    maxVersion = '0.92'
+   exposeFunctions = {}
+   
    
    #############################################################################
    def __init__(self, main):
@@ -52,6 +54,11 @@ class PluginObject(object):
 
       self.btnUpdate = QPushButton(tr('Check Now'))
       self.main.connect(self.btnUpdate, SIGNAL('clicked()'), self.checkUpdatePrice)
+
+
+      self.exposeFunctions['GetBuyPrice'] = lambda: self.fetchFormattedPrice(urlBuy)
+      self.exposeFunctions['GetSellPrice'] = lambda: self.fetchFormattedPrice(urlSell)
+      
 
       ##########################################################################
       ##### A calculator for converting prices between USD and BTC
