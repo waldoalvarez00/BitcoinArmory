@@ -138,6 +138,11 @@ class BinaryUnpacker(object):
          binOut = self.binaryStr[pos:pos+sz]
          self.advance(sz)
          return binOut
+      elif varType == BITSET:
+         binString = self.get(BINARY_CHUNK, sz)
+         return BitSet.CreateFromBinaryString(binString)
+         
+         
 
       LOGERROR('Var Type not recognized!  VarType = %d', varType)
       raise UnpackerError, "Var type not recognized!  VarType="+str(varType)

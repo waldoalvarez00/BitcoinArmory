@@ -854,11 +854,10 @@ class ArmoryExtendedKey(WalletEntry):
       self.keyLifetime     = 10
       self.relockAtTime    = 0
 
-      self.walletFileRef   = None  # ref to the ArmoryWalletFile for this key
 
    #############################################################################
    def createFromEncryptedKeyData(self, 
-                                  privCrypt=None, sbdPub=None, sbdChain=None,    
+                        privCrypt=None, sbdPub=None, sbdChain=None,    
                         privCryptInfo=None, parentID=None, parentRef=None,
                         derivePath=None, wltRef=None):
       
@@ -874,10 +873,28 @@ class ArmoryExtendedKey(WalletEntry):
          if sbdPriv and not sbdPub:
             sbdPub = CryptoECDSA().ComputePublicKey(sbdPriv)
       
-      
       finally:
          plainPriv.destroy()
 
+      
+   #############################################################################
+   def serialize(self):
+      #self.isWatchOnly     = False
+      #self.privCryptInfo   = ArmoryCryptInfo(None)
+      #self.sbdPrivKeyPlain = NULLSBD()
+      #self.sbdPrivKeyCrypt = NULLSBD()
+      #self.sbdPublicKey33  = NULLSBD()
+      #self.sbdChaincode    = NULLSBD()
+      #self.aekParent       = None
+      #self.derivePath      = []
+      #self.useUncompressed = False
+      #self.aekType         = AEKTYPE.Uninitialized
+      #self.keyLifetime     = 10
+      #self.relockAtTime    = 0
+
+      flags = BitSet(8)
+      flags.setBit(0, self.isWatchOnly)
+      flags.setBit(0, self.useUncompressed)
       
       
 
@@ -1090,43 +1107,65 @@ class TxComment(WalletEntry):
 
    FILECODE = 'COMM'
 
-   def __init__(self, comm=''):
-      self.set(comm)
+   #############################################################################
+   def __init__(self, txidFull=None, txidMall=None, comment=None):
+      """
+      "Mall" refers to malleability-resistant.  This isn't just for 
+      transactions that have been "mall"ed after broadcast, but for 
+      offline and multi-sig transactions that haven't been signed yet,
+      for which we don't have the full ID.  The user may set the comment
+      when creating the tx, and we want Armory to later associate 
+      that comment with the final transaction.  For each transaction
+      in the ledger, we will look for both the "Full" and "Mall" version
+      of the transaction ID (if available).  
+      """
+      self.setComment(txidFull, txidMall, comment)
 
-   def set(self, comm):
-      self.comm = toUnicode(comm)
+   #############################################################################
+   def setComment(self, txidFull, txidMall, comment):
+      self.txidFull =   '' if txidFull is None else txidFull[:]
+      self.txidMall =   '' if txidMall is None else txidMall[:]
+      self.uComment  = u'' if comment  is None else toUnicode(comment
 
+   #############################################################################
    def serialize(self):
+      if [len(self.txidFull), len(self.txidMall)] = [0,0]:
+         raise UninitializedError('TxComm is not associated with any tx')
+
       bp = BinaryPacker()
-      bp.put(VAR_UNICODE, self.comm)
+      bp.put(VAR_STR,      self.txidFull)
+      bp.put(VAR_STR,      self.txidMall)
+      bp.put(VAR_UNICODE,  self.uComment)
       return bp.getBinaryString()
 
+   #############################################################################
    def unserialize(self, theStr):
       bu = makeBinaryUnpacker(theStr)
-      self.comm = bu.get(VAR_UNICODE)
+      self.txidFull = bu.get(VAR_STR)
+      self.txidMall = bu.get(VAR_STR)
+      self.uComment = bu.get(VAR_UNICODE)
       return self
 
 
 ################################################################################
 ################################################################################
-class ArmoryFileHeader(WalletEntry):
+class ArmoryFileHeader(object):
   
-   FILECODE = 'HEAD' 
-
    #############################################################################
    def __init__(self):
       # Note, we use a different fileID than wallet 1.35 so that older versions
       # of Armory don't attempt to load the 2.0 wallets
       LOGDEBUG('Creating file header')
       self.fileID        = '\xa0ARMORY\x0a'
-      self.armoryVer     = getVersionInt(ARMORY_WALLET_VERSION)
-      self.flags         = BitSet(64)
+      self.flags         = BitSet(32)
       self.createTime    = UINT64_MAX
-      #self.wltName       = u''
-      #self.wltDescr      = u''
-      #self.wltID         = ''
+      self.wltName       = u''
+      self.wltDescr      = u''
 
-      # Identifies whether this file is simply
+      self.rsecParityPerData = [RSEC_PARITY_BYTES, RSEC_PER_DATA_BYTES]
+
+      # Identifies whether this file is intended to be used as a full wallet,
+      # or perhaps holds metadata or transient data for some other operation
       self.isTransferWallet = False
       self.isSupplemental = False
 
@@ -1134,13 +1173,21 @@ class ArmoryFileHeader(WalletEntry):
    def serialize(self):
       name  = truncUnicode(self.wltName,  32 )
       descr = truncUnicode(self.wltDescr, 256)
+
+      self.flags.reset()
+      self.flags.setBit(0, self.isTransferWallet)
+      self.flags.setBit(1, self.isSupplemental)
       
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK,    self.fileID,           widthBytes=  8)
-      bp.put(UINT32,          self.armoryVer)       #widthBytes=  4
-      bp.put(BINARY_CHUNK,    MAGIC_BYTES,           widthBytes=  4)
-      bp.put(UINT64,          self.flags.toValue()) #widthBytes=  8
-      bp.put(UINT64,          self.createTime)      #widthBytes = 8
+      bp.put(BINARY_CHUNK,    self.fileID,           width=  8)
+      bp.put(UINT32,          getVersionInt(ARMORY_WALLET_VERSION))
+      bp.put(BINARY_CHUNK,    MAGIC_BYTES,           width=  4)
+      bp.put(UINT32,          self.flags.toInteger())
+      bp.put(UINT64,          self.createTime)      
+      bp.put(UINT32,          self.rsecParityPerData[0])      
+      bp.put(UINT32,          self.rsecParityPerData[1])     
+      bp.put(BINARY_CHUNK,    toBytes(name),         width= 32)
+      bp.put(BINARY_CHUNK,    toBytes(descr),        width=256)
       return bp.getBinaryString()
 
    #############################################################################
@@ -1149,8 +1196,11 @@ class ArmoryFileHeader(WalletEntry):
       self.fileID     = bp.get(BINARY_CHUNK, 8)
       self.armoryVer  = bp.get(UINT32)
       magicbytes      = bp.get(BINARY_CHUNK, 4)
-      flagsInt        = bp.get(UINT64)
-      self.createTime = bp.get(UINT64)
+      flagsInt        = bp.get(UINT32)
+      rsecParity      = bp.get(UINT32)
+      rsecPerData     = bp.get(UINT32)
+      wltNameBin      = bp.get(BINARY_CHUNK, 32)
+      wltDescrBin     = bp.get(BINARY_CHUNK, 256)
 
       if not magicbytes==MAGIC_BYTES:
          LOGERROR('This wallet is for the wrong network!')
@@ -1158,9 +1208,9 @@ class ArmoryFileHeader(WalletEntry):
          LOGERROR('   You are on:     %s ', BLOCKCHAINS[MAGIC_BYTES])
          raise NetworkIDError
       
-      self.flags = BitSet().fromValue(flagsInt, 64)
       self.wltName  = toUnicode(wltNameBin.rstrip('\x00'))
       self.wltDescr = toUnicode(wltDescrBin.rstrip('\x00'))
+      self.rsecParityPerData = [rsecParity, rsecPerData]
       return self
 
 
@@ -1549,8 +1599,6 @@ class ArmoryRoot(ArmoryExtendedKey):
       self.userRemoved = False
 
       
-      # 
-      self.wltFileRef = None
 
 
       """ # Old pybtcwallet stuff
@@ -1995,8 +2043,6 @@ class ArmoryRoot(ArmoryExtendedKey):
 # We should have all the classes availale by now, we can add the 
 # class list to the WalletEntry static members
 ISREQUIRED=True
-WalletEntry.addClassToMap('HEAD', ArmoryFileHeader)
-WalletEntry.addClassToMap('ADDR', ArmoryAddress, ISREQUIRED)
 WalletEntry.addClassToMap('ROOT', ArmoryRoot, ISREQUIRED)
 WalletEntry.addClassToMap('LABL', AddressLabel)
 WalletEntry.addClassToMap('COMM', TxComment)

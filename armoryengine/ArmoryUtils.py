@@ -1889,7 +1889,7 @@ def binary_to_int(b, endIn=LITTLEENDIAN):
    return hex_to_int(h)
 
 ##### INT/BITS #####
-
+# These two methods are deprecated in favor of the BitSet class
 def int_to_bitset(i, widthBytes=0):
    bitsOut = []
    while i>0:
@@ -1910,6 +1910,12 @@ def bitset_to_int(bitset):
 
 ################################################################################
 class BitSet(object):
+   """
+   A very simplie implementation of a BitSet, intended for serialization and
+   deserialization (thus the size of the BitSet must be a multiple of 8).  
+   It's not intended to be fast:  if you need to make thousands of bitsets
+   holding millions of flags, this isn't the class to use.
+   """
    ############################################################
    def __init__(self, numBits=0):
       if not numBits%8 == 0:
@@ -1918,9 +1924,19 @@ class BitSet(object):
       self.bitList = [0] * roundUpMod(numBits, 8)
 
    ############################################################
+   def __len__(self):
+      return self.getNumBits()
+
+   ############################################################
    def getNumBits(self):
       return len(self.bitList)
 
+   ############################################################
+   def reset(self, state=False):
+      newVal = 1 if state else 0
+      for i in range(len(self.bitList)):
+         self.setBit(i, newVal)
+         
    
    ############################################################
    def setBit(self, index, val):
@@ -1939,8 +1955,30 @@ class BitSet(object):
       return self.bitList[index]
 
    ############################################################
-   def getBitString(self):
+   def getSlice(self, start, nbits):
+      bs = BitSet(nbits)
+      for i in range(nbits):
+         bs.bitList[i] = self.bitList[i+start]
+      return bs
+
+   ############################################################
+   def toBitString(self):
       return ''.join(['1' if b else '0' for b in self.bitList])
+
+   ############################################################
+   def toBinaryString(self, byteWidth=None):
+      if self.getNumBits() == 0:
+         return ''
+
+      if byteWidth is None:
+         byteWidth = self.getNumBits()/8
+
+      if byteWidth < self.getNumBits()/8:
+         raise BadInputError('Requested width does not match bitset')
+
+      return int_to_binary(self.toInteger(), 
+                           widthBytes=byteWidth,
+                           endOut=BIGENDIAN)
 
    ############################################################
    def toInteger(self):
@@ -1951,9 +1989,46 @@ class BitSet(object):
       
 
    ############################################################
+   def copy(self, newSize=None):
+      if newSize is None:
+         newSize = self.getNumBits()
+
+      if newSize < self.getNumBits():
+         LOGWARN('Truncating BitSet from %d bits to %d bits',
+                                    self.getNumBits(), newSize)
+
+      bs = BitSet(newSize)
+      for i in range(newSize):
+         bs.bitList[i] = 0 if i>=self.getNumBits() else self.bitList[i]
+
+      return bs
+   
+
+   ############################################################
+   @staticmethod
+   def CreateFromBitString(bitstr):
+      """
+      A "bit string" is just a list of '1' and '0's in a string
+      """
+      bitstr = bitstr.replace(' ','')
+      bs = BitSet(len(bitstr))
+      for i in range(len(bitstr)):
+         bs.setBit(i, int(bitstr[i]))
+      return bs
+
+   ############################################################
+   @staticmethod
+   def CreateFromBinaryString(binstr):
+      """
+      This is the most compact representation of a BitSet, raw binary out
+      """
+      nBytes = len(binstr)
+      readInt = binary_to_int(binstr, BIGENDIAN)
+      return BitSet.CreateFromInteger(readInt, nBytes*8)
+
+   ############################################################
    @staticmethod
    def CreateFromInteger(ival, numBits=0):
-
    
       # Could use log(ival, 2) but no need for transcendental functions
       blist = []
