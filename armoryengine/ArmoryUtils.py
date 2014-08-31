@@ -184,6 +184,7 @@ class SignatureError(Exception): pass
 class KeyDataError(Exception): pass
 class ChecksumError(Exception): pass
 class WalletAddressError(Exception): pass
+class WalletUpdateError(Exception): pass
 class PassphraseError(Exception): pass
 class EncryptionError(Exception): pass
 class KdfError(Exception): pass
