@@ -206,6 +206,7 @@ class BadInputError(Exception): pass
 class UstxError(Exception): pass
 class P2SHNotSupportedError(Exception): pass
 class UninitializedError(Exception): pass
+class MultisigError(Exception): pass
 
 # Get the host operating system
 opsys = platform.system()

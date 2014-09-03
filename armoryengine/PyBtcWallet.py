@@ -869,8 +869,10 @@ class PyBtcWallet(object):
 
       if securePassphrase:
          securePassphrase = SecureBinaryData(securePassphrase)
+
       if plainRootKey:
          plainRootKey = SecureBinaryData(plainRootKey)
+
       if chaincode:
          chaincode = SecureBinaryData(chaincode)
 

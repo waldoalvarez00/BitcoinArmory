@@ -25,7 +25,7 @@ class ArmoryWalletFile(object):
 
       # WalletEntry objects may request an update, but that update is not 
       # applied right away.  This variable will be incremented on every
-      # call to applyUpdates(), so WE objects know when it's done
+      # call to fsyncUpdates(), so WE objects know when it's done
       self.updateCount  = 0
 
       # We will need a bunch of different pathnames for atomic update ops
@@ -65,6 +65,9 @@ class ArmoryWalletFile(object):
       # List of all KDF objects -- probably created based on testing the 
       # system speed when the wallet was created
       self.kdfMap  = {}
+
+      # Maps relationship IDs to relationship objects
+      self.relationshipMap  = {}
 
       # Master address list of all wallets/roots/chains that could receive BTC
       self.masterAddrMap  = {}
@@ -272,14 +275,14 @@ class ArmoryWalletFile(object):
       """
       This is intended to be used for one-shot safe writing to file. 
       Normally, you would batch your updates using addFileOperationToQueue
-      and then call applyUpdates() when you're done.
+      and then call fsyncUpdates() when you're done.
       """
       if not len(self.updateQueue)==0:
-         LOGERROR('Wallet update queue not empty!  Applying previously')
-         LOGERROR('queued operations before executing this update.')
+         LOGERROR('Wallet update queue not empty!  Adding this to the')
+         LOGERROR('queue and ')
 
       self.addFileOperationToQueue(operationType, theData, loc)
-      self.applyUpdates()
+      self.fsyncUpdates()
           
 
    #############################################################################
@@ -384,7 +387,7 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   def applyUpdates(self):
+   def fsyncUpdates(self):
             
       """
       When we want to add data to the wallet file, we will do so in a completely
@@ -401,35 +404,46 @@ class ArmoryWalletFile(object):
       a way that the user should know two things:
 
       """
-      if len(updateList)==0:
+      if len(self.updateQueue)==0:
          return False
 
       if not os.path.exists(self.walletPath):
          raise FileExistsError, 'No wallet file exists to be updated!'
 
+      # Identify if the batch contains updates to the same object mult times.
+      # We can safely batch updates to any mixture of objects, but not 
+      # multiple changes to the same object
+      fileLocToUpdate = set()
+      for opType,weObj in self.updateQueue:
+         if weObj.wltByteLoc in fileLocToUpdate:
+            LOGERROR('Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
+                        binary_to_hex(weObj.uniqueID, weObj.wltByteLoc)
+            raise WalletUpdateError('Multiple updates to same ID in batch')
+         fileLocToUpdate.add(weObj.wltByteLoc)
+
       # Make sure that the primary and backup files are synced before update
       self.doWalletFileConsistencyCheck()
 
-      # Make sure we can update and/or delete all entries
+      # Make sure all entries have valid wallet file locations
       for opType,weObj in self.updateQueue:
          if opType in ['updateentry', 'deleteentry'] and weObj.wltByteLoc <= 0:
             raise WalletUpdateError('Wallet entry cannot be updated without loc')
      
-      # Apply updatings to both files in an identical manner
-      MAIN,BACKUP = 0,1
+      # Apply updating to both files in an identical manner
+      MAIN,BACKUP = [0,1]
       for fnum in [MAIN,BACKUP]:
          
-         # Interrupt flag is only for unit-testing and otherwise always false
-         wltPath   = [self.walletPath,     self.walletPathBackup ][fnum]
-         interrupt = [self.interruptTest1, self.interruptTest3   ][fnum]
-
          # Update fail flags so that if process crashes mid-update, we know
-         # where it failed and can recover appropriately
+         # upon restart where it failed and can recover appropriately
          if fnum==MAIN:
-            # Set flag to start modifying main wallet file
+            # Modify the main wallet file, set flag to indicate we started
+            wltPath = self.walletPath
+            interrupt = self.interruptTest1
             touchFile(self.walletPathUpdFail)
          elif fnum==BACKUP:
-            # +flag to start modifying backup file, -flag b/c main updating main
+            # +flag to start modifying backup file, -flag bc MAIN updating done
+            wltPath = self.walletPathBackup
+            interrupt = self.interruptTest3
             touchFile(self.walletPathBakFail)
             if self.interruptTest2: raise InterruptTestError 
             os.remove(self.walletPathUpdFail)
@@ -444,33 +458,34 @@ class ArmoryWalletFile(object):
             writefile = open(wltPath, 'r+b')
          except IOError:
             LOGEXCEPT('Failed to open %s in r+b mode. Permissions?' % wltPath)
+            return False
 
          for opType,weObj in self.updateQueue:
             # At this point, self.wltEntrySz is always the size of the 
-            # object in the file, not yet been updated if the WE is 
-            # now a new size.  An "UpdateEntry" command is actually a 
-            # delete&append command if we serialize the object and it 
-            # turns out to be a different size.  Update the wlt loc and
-            # size at the end of updating the backup file
-
-            weObj.needsFsync = False
+            # object currently in the file, not yet been updated if the WE 
+            # is now a new size.  If we requested "UpdateEntry" but we 
+            # serialize the object and it turns out to be a different size,   
+            # then we delete and append, instead.
             if opType.lower()=='rewriteheader':
+               # Header is always exact same size, at beginning of file
                wltfile.seek(0)
                wltfile.write(weObj.serialize())
             elif opType.lower() == 'addentry':
+               # Queue up append operations until after in-place modifications
                appendAfterOverwriteQueue.append([weObj, weObj.serializeEntry()])
             elif opType.lower() == 'deleteentry':
+               # Delete is just in-place modification, overwrite with \x00's
                weObj.isDeleted = True
                wltfile.seek(weObj.wltByteLoc)
                wltfile.write(weObj.serialize())
             elif opType.lower() == 'updateentry':
                weSer = weObj.serializeEntry()
                if len(weSer) == weObj.wltEntrySz:
-                  # Same size, overwrite in place
+                  # Same size, overwrite in-place
                   wltfile.seek(weObj.wltByteLoc)
                   wltfile.write(weObj.serialize())
                else:
-                  # Obj changed size, delete old and put new at end
+                  # Obj changed size, delete old add new one to the queue
                   wltfile.seek(weObj.wltByteLoc)
                   wltfile.write(weObj.serializeEntry(doDelete=True))
                   appendAfterOverwriteQueue.append([weObj, weSer])
@@ -484,11 +499,12 @@ class ArmoryWalletFile(object):
             appendFile = open(wltPath, 'ab')
          except IOError:
             LOGEXCEPT('Failed to open %s in ab mode. Permissions?' % wltPath)
+            return False
 
          for weObj,weSer in appendAfterOverwriteQueue:
             appendfile.write(weSer)
+            # At end of updating backup file, can update WE objects
             if fnum==BACKUP:
-               # At end of updating backup file, can update WE objects
                weObj.wltEntrySz = len(weSer)
                weObj.wltByteLoc = appendfile.tell() - weObj.wltEntrySz
       
@@ -497,6 +513,10 @@ class ArmoryWalletFile(object):
       # Finish by removing flag that indicates we were modifying backup file
       os.remove(self.walletPathBakFail)
 
+      # Mark WalletEntry objects as having been updated
+      for opType,weObj in self.updateQueue:
+         weObj.needsFsync = False
+
       # In debug mode, verify that main and backup are identical
       if CLI_OPTIONS.doDebug:
          hashMain = sha256(open(self.walletPath,       'rb').read())
@@ -504,81 +524,13 @@ class ArmoryWalletFile(object):
          if not hashMain==hashBack:
             raise WalletUpdateError('Updates of two wallet files do not match!')
 
-      '''
-      # Split the queue into updates and modifications.  
-      toAppend = []
-      toModify = []
-      for modType,weObj in updateList:
-         if(modType==WLT_UPDATE_ADD):
-            toAppend.append(rawData)
-         elif(modType==WLT_UPDATE_MODIFY):
-            toModify.append(rawData)
-
-      # We need to safely modify both the main wallet file and backup
-      # Start with main wallet
-      touchFile(self.walletPathUpdFail)
-
-      try:
-         wltfile = open(self.walletPath, 'ab')
-         wltfile.write(''.join(toAppend))
-         wltfile.close()
-
-         # This is for unit-testing the atomic-wallet-file-update robustness
-         if self.interruptTest1: raise InterruptTestError
-
-         wltfile = open(self.walletPath, 'r+b')
-         for loc,replStr in toModify:
-            wltfile.seek(loc)
-            wltfile.write(replStr)
-         wltfile.close()
-
-      except IOError:
-         LOGEXCEPT('Could not write data to wallet.  Permissions?')
-         shutil.copy(self.walletPathBackup, self.walletPath)
-         os.remove(self.walletPathUpdFail)
-         return False
-
-      # Write backup flag before removing main-update flag.  If we see
-      # both flags, we know file IO was interrupted RIGHT HERE
-      touchFile(self.walletPathBakFail)
-
-      # This is for unit-testing the atomic-wallet-file-update robustness
-      if self.interruptTest2: raise InterruptTestError
-
-      os.remove(self.walletPathUpdFail)
-
-      # Modify backup
-      try:
-         # This is for unit-testing the atomic-wallet-file-update robustness
-         if self.interruptTest3: raise InterruptTestError
-
-         backupfile = open(self.walletPathBackup, 'ab')
-         backupfile.write(''.join(toAppend))
-         backupfile.close()
-
-         backupfile = open(self.walletPathBackup, 'r+b')
-         for loc,replStr in toModify:
-            backupfile.seek(loc)
-            backupfile.write(replStr)
-         backupfile.close()
-
-      except IOError:
-         LOGEXCEPT('Could not write backup wallet.  Permissions?')
-         shutil.copy(self.walletPath, self.walletPathBackup)
-         os.remove(self.walletPathUpdFail)
-         return False
-
-      os.remove(self.walletPathBakFail)
-      self.updateCount += 1
-      self.updateQueue = []
-      '''
-
       return True
 
 
 
+
    #############################################################################
-   def doWalletFileConsistencyCheck(self):
+   def doWalletFileConsistencyCheck(self, onlySyncBackup=True):
       """
       First we check the file-update flags (files we touched/removed during
       file modification operations), and then restore the primary wallet file
@@ -604,49 +556,146 @@ class ArmoryWalletFile(object):
       """
 
       if not os.path.exists(self.walletPath):
-         raise FileExistsError, 'No wallet file exists to be checked!'
+         raise FileExistsError('No wallet file exists to be checked!')
 
-      if not os.path.exists(self.walletPathBackup):
+      walletFileBackup = self.getWalletPath('backup')
+      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
+      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
+
+      if not os.path.exists(walletFileBackup):
          # We haven't even created a backup file, yet
-         LOGDEBUG('Creating backup file %s', self.walletPathBackup)
-         touchFile(self.walletPathBakFail)
-         shutil.copy(self.walletPath, self.walletPathBackup)
-         os.remove(self.walletPathBakFail)
-         return
+         LOGDEBUG('Creating backup file %s', walletFileBackup)
+         touchFile(backupUpdateFlag)
+         shutil.copy(self.walletPath, walletFileBackup)
+         os.remove(backupUpdateFlag)
 
-      if os.path.exists(self.walletPathBakFail) and os.path.exists(self.walletPathUpdFail):
+      if os.path.exists(backupUpdateFlag) and os.path.exists(mainUpdateFlag):
          # Here we actually have a good main file, but backup never succeeded
-         LOGWARN('***WARNING: error in backup file... how did that happen?')
-         shutil.copy(self.walletPath, self.walletPathBackup)
-         os.remove(self.walletPathUpdFail)
-         os.remove(self.walletPathBakFail)
-      elif os.path.exists(self.walletPathUpdFail):
-         LOGWARN('***WARNING: last file operation failed!  Restoring wallet from backup')
+         LOGERROR('***WARNING: error in backup file... how did that happen?')
+         shutil.copy(self.walletPath, walletFileBackup)
+         os.remove(mainUpdateFlag)
+         os.remove(backupUpdateFlag)
+      elif os.path.exists(mainUpdateFlag):
+         LOGERROR('***WARNING: last file operation failed!  Restoring wallet from backup')
          # main wallet file might be corrupt, copy from backup
-         shutil.copy(self.walletPathBackup, self.walletPath)
-         os.remove(self.walletPathUpdFail)
-      elif os.path.exists(self.walletPathBakFail):
-         LOGWARN('***WARNING: creation of backup was interrupted -- fixing')
-         shutil.copy(self.walletPath, self.walletPathBackup)
-         os.remove(self.walletPathBakFail)
+         shutil.copy(walletFileBackup, self.walletPath)
+         os.remove(mainUpdateFlag)
+      elif os.path.exists(backupUpdateFlag):
+         LOGERROR('***WARNING: creation of backup was interrupted -- fixing')
+         shutil.copy(self.walletPath, walletFileBackup)
+         os.remove(backupUpdateFlag)
+
+      if onlySyncBackup:
+         return 0
 
 
    #############################################################################
-   def createAndAddNewMasterSeed(self, withEncryption=True, \
-                                         nonDefaultEncrInfo=None):
-      if withEncryption and self.isLocked():
-         LOGERROR('Trying to add new encrypted root to wallet while locked')
-         raise EncryptionError
+   @VerifyArgTypes(securePwd=SecureBinaryData,
+                   extraEntropy=[SecureBinaryData, None],
+                   preGenSeed=[SecureBinaryData, None])
+   def generateNewSinglePwdSeedEkeyKDF(self, securePwd, kdfAlgo='ROMIXOV2',
+                                       kdfTargSec=0.25, kdfMaxMem=32*MEGABYTE,
+                                       encrAlgo='AES256CBC', extraEntropy=None,
+                                       preGenSeed=None):
+      
+   
+      LOGINFO('Creating new single-password wallet seed')
+
+      LOGINFO('Creating new KDF with params: time=%0.2fs, maxmem=%0.2fMB', 
+                                        kdfTargSec, kdfMaxMem/float(MEGABYTE))
+
+      newKdf = KdfObject.createNewKDF(kdfAlgo, kdfTargSec, kdfMaxMem)
+
+      tstart = RightNow()
+      newKdf.execKDF(SecureBinaryData('TestPassword'))
+      tend = RightNow()
+
+      LOGINFO('KDF ID=%s uses %0.2fMB and a test password took %0.2fs',
+                     binary_to_hex(newKdf.getKdfID()), 
+                     newKdf.memReqd/float(MEGABYTE), (tend-tstart))
+
+      
+      LOGINFO('Creating new master encryption key')
+      newEkey = EncryptionKey().createNewMasterKey(newKdf, encrAlgo, securePwd)
+      LOGINFO('New Ekey has ID=%s',  binary_to_hex(newEkey.getEkeyID()))
+
+      
+      # Copy all sensitive data into newSeed and destroy at the end.  If a SBD
+      # object was created to be passed into pregen arg, caller can destroy it.
+      if preGeneratedSeed is None:
+         if extraEntropy is None:
+            raise KeyDataError('Need extra entropy for secure seed creation')
+         newSeed = SecureBinaryData().GenerateRandom(32, extraEntropy)
+      else:
+         newSeed = preGeneratedSeed.copy()
+
+
+      newRoot = ArmoryRoot().createNewRootFromSeed(seed=newSeed)
+      
+      
+      self.addFileOperationToQueue('AddEntry', newKdf)
+      self.addFileOperationToQueue('AddEntry', newEkey)
+      self.addFileOperationToQueue('AddEntry', newRoot)
+      self.fsyncUpdates()
+      
+      
+
+   #############################################################################
+   @VerifyArgTypes(extraEntropy=[SecureBinaryData, None],
+                   preGeneratedSeed=[SecureBinaryData, None])
+   def createAndAddNewMasterRoot(self, extraEntropy, encryptInfo, 
+                                       preGeneratedSeed=None, **cryptKwArgs):
+      """
+      If this new master seed is being protected with encryption that isn't
+      already defined in the wallet, then the new Ekey & KDF objects needs 
+      to be created and added to the wallet before calling this function.  
+      The **cryptKwArgs will be passed to the ACI:
+         
+         encryptInfo.encrypt(newSeed, **cryptKwArgs)
+   
+      Thus, it should contain everything that is needed to do the master 
+      seed encryption.  If it's password encryption only, then it should
+      include a KDF and a password.  If it's master-key encryption, should 
+      include the master ekeyObj and the password(s) with which it is encrypted
+      
+      "extraEntropy" is a required argument here, because we should *always*
+      be sending extra entropy into the secure (P)RNG for seed creation.  
+      Never fully trust the operating system, and there's no way to make its 
+      seed generation worse, so we will require it even if the caller decides
+      to pass in all zero bytes.  ArmoryQt.getExtraEntropyForKeyGen() (as 
+      of this writing) provides a 32-byte SecureBinaryData object which is 
+      the hash of system files, key- and mouse-press timings, and a screenshot 
+      of the user's desktop.
+
+      Note if you pass in a pregenerated seed, you can then pass in None for 
+      extraEntropy arg
+      """
+
+
+      # Copy all sensitive data into newSeed and destroy at the end.  If a SBD
+      # object was created to be passed into pregen arg, caller can destroy it.
+      if preGeneratedSeed is None:
+         if extraEntropy is None:
+            raise KeyDataError('Need extra entropy for secure seed creation')
+         newSeed = SecureBinaryData().GenerateRandom(32, extraEntropy)
+      else:
+         newSeed = preGeneratedSeed.copy()
+
+
+      
+      try:
+         cryptSeed = encryptInfo.encrypt(newSeed, **cryptKwArgs)
+         addPregeneratedMasterSeed(newSeed, encrSeed)
+
+      finally:
+         LOGEXCEPT('Error during seed creation and addition to wallet')
+         newSeed.destroy()
+      
+       
+
 
       
 
-      
-   #############################################################################
-   def addPregeneratedMasterSeed(self, plainSeed=None, encrSeed=None):
-
-
-   #############################################################################
-   def addPregeneratedMasterRoot(self, plainSeed=None, encrSeed=None):
 
 
    #############################################################################
@@ -709,7 +758,7 @@ class ArmoryWalletFile(object):
       LOGDEBUG('Creating new master encryption key')
       if not securePassphrase is None:
          securePassphrase = SecureBinaryData(securePassphrase)
-         newEKey = EncryptionKey().CreateNewMasterKey(newKDF, \
+         newEKey = EncryptionKey().createNewMasterKey(newKDF, \
                                                    'AE256CFB', \
                                                    securePassphrase)
          self.ekeyMap[newEKey.getEncryptionKeyID()] = newEKey
@@ -837,13 +886,16 @@ class RootRelationship(object):
    """
    FILECODE = 'RLAT'
 
+   #############################################################################
    def __init__(self, M=None, N=None, siblingList=None, labels=None):
       self.M = M if M else 0
       self.N = N if N else 0
-      self.relID     = NULLSTR(8)
-      self.randID    = SecureBinaryData().GenerateRandom(8)
-      self.siblings  = []
-      self.sibLabels = []
+      self.relID      = NULLSTR(8)
+      self.randID     = SecureBinaryData().GenerateRandom(8)
+      self.siblings   = []
+      self.sibLabels  = []
+      self.sibLookup  = []
+      self.isComplete = False
 
 
       if siblingList is None:
@@ -853,36 +905,54 @@ class RootRelationship(object):
          labels = []
 
       if len(siblingList) > 15:
-         LOGERROR('Cannot have more than 15 wallets in multisig!')
-         return
+         raise MultisigError('Cannot have more than 15 wallets in multisig!')
 
-      self.siblings  = siblingList[:]
-      self.sibLabels = labels[:]
-
-      for sib in self.siblings:
+      if not (self.N == len(siblingList) == len(labels)):
+         raise MultisigError('Length of sibling list and labels must match N:'
+                             ' N=%d, len(sibs)=%d, len(lbls)=%d' % \
+                             (self.N, len(siblingList), len(labels))
+         
+      for sib,lbl in zip(siblingList, labels):
          if not len(sib)==20:
-            LOGERROR('All siblings must be specified by 20-byte hash160 values')
-            return
+            raise MultisigError('All siblings must be 20-byte hash160 values')
+         self.addSibling(sib,lbl)
 
 
+
+   #############################################################################
    def computeRelID(self):
       self.relID = binary_to_base58(hash256(self.serialize()))[:8]
       return self.relID
 
       
 
-   def addSibling(sibRootID, label):
+   #############################################################################
+   def addSibling(self, sibRootID, label):
       if len(self.siblings) >= self.N:
          raise BadInputError('RR already has %d siblings' % self.N)
 
       self.siblings.append(sibRootID)
-      self.labels.append(label)
+      self.sibLabels.append(label)
 
       if len(self.siblings) == self.N:
-      self.siblings.sort()
+         self.isComplete = True
+         self.siblings.sort()
+         for i,sib in enumerate(self.siblings):
+            self.sibLookup[sib] = i
           
 
+   #############################################################################
+   def getSiblingIndex(self, sibID):
+      if not self.isComplete:
+         raise UninitializedError('Relationship object not full yet')
 
+      if not sibID in self.sibLookup:
+         raise UninitializedError('Sibling not found in this relationship obj')
+          
+      return self.sibLookup[sibID]
+      
+
+   #############################################################################
    def serialize(self):
       bp = BinaryPacker()
       bp.put(BINARY_CHUNK, self.relID, widthBytes=8)
@@ -892,11 +962,12 @@ class RootRelationship(object):
       bp.put(UINT8, len(self.siblings))
       for i in range(len(self.siblings)):
          bp.put(VAR_STR, self.siblings[i])
-         bp.put(VAR_STR, self.labels[i])
+         bp.put(VAR_UNICODE, self.labels[i])
 
       return bp.getBinaryString()
 
 
+   #############################################################################
    def unserialize(self, theStr):
       bu = makeBinaryUnpacker(theStr)
       relID = bu.get(BINARY_CHUNK, 8)
@@ -908,7 +979,7 @@ class RootRelationship(object):
       lblList = []
       for i in range(nsib):
          sibList.append(bu.get(VAR_STR))
-         lblList.append(bu.get(VAR_STR))
+         lblList.append(bu.get(VAR_UNICODE))
 
       self.__init__(M, N, sibList, lblList)
       return self
@@ -932,429 +1003,6 @@ AEKTYPE = enum('Uninitialized', 'BIP32', 'ARMORY135', 'JBOK')
 
 
 
-################################################################################
-################################################################################
-class ArmoryExtendedKey(WalletEntry):
-   def __init__(self):
-      self.isWatchOnly     = False
-      self.privCryptInfo   = ArmoryCryptInfo(None)
-      self.sbdPrivKeyData  = NULLSBD()
-      self.sbdPublicKey33  = NULLSBD()
-      self.sbdChaincode    = NULLSBD()
-      self.aekParent       = None
-      self.aekRoot         = None
-      self.derivePath      = []
-      self.useCompressedPub= True
-      self.aekType         = AEKTYPE.Uninitialized
-      self.keyBornTime     = 0
-      self.keyBornBlock    = 0
-      self.keyRAMLifetime  = 10
-      self.relockAtTime    = 0
-
-
-   #############################################################################
-   def initFromEncryptedPrivData(self, 
-                        sbdPrivCrypt=None, sbdPub=None, sbdChain=None,    
-                        privCryptInfo=None, parentID=None, parentRef=None,
-                        keyBorn=0, derivePath=None, wltRef=None):
-      
-
-      plainPriv=NULLSBD()
-
-      try:
-         if privCryptInfo is None or privCryptInfo.noEncryption():
-            plainPriv = sbdPriv.copy()
-         else:
-            self.
-         
-         if sbdPriv and not sbdPub:
-            sbdPub = CryptoECDSA().ComputePublicKey(sbdPriv)
-      
-      finally:
-         plainPriv.destroy()
-
-   #############################################################################
-   def initFromPlainPrivData(self, 
-
-   #############################################################################
-   def initFromPlainPrivDataToBeEncrypted(self, 
-
-
-
-   #############################################################################
-   def initializeAEK(self, privData=None, alreadyCrypt=None,
-                              toBeEncrID=None, pub=None, chain=None, parRef=None, 
-                              derivePath=None, wltRef=None, **classSpecificArgs):
-
-      if privData is None:
-         aek.createFromPublicKeyData(pub, chain, parRef, derivePath, wltRef)
-      else:
-         if alreadyCryptInfo is None:
-            if toBeEncrID is None:
-               aek.createFromPlainKeyData(privData, pub, chain
-                
-         elif isinstance(alreadyCryptInfo, ArmoryCryptInfo):
-            aek.createFromEncryptedKeyData
-            aci = ArmoryCryptInfo(NULLKDF, 'AES256CBC', toBeEncrID, 'PUBKEY20')
-      
-      if getattr(aek, 'initialize'):
-         aek.initialize(**classSpecificArgs)  # defined in the derived AEK class
-
-      return aek
-   
-      
-   #############################################################################
-   def serialize(self):
-
-      pubKey = self.sbdPublicKey33.copy()
-      if self.sbdPublicKey33.getSize() == 65:
-         pubKey = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
-
-
-      parentID = self.aekParent.getHash160() if self.aekParent else ''
-      rootID   = self.aekRoot.getHash160()   if self.aekRoot   else ''
-
-      flags = BitSet(16)
-      flags.setBit(0, self.isWatchOnly)
-      flags.setBit(1, self.useCompressedPub)
-      flags.setBit(2, self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NextUnlock)
-      flags.setBit(3, self.sbdPrivKeyData.getSize()==0)
-      flags.setBit(4, self.sbdChaincode.getSize()==0)
-
-
-      # We are not committed to fixed-width wallet entries.  Might as well
-      # Save space if fields are empty by using VAR_STRs
-      bp = BinaryPacker()
-      bp.put(UINT32,        getVersionInt(ARMORY_WALLET_VERSION))
-      bp.put(BINARY_CHUNK,  self.EXTKEYTYPE,                 8)
-      bp.put(BITSET,        flags,                           2)
-      bp.put(UINT64,        self.keyBornTime)
-      bp.put(UINT32,        self.keyBornBlock)
-      bp.put(BINARY_CHUNK,  self.privCryptInfo.serialize(), 32)
-      bp.put(VAR_STR,       self.sbdPrivKeyData.toBinStr())
-      bp.put(VAR_STR,       pubKey)
-      bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
-      bp.put(VAR_STR,       parentID)
-      bp.put(VAR_STR,       rootID)
-      bp.put(UINT16,         len(self.derivePath))
-      for idx in self.derivePath:
-         bp.put(UINT32, idx)
-      
-      # Add Reed-Solomon error correction 
-      allDataSoFar = bp.getBinaryString()
-      bp.put(VAR_STR,       createRSECCode(allDataSoFar))
-      return bp.getBinaryString()
-
-      
-   #############################################################################
-   def unserialize(self, toUnpack, wltRef=None):
-      # Does nothing if it's already a binary packer, and leaves its state
-      # at the end of the serialized AEK.  If not a BinaryPacker, creates one
-      # just for reading, and its end state is irrelevant.
-      toUnpack = makeBinaryUnpacker(toUnpack)
-
-      version = toUnpack.get(UINT32) 
-      if version != getVersionInt(ARMORY_WALLET_VERSION):
-         LOGWARN('AEK version in file: %s,  Armory Wallet version: %s', 
-                     getVersionString(readVersionInt(version)), 
-                     getVersionString(ARMORY_WALLET_VERSION))
-         
-
-      startPos = toUnpack.getPosition()
-
-      # We are not committed to fixed-width wallet entries.  Might as well
-      # Save space if fields are empty by using VAR_STRs
-      self.EXTKEYTYPE     = toUnpack.get(BINARY_CHUNK, 8)
-      flags               = toUnpack.get(BITSET,       2)
-      self.keyBornTime    = toUnpack.get(UINT64)
-      self.keyBornBlock   = toUnpack.get(UINT32)
-      privCryptInfoSer    = toUnpack.get(BINARY_CHUNK, 32)
-      privk               = toUnpack.get(VAR_STR)
-      pubk                = toUnpack.get(VAR_STR)
-      chain               = toUnpack.get(VAR_STR)
-      parentID            = toUnpack.get(VAR_STR)
-      rootID              = toUnpack.get(VAR_STR)
-      pathSize            = toUnpack.get(UINT16)
-      self.derivePath = []
-      for idx in range(pathSize):
-         self.derivePath.append(toUnpack.get(UINT32))
-
-      rsecCheck           = toUnpack.get(VAR_STR)
-      
-      currKeyPosition     = toUnpack.getPosition()
-      rsecProtectedData   = toUnpack.getBinaryString()[startPos:currPos]
-      serKeyData,failFlag,modFlag = checkRSECCode(rsecProtectedData, rsecCode)
-      if failFlag:
-         LOGERROR('Unrecoverable error in wallet entry')
-         we.isUnrecoverable = True 
-         return we
-      elif modFlag:
-         LOGWARN('Error in wallet file corrected successfully')
-         we.needRewrite = True 
-      
-      self.isWatchOnly       = flags.getBit(0)
-      self.useCompressedPub  = flags.getBit(1)
-      self.privKeyNextUnlock = flags.getBit(2)
-      emptyPriv              = flags.getBit(3)
-      emptyChain             = flags.getBit(4)
-
-      self.sbdPrivKeyData = NULLSBD() if emptyPriv  else SecureBinaryData(privk)
-      self.sbdChaincode   = NULLSBD() if emptyChain else SecureBinaryData(chain)
-
-      privk = None
-      chain = None
-      
-      return self
-      
-       
-
-
-      
-
-
-   #############################################################################
-   def getPrivKeyAvailability(self):
-      if self.isWatchOnly:
-         return PRIV_KEY_AVAIL.None
-      elif self.sbdPrivKeyPlain.getSize() > 0:
-         return PRIV_KEY_AVAIL.Plain
-      elif self.sbdPrivKeyData.getSize() > 0:
-         return PRIV_KEY_AVAIL.Encrypted
-      else:
-         return PRIV_KEY_AVAIL.NextUnlock
-
-
-   #############################################################################
-   def useEncryption(self):
-      return self.privCryptInfo.useEncryption()
-         
-
-
-
-   #############################################################################
-   def getSerializedPubKey(self, serType='hex'):
-      """
-      The various public key serializations:  "hex", "xpub"
-      """
-      if not self.useCompressedPub:
-         pub = CryptoECDSA().UncompressPoint(self.sbdPublicKey33).copy()
-      else:
-         pub = self.sbdPublicKey33.copy()
-         
-      if serType.lower()=='hex':
-         return pub.toHexStr()
-
-      elif serType.lower()=='xpub':
-         raise NotImplementedError('Encoding not implemented yet')
-         
-   #############################################################################
-   def getSerializedPrivKey(self, serType='hex'):
-      """
-      The various private key serializations: "hex", "sipa", "xprv"
-      """
-
-      if self.useEncryption() and self.isLocked():
-         raise WalletLockError('Cannot serialize locked priv key')
-
-      lastByte = '\x01' if self.useCompressedPub else ''
-      binPriv = self.sbdPrivKeyPlain.toBinStr() + lastByte
-         
-      if serType.lower()=='hex':
-         return binary_to_hex(hexPriv)
-      elif serType.lower()=='sipa':
-         binSipa '\x80' + binPriv + computeChecksum('\x80' + binPriv)
-         return binary_to_hex(binSipa)
-      elif serType.lower()=='xprv':
-         raise NotImplementedError('xprv encoding not yet implemented')
-
-   #############################################################################
-   def getPrivCryptArgs(self):
-      """
-      Examines self.privCryptInfo and produces as many arguments as it can
-      that are needed to call self.privCryptInfo.encrypt/decrypt.
-      """
-      mapOut = {}
-      if self.privCryptInfo.noEncryption():
-         return mapOut
-
-      if self.privCryptInfo.getEncryptIVSrc[0] == CRYPT_IV_SRC.PUBKEY20:
-         mapOut['ivData'] = self.sbdPublicKey33.getHash256()[:16]
-      else:
-         # If the IV is stored we don't need to pass it through, the
-         # privCryptInfo.decrypt/encrypt call will grab it from itself
-         mapOut['ivData']  = None
-
-      mapOut['isLocked'] = False
-      if self.wltFileRef is None:
-         mapOut['ekeyObj']  = None
-         mapOut['kdfObj']   = None
-      else:
-         kid = self.privCryptInfo.kdfObjID
-         eid = self.privCryptInfo.keySource
-         mapOut['kdfObj']   = self.wltFileRef.kdfMap.get(kid)
-         mapOut['ekeyObj']  = self.wltFileRef.ekeyMap.get(eid)
-         if not mapOut['ekeyObj'] is None:
-            mapOut['isLocked'] = mapOut['ekeyObj'].isLocked()
-
-      return mapOut
-      
-
-   #############################################################################
-   @VerifyArgTypes(keyData=[SecureBinaryData,None])
-   def getPlainPrivKeyCopy(self, keyData=None, kdfObj=None, ekeyObj=None):
-      """
-      This is the only way to get the private key out of an AEK object.
-      The plain key is never kept in an AEK object, which is why there's
-      no lock() and unlock() methods for AEK.  Instead, we only ever lock
-      and unlock the master encryption key, which is either supplied as
-      and argument to this function, or fetched from the parent wallet file.
-
-      In general, the extra input args are not going to be used in the 
-      app.  The ekeyObj will always be unlocked before we get here, and
-      the getPrivCryptArgs() call will fetch it for us from the wallet file.  
-      We might need to use the extra args if this object is not in a wallet
-      file and/or we are creating utility scripts using these objects.
-
-      NOTE:  This returns an SBD object which needs to be .destroy()ed by
-             the caller when it is finished with it.
-      """
-      if self.privCryptInfo.noEncryption():
-         return self.sbdPrivKeyData.copy()
-
-      aciDecryptAgs = self.getPrivCryptArgs()
-
-      # Override any args returned above with non-empty args to this func
-      if not kdfObj is None:
-         aciDecryptAgs['kdfObj'] = kdfObj
-      if not ekeyObj is None:
-         aciDecryptAgs['ekeyObj'] = ekeyObj
-         
-      try:
-         return self.privCryptInfo.decrypt( \
-                           self.sbdPrivKeyData, keyData, **aciDecryptAgs)
-      except:
-         LOGEXCEPT('Failed to decrypt private key')
-         return NULLSBD()
-
-      
-
-
-   
-      
-      
-
-   '''
-   #############################################################################
-   def lock(self):
-      if self.sbdPrivKeyCrypt.getSize()==0:
-         raise KeyDataError('No encrypted form of priv key available')
-
-   #############################################################################
-   def unlock(self, ekeyObj, keyData, justVerify=False):
-      if self.sbdPrivKeyPlain.getSize() > 0:
-         # Already unlocked, just extend the lifetime in RAM
-         if not justVerify:
-            self.relockAtTime = RightNow() + self.keyLifetime
-         return
-
-
-      keyType,keyID = self.privCryptInfo.getEncryptKeySrc()
-      if keyType == CRYPT_KEY_SRC.EKEY_OBJ:
-         if ekeyObj is None:
-            raise KeyDataError('Need ekey obj to unlock, but is None')
-
-         if not keyID == ekeyObj.getEkeyID():
-            raise KeyDataError('Incorrect ekey to unlock address')
-               
-               
-      self.sbdPrivKeyPlain = \
-            self.privCryptInfo.decrypt(self.sbdPrivKeyCrypt, 
-                                       keyData,
-                                       self.sbdPublicKey33.getHash256()[:16], 
-                                       ekeyObj)
-      if justVerify:
-         self.sbdPrivKeyPlain.destroy()
-      else:
-         self.relockAtTime = RightNow() + self.keyLifetime
-   '''
-
-
-   #############################################################################
-   def __signData(self, dataToSign, deterministicSig=False, normSig='Dontcare'):
-      """
-      This returns the raw data, signed using the CryptoECDSA module.  This 
-      should probably not be called directly by a top-level script, but 
-      instead the backbone of a bunch of standard methods for signing 
-      transactions, messages, perhaps Proof-of-Reserve trees, etc.
-
-      "normSig" is based on a proposal to only allow even s-values, or 
-      odd s-values to limit transaction malleability.  We might as well
-      put it here, though the default is not to mess with the outpout
-      of the SignData call.
-      """
-      if self.useEncryption() and self.isLocked():
-         raise WalletLockError('Cannot sign with locked priv key')
-      
-      try:
-         self.unlock()
-
-         if deterministicSig:
-            raise NotImplementedError('Cannot do deterministic signing yet')
-            sig = CryptoECDSA().SignData_RFC6979(dataToSign, self.sbdPrivKeyPlain)
-         else:
-            sig = CryptoECDSA().SignData(dataToSign, self.binPrivKey32_Plain)
-
-         sigstr = sig.toBinStr()
-
-         rBin = sigstr[:32 ]
-         sBin = sigstr[ 32:]
-
-         if not normSig=='Dontcare':
-            # normSig will either be 'even' or 'odd'.  If the calculated
-            # s-value does not match, then use -s mod N which will be 
-            # correct
-            raise NotImplementedError('This code is not yet tested!')
-            sInt = binary_to_int(sBin, BIGENDIAN)
-            if (normSig=='even' and sInt%2==1) or \
-               (normSig=='odd'  and sInt%2==0):
-               sInt = (-sInt) % SECP256K1_MOD
-               
-            sBin = int_to_binary(sInt, widthBytes=32, endOut=BIGENDIAN)
-
-         return (rBin, sBin)
-
-      except:
-         LOGEXCEPT('Error generating signature')
-      finally:
-         self.sbdPrivKeyPlain.destroy()
-      
-
-   #############################################################################
-   def signTransaction(self, serializedTx, deterministicSig=False):
-      rBin,sBin = self.__signData(serializedTx, deterministicSig)
-      return createSigScriptFromRS(rBin, sBin)
-
-      
-   #############################################################################
-   def signMessage(self, msg, deterministicSig=False):
-      """
-      Returns just raw (r,s) pair instead of a sigscript because this is 
-      raw message signing, not transaction signing.  We match Bitcoin-Qt
-      behavior which is to prefix the message with "Bitcoin Signed Message:" 
-      in order to guarantee that someone cannot be tricked into signing
-      a real transaction:  instead of signing the input, MSG, it will only 
-      sign hash("Bitcoin Signed Message:\n" + MSG) which cannot be a
-      transaction
-      """
-      raise NotImplementedError('Currently this function is not tested')
-      msgPrefix = 'Bitcoin Signed Message:\n'
-      bp = BinaryPacker()
-      bp.put(VAR_INT,  len(msgPrefix))
-      bp.put(BINARY_CHUNK, msgPrefix)
-      bp.put(VAR_INT,  len(msg))
-      bp.put(BINARY_CHUNK, msg)
-      msgToSign = hash256(bp.getBinaryString())
-      return self.__signData(msgToSign, deterministicSig)
 
 
 
@@ -1436,9 +1084,9 @@ class ArmoryFileHeader(object):
       LOGDEBUG('Creating file header')
       self.fileID        = '\xa0ARMORY\x0a'
       self.flags         = BitSet(32)
-      self.createTime    = UINT64_MAX
-      self.wltName       = u''
-      self.wltDescr      = u''
+      self.createTime    = 0
+      self.rsecParity    = RSEC_PARITY_BYTES
+      self.rsecPerData   = RSEC_PER_DATA_BYTES
       self.disabled      = True
 
 
@@ -1448,29 +1096,51 @@ class ArmoryFileHeader(object):
       self.isSupplemental = False
 
    #############################################################################
-   def serialize(self):
-      # Serialization of header data needs to be constant so it can always 
-      # be overwritten in place.  All other data types are WalletEntry objs
-      # which will be delete-append if overwritten with larger data.
-      name  = truncUnicode(self.wltName,  32 )
-      descr = truncUnicode(self.wltDescr, 256)
-
+   def serializeHeaderData(self, headerSize=200):
+      """
+      We leave a lot of extra space in header for future expansion, since
+      header data is always up front, it's always got to be the same size.
+      """
       self.flags.reset()
       self.flags.setBit(0, self.isTransferWallet)
       self.flags.setBit(1, self.isSupplemental)
       
-      bp = BinaryPacker()
-      bp.put(BINARY_CHUNK,    self.fileID,           width=  8)
-      bp.put(UINT32,          getVersionInt(ARMORY_WALLET_VERSION))
-      bp.put(BINARY_CHUNK,    MAGIC_BYTES,           width=  4)
-      bp.put(UINT32,          self.flags.toInteger())
-      bp.put(UINT64,          self.createTime)      
-      bp.put(UINT32,          RSEC_PARITY_BYTES)
-      bp.put(UINT32,          RSEC_PER_DATA_BYTES)
-      bp.put(BINARY_CHUNK,    toBytes(name),         width= 32)
-      bp.put(BINARY_CHUNK,    toBytes(descr),        width=256)
+      hdata = BinaryPacker()
+      hdata.put(BINARY_CHUNK,    self.fileID,           width=8)
+      hdata.put(UINT32,          getVersionInt(ARMORY_WALLET_VERSION))
+      hdata.put(BINARY_CHUNK,    MAGIC_BYTES,           width=4)
+      hdata.put(BITSET,          self.flags,            width=4)
+      hdata.put(UINT64,          self.createTime)      
+      hdata.put(UINT32,          self.rsecParity
+      hdata.put(UINT32,          self.rsecPerData)
 
-      # We do some funky stuff here to guar
+      sizeRemaining = headerSize - hdata.getSize()
+      hdata.put(BINARY_CHUNK,    '\x00'*sizeRemaining)
+
+
+   #############################################################################
+   def unserializeHeaderData(self, theStr):
+      toUnpack = makeBinaryUnpacker(theStr)
+      hdata = BinaryPacker()
+      hdata.put(BINARY_CHUNK,    self.fileID,           width=  8)
+      hdata.put(UINT32,          getVersionInt(ARMORY_WALLET_VERSION))
+      hdata.put(BINARY_CHUNK,    MAGIC_BYTES,           width=  4)
+      hdata.put(UINT32,          self.flags.toInteger())
+      hdata.put(UINT64,          self.createTime)      
+      
+   
+
+   #############################################################################
+   def serialize(self):
+      # Serialization of header data needs to be constant so it can always 
+      # be overwritten in place.  All other data types are WalletEntry objs
+      # which will be delete-append if overwritten with larger data.
+
+      headerData = self.serializeHeaderData()
+
+      
+
+      # We avoid 
       rsecCode = createRSECCode(bp.getBinaryString())
       bp.put(UINT32,          len(rsecCode))
       bp.put(BINARY_CHUNK,    rsecCode,              width=64)
@@ -1479,14 +1149,25 @@ class ArmoryFileHeader(object):
    #############################################################################
    def unserialize(self, theStr):
       toUnpack = makeBinaryUnpacker(theStr)
-      self.fileID     = bp.get(BINARY_CHUNK, 8)
-      self.armoryVer  = bp.get(UINT32)
-      magicbytes      = bp.get(BINARY_CHUNK, 4)
-      flagsInt        = bp.get(UINT32)
-      rsecParity      = bp.get(UINT32)
-      rsecPerData     = bp.get(UINT32)
-      wltNameBin      = bp.get(BINARY_CHUNK, 32)
-      wltDescrBin     = bp.get(BINARY_CHUNK, 256)
+
+      headerData    = toUnpack.get(BINARY_CHUNK, 200)
+      rsecParitySz  = toUnpack.get(UINT32)
+      rsecPerData   = toUnpack.get(UINT32)
+      rsecCodeSize  = toUnpack.get(UINT32)
+      rsecCode      = toUnpack.get(BINARY_CHUNK, rsecCodeSize)
+      zeros         = toUnpack.get(BINARY_CHUNK, 64-rsecCodeSize)
+      if not zeros.count('\x00')==len(zeros):
+         raise UnpackerError('Empty space/padding as non-zero bytes')
+
+      rsecData,failFlag,modFlag = checkRSECCode(rsecData, rsecCode)
+
+      hunpack = BinaryUnpacker(headerData)
+      self.fileID     = hunpack.get(BINARY_CHUNK, 8)
+      self.armoryVer  = hunpack.get(UINT32)
+      magicbytes      = hunpack.get(BINARY_CHUNK, 4)
+      flagsInt        = hunpack.get(UINT32)
+
+      
 
       if not magicbytes==MAGIC_BYTES:
          LOGERROR('This wallet is for the wrong network!')
@@ -1502,12 +1183,436 @@ class ArmoryFileHeader(object):
                   'parameters than this version of Armory')
          self.disabled = True
       
+
+      endByte = toUnpack.getPosition()
+      rsecData = toUnpack.getBinaryString()[startByte:endByte]
+
       
-      self.wltName  = toUnicode(wltNameBin.rstrip('\x00'))
-      self.wltDescr = toUnicode(wltDescrBin.rstrip('\x00'))
       self.disabled = False
       return self
 
+
+
+################################################################################
+################################################################################
+class ArmoryExtendedKey(WalletEntry):
+   def __init__(self):
+      self.isWatchOnly     = False
+      self.pubHash160      = ''
+      self.privCryptInfo   = ArmoryCryptInfo(None)
+      self.sbdPrivKeyData  = NULLSBD()
+      self.sbdPublicKey33  = NULLSBD()
+      self.sbdChaincode    = NULLSBD()
+      self.aekParent       = None
+      self.aekRoot         = None
+      self.derivePath      = []
+      self.useCompressPub  = True
+      self.aekType         = AEKTYPE.Uninitialized
+      self.isUsed          = False
+      self.keyBornTime     = 0
+      self.keyBornBlock    = 0
+      self.keyRAMLifetime  = 10
+      self.relockAtTime    = 0
+
+
+   #############################################################################
+   def initFromEncryptedPrivData(self, 
+                        sbdPrivCrypt=None, sbdPub=None, sbdChain=None,    
+                        privCryptInfo=None, parentID=None, parentRef=None,
+                        keyBorn=0, derivePath=None, wltRef=None):
+      
+
+      plainPriv=NULLSBD()
+
+      try:
+         if privCryptInfo is None or privCryptInfo.noEncryption():
+            plainPriv = sbdPriv.copy()
+         else:
+            self.privCryptInfo = privCryptInfo.copy()
+         
+         if sbdPriv and not sbdPub:
+            sbdPub = CryptoECDSA().ComputePublicKey(sbdPriv)
+
+         self.pubHash160 = sbdPub.getHash160()
+      
+      finally:
+         plainPriv.destroy()
+
+
+   #############################################################################
+   def initFromPlainPrivData(self, 
+
+   #############################################################################
+   def initFromPlainPrivDataToBeEncrypted(self, 
+
+
+   #############################################################################
+   def initializeAEK(self, privData=None, alreadyCrypt=None,
+                              toBeEncrID=None, pub=None, chain=None, parRef=None, 
+                              derivePath=None, wltRef=None, **classSpecificArgs):
+
+      if privData is None:
+         aek.createFromPublicKeyData(pub, chain, parRef, derivePath, wltRef)
+      else:
+         if alreadyCryptInfo is None:
+            if toBeEncrID is None:
+               aek.createFromPlainKeyData(privData, pub, chain
+                
+         elif isinstance(alreadyCryptInfo, ArmoryCryptInfo):
+            aek.createFromEncryptedKeyData
+            aci = ArmoryCryptInfo(NULLKDF, 'AES256CBC', toBeEncrID, 'PUBKEY20')
+      
+      if getattr(aek, 'initialize'):
+         aek.initialize(**classSpecificArgs)  # defined in the derived AEK class
+
+      return aek
+   
+      
+   #############################################################################
+   def serialize(self):
+
+      pubKey = self.sbdPublicKey33.copy()
+      if self.sbdPublicKey33.getSize() == 65:
+         pubKey = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
+
+
+      parentID = self.aekParent.getID() if self.aekParent else ''
+      rootID   = self.aekRoot.getID()   if self.aekRoot   else ''
+
+      flags = BitSet(16)
+      flags.setBit(0, self.isWatchOnly)
+      flags.setBit(1, self.useCompressPub)
+      flags.setBit(2, self.privKeyNextUnlock)
+      flags.setBit(3, self.sbdPrivKeyData.getSize()==0)
+      flags.setBit(4, self.sbdChaincode.getSize()==0)
+
+
+      # We are not committed to fixed-width wallet entries.  Might as well
+      # Save space if fields are empty by using VAR_STRs
+      bp = BinaryPacker()
+      bp.put(UINT32,        getVersionInt(ARMORY_WALLET_VERSION))
+      bp.put(BINARY_CHUNK,  self.EXTKEYTYPE,                 8)
+      bp.put(BITSET,        flags,                           2)
+      bp.put(UINT64,        self.keyBornTime)
+      bp.put(UINT32,        self.keyBornBlock)
+      bp.put(BINARY_CHUNK,  self.privCryptInfo.serialize(), 32)
+      bp.put(VAR_STR,       self.sbdPrivKeyData.toBinStr())
+      bp.put(VAR_STR,       pubKey)
+      bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
+      bp.put(VAR_STR,       parentID)
+      bp.put(VAR_STR,       rootID)
+      bp.put(UINT16,         len(self.derivePath))
+      for idx in self.derivePath:
+         bp.put(UINT32, idx)
+      
+      # Add Reed-Solomon error correction 
+      allDataSoFar = bp.getBinaryString()
+      bp.put(VAR_STR,       createRSECCode(allDataSoFar))
+      return bp.getBinaryString()
+
+      
+   #############################################################################
+   def unserialize(self, toUnpack, wltRef=None):
+      # Does nothing if it's already a binary packer, and leaves its state
+      # at the end of the serialized AEK.  If not a BinaryPacker, creates one
+      # just for reading, and its end state is irrelevant.
+      toUnpack = makeBinaryUnpacker(toUnpack)
+
+      version = toUnpack.get(UINT32) 
+      if version != getVersionInt(ARMORY_WALLET_VERSION):
+         LOGWARN('AEK version in file: %s,  Armory Wallet version: %s', 
+                     getVersionString(readVersionInt(version)), 
+                     getVersionString(ARMORY_WALLET_VERSION))
+         
+
+      startPos = toUnpack.getPosition()
+
+      # We are not committed to fixed-width wallet entries.  Might as well
+      # Save space if fields are empty by using VAR_STRs
+      self.EXTKEYTYPE     = toUnpack.get(BINARY_CHUNK, 8)
+      flags               = toUnpack.get(BITSET,       2)
+      self.keyBornTime    = toUnpack.get(UINT64)
+      self.keyBornBlock   = toUnpack.get(UINT32)
+      privCryptInfoSer    = toUnpack.get(BINARY_CHUNK, 32)
+      privk               = toUnpack.get(VAR_STR)
+      pubk                = toUnpack.get(VAR_STR)
+      chain               = toUnpack.get(VAR_STR)
+      parentID            = toUnpack.get(VAR_STR)
+      rootID              = toUnpack.get(VAR_STR)
+      pathSize            = toUnpack.get(UINT16)
+      self.derivePath = []
+      for idx in range(pathSize):
+         self.derivePath.append(toUnpack.get(UINT32))
+
+      rsecCheck           = toUnpack.get(VAR_STR)
+      
+      currKeyPosition     = toUnpack.getPosition()
+      rsecProtectedData   = toUnpack.getBinaryString()[startPos:currPos]
+      serKeyData,failFlag,modFlag = checkRSECCode(rsecProtectedData, rsecCode)
+      if failFlag:
+         LOGERROR('Unrecoverable error in wallet entry')
+         we.isUnrecoverable = True 
+         return we
+      elif modFlag:
+         LOGWARN('Error in wallet file corrected successfully')
+         we.needRewrite = True 
+      
+      self.isWatchOnly       = flags.getBit(0)
+      self.useCompressPub    = flags.getBit(1)
+      self.privKeyNextUnlock = flags.getBit(2)
+      emptyPriv              = flags.getBit(3)
+      emptyChain             = flags.getBit(4)
+
+      self.sbdPrivKeyData = NULLSBD() if emptyPriv  else SecureBinaryData(privk)
+      self.sbdChaincode   = NULLSBD() if emptyChain else SecureBinaryData(chain)
+
+      privk = None
+      chain = None
+      
+      return self
+      
+       
+
+
+      
+
+
+   #############################################################################
+   def getPrivKeyAvailability(self):
+      if self.isWatchOnly:
+         return PRIV_KEY_AVAIL.None
+      elif self.sbdPrivKeyPlain.getSize() > 0:
+         return PRIV_KEY_AVAIL.Plain
+      elif self.sbdPrivKeyData.getSize() > 0:
+         return PRIV_KEY_AVAIL.Encrypted
+      else:
+         return PRIV_KEY_AVAIL.NextUnlock
+
+
+   #############################################################################
+   def useEncryption(self):
+      return self.privCryptInfo.useEncryption()
+         
+
+
+
+   #############################################################################
+   def getSerializedPubKey(self, serType='hex'):
+      """
+      The various public key serializations:  "hex", "xpub"
+      """
+      if not self.useCompressPub:
+         pub = CryptoECDSA().UncompressPoint(self.sbdPublicKey33).copy()
+      else:
+         pub = self.sbdPublicKey33.copy()
+         
+      if serType.lower()=='hex':
+         return pub.toHexStr()
+
+      elif serType.lower()=='xpub':
+         raise NotImplementedError('Encoding not implemented yet')
+         
+   #############################################################################
+   def getSerializedPrivKey(self, serType='hex'):
+      """
+      The various private key serializations: "hex", "sipa", "xprv"
+      """
+
+      if self.useEncryption() and self.isLocked():
+         raise WalletLockError('Cannot serialize locked priv key')
+
+      lastByte = '\x01' if self.useCompressPub else ''
+      binPriv = self.sbdPrivKeyPlain.toBinStr() + lastByte
+         
+      if serType.lower()=='hex':
+         return binary_to_hex(hexPriv)
+      elif serType.lower()=='sipa':
+         binSipa '\x80' + binPriv + computeChecksum('\x80' + binPriv)
+         return binary_to_hex(binSipa)
+      elif serType.lower()=='xprv':
+         raise NotImplementedError('xprv encoding not yet implemented')
+
+   #############################################################################
+   def getPrivCryptArgs(self, cryptInfoObj=None):
+      """
+      Examines self.privCryptInfo and produces as many arguments as it can
+      that are needed to call self.privCryptInfo.encrypt/decrypt.
+      """
+      if cryptInfoObj is None:
+         cryptInfoObj = self.privCryptInfo
+
+      mapOut = {}
+      if self.cryptInfoObj.noEncryption():
+         return mapOut
+
+      if self.cryptInfoObj.getEncryptIVSrc[0] == CRYPT_IV_SRC.PUBKEY20:
+         mapOut['ivData'] = self.sbdPublicKey33.getHash256()[:16]
+      else:
+         # If the IV is stored we don't need to pass it through, it
+         # will grab it from itself when cryptInfoObj.decrypt/encrypt 
+         # is called
+         mapOut['ivData']  = None
+
+      mapOut['isLocked'] = False
+      if self.wltFileRef is None:
+         mapOut['ekeyObj']  = None
+         mapOut['kdfObj']   = None
+      else:
+         kid = self.cryptInfoObj.kdfObjID
+         eid = self.cryptInfoObj.keySource
+         mapOut['kdfObj']   = self.wltFileRef.kdfMap.get(kid)
+         mapOut['ekeyObj']  = self.wltFileRef.ekeyMap.get(eid)
+         if not mapOut['ekeyObj'] is None:
+            mapOut['isLocked'] = mapOut['ekeyObj'].isLocked()
+
+      return mapOut
+      
+
+   #############################################################################
+   @VerifyArgTypes(keyData=[SecureBinaryData,None])
+   def getPlainPrivKeyCopy(self, keyData=None, kdfObj=None, ekeyObj=None):
+      """
+      This is the only way to get the private key out of an AEK object.
+      The plain key is never kept in an AEK object, which is why there's
+      no lock() and unlock() methods for AEK.  Instead, we only ever lock
+      and unlock the master encryption key, which is either supplied as
+      and argument to this function, or fetched from the parent wallet file.
+
+      In general, the extra input args are not going to be used in the 
+      app.  The ekeyObj will always be unlocked before we get here, and
+      the getPrivCryptArgs() call will fetch it for us from the wallet file.  
+      We might need to use the extra args if this object is not in a wallet
+      file and/or we are creating utility scripts using these objects.
+
+      NOTE:  This returns an SBD object which needs to be .destroy()ed by
+             the caller when it is finished with it.
+      """
+
+      if self.isWatchOnly:
+         raise KeyDataError('Cannot get priv key from watch-only wallet')
+
+      if self.privCryptInfo.noEncryption():
+         return self.sbdPrivKeyData.copy()
+
+      aciDecryptAgs = self.getPrivCryptArgs(self.privCryptInfo)
+
+      # Override any args returned above with non-empty args to this func
+      if not kdfObj is None:
+         aciDecryptAgs['kdfObj'] = kdfObj
+      if not ekeyObj is None:
+         aciDecryptAgs['ekeyObj'] = ekeyObj
+
+
+      if self.sbdPrivKeyData.getSize()==0:
+         sbdParKey = self.getParent().getPlainPrivKeyCopy(KeyDataError, kdfObj, ekeyObj)
+         
+      try:
+         return self.privCryptInfo.decrypt( \
+                           self.sbdPrivKeyData, keyData, **aciDecryptAgs)
+      except:
+         LOGEXCEPT('Failed to decrypt private key')
+         return NULLSBD()
+
+
+      
+   #############################################################################
+   def derivePrivPath(self):
+      """
+      Any time the master key is unlocked, use this to fill in the private
+      keys for all nodes from root to here, marked privKeyAvail ~ NextUnlock
+      """
+      if self.parentAEK.privKeyNextUnlock:
+         self.parentAEK.derivePrivPath()
+
+      try:
+         newPriv = NULLSBD()
+         regenThisAEK = self.parentAEK.spawnChild(self.derivePath[-1], 
+                                                  privSpawnReqd=True)
+         aciCryptArgs = self.getPrivCryptArgs()
+         newPriv = regenThisAEK.getPlainPrivKeyCopy()
+         self.sbdPrivKeyData = self.privCryptInfo.encrypt(newPriv, **aciCryptArgs)
+         self.privKeyNextUnlock = False
+         self.fsync()
+      finally:
+         newPriv.destroy()
+
+      
+   #############################################################################
+   def __signData(self, dataToSign, deterministicSig=False, normSig='Dontcare'):
+      """
+      This returns the raw data, signed using the CryptoECDSA module.  This 
+      should probably not be called directly by a top-level script, but 
+      instead the backbone of a bunch of standard methods for signing 
+      transactions, messages, perhaps Proof-of-Reserve trees, etc.
+
+      "normSig" is based on a proposal to only allow even s-values, or 
+      odd s-values to limit transaction malleability.  We might as well
+      put it here, though the default is not to mess with the outpout
+      of the SignData call.
+      """
+      if self.useEncryption() and self.isLocked():
+         raise WalletLockError('Cannot sign with locked priv key')
+      
+      try:
+         self.unlock()
+
+         if deterministicSig:
+            raise NotImplementedError('Cannot do deterministic signing yet')
+            sig = CryptoECDSA().SignData_RFC6979(dataToSign, self.sbdPrivKeyPlain)
+         else:
+            sig = CryptoECDSA().SignData(dataToSign, self.binPrivKey32_Plain)
+
+         sigstr = sig.toBinStr()
+
+         rBin = sigstr[:32 ]
+         sBin = sigstr[ 32:]
+
+         if not normSig=='Dontcare':
+            # normSig will either be 'even' or 'odd'.  If the calculated
+            # s-value does not match, then use -s mod N which will be 
+            # correct
+            raise NotImplementedError('This code is not yet tested!')
+            sInt = binary_to_int(sBin, BIGENDIAN)
+            if (normSig=='even' and sInt%2==1) or \
+               (normSig=='odd'  and sInt%2==0):
+               sInt = (-sInt) % SECP256K1_MOD
+               
+            sBin = int_to_binary(sInt, widthBytes=32, endOut=BIGENDIAN)
+
+         return (rBin, sBin)
+
+      except:
+         LOGEXCEPT('Error generating signature')
+      finally:
+         self.sbdPrivKeyPlain.destroy()
+      
+
+   #############################################################################
+   def signTransaction(self, serializedTx, deterministicSig=False):
+      rBin,sBin = self.__signData(serializedTx, deterministicSig)
+      return createSigScriptFromRS(rBin, sBin)
+
+      
+   #############################################################################
+   def signMessage(self, msg, deterministicSig=False):
+      """
+      Returns just raw (r,s) pair instead of a sigscript because this is 
+      raw message signing, not transaction signing.  We match Bitcoin-Qt
+      behavior which is to prefix the message with "Bitcoin Signed Message:" 
+      in order to guarantee that someone cannot be tricked into signing
+      a real transaction:  instead of signing the input, MSG, it will only 
+      sign hash("Bitcoin Signed Message:\n" + MSG) which cannot be a
+      transaction
+      """
+      raise NotImplementedError('Currently this function is not tested')
+      msgPrefix = 'Bitcoin Signed Message:\n'
+      bp = BinaryPacker()
+      bp.put(VAR_INT,  len(msgPrefix))
+      bp.put(BINARY_CHUNK, msgPrefix)
+      bp.put(VAR_INT,  len(msg))
+      bp.put(BINARY_CHUNK, msg)
+      msgToSign = hash256(bp.getBinaryString())
+      return self.__signData(msgToSign, deterministicSig)
 
 
 
@@ -1521,15 +1626,11 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
    #############################################################################
    def __init__(self, *args, **kwargs):
       super(Armory135ExtendedKey, self).__init__(*args, **kwargs)
-      self.useCompressedPub = False
-      self.derivePath = None
-      self.chainIndex = None
-
-
+      self.useCompressPub = False
 
 
    #############################################################################
-   def spawnChild(self, keyData=None, kdfObjID=None, ekeyObj=None, privSpawnReqd=False):
+   def spawnChild(self, childID=0, privSpawnReqd=False):
       """
       We require some fairly complicated logic here, due to the fact that a
       user with a full, private-key-bearing wallet, may try to generate a new
@@ -1541,9 +1642,10 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
       """
 
       TimerStart('spawnChild_135')
-      startedLocked = False
 
-      willSpawnPriv
+      if not childID == 0:
+         raise KeyDataError('Can only derive child ID=0 for 1.35 AEKs')
+
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
@@ -1572,14 +1674,6 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
          self.privKeyNextUnlock = False
          startedLocked = True  # if needed to derive, it was effectively locked
                               
-      # If the key is currently encrypted, going to need to unlock it
-      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted:
-         unlockSuccess = self.unlock(ekeyObj, keyData)
-         if not unlockSuccess:
-            raise PassphraseError('Incorrect decryption data to spawn child')
-         else:
-            startedLocked = True  # will re-lock at the end of this operation
-
 
       pubKey65 = CryptoECDSA().UncompressPoint(self.sbdPublicKey33)
       logMult1 = NULLSBD()
@@ -1681,15 +1775,19 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
 
 
    #############################################################################
-   def spawnChild(self, childID, ekeyObj=None, keyData=None, privSpawnReqd=False):
+   def spawnChild(self, childID, privSpawnReqd=False):
       """
       We require some fairly complicated logic here, due to the fact that a
       user with a full, private-key-bearing wallet, may try to generate a new
       key/address without supplying a passphrase.  If this happens, the wallet
       logic gets mucked up -- we don't want to reject the request to
       generate a new address, but we can't compute the private key until the
-      next time the user unlocks their wallet.  Thus, we have to save off the
-      data they will need to create the key, to be applied on next unlock.
+      next time the user unlocks their wallet.  
+
+      We assume the master key is already unlocked if needed.  
+
+      Using privSpawnReqd doesn't mean that we need to do a "hardened"
+      derivation, it 
       """
 
       TimerStart('spawnChild')
@@ -1701,10 +1799,12 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
          if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.None:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
 
-         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted and \
-            ekeyObj is None and \
-            keyData is None)
-            raise KeyDataError('Requires priv key, no way to decrypt it')
+         ekeyObj = self.getEkeyFromWallet(self.privCryptInfo.keySource)
+         if ekeyObj is None:
+            raise KeyDataError('Requires priv key but master key is not avail')
+
+         if ekey.isLocked():
+            raise WalletLockError('Must unlock private key to do priv spawn')
          
 
       if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NextUnlock:
@@ -1718,15 +1818,11 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
          if self.aekType == AEKTYPE.BIP32:
             if self.derivePath is None:
                raise KeyDataError('No derivation path defined to derive this key')
-            aek = self.aekParent.spawnChild(self.derivePath[-1], ekeyObj, keyData)
-         elif self.aekType == AEKTYPE.ARMORY135:
-            aek = self.aekParent.spawnChild(0, ekeyObj, keyData)
+            aek = self.aekParent.spawnChild(self.derivePath[-1])
             
-
          if not aek.sbdPublicKey33.toBinStr() == self.sbdPublicKey33.toBinStr():
             raise keyData('Derived key supposed to match this one but does not')
    
-         self.sbdPrivKeyPlain = aek.sbdPrivKeyPlain.copy()
          self.sbdPrivKeyData = aek.sbdPrivKeyData.copy()
          startedLocked = True  # if needed to derive, it was effectively locked
                               
@@ -1837,7 +1933,7 @@ class ArmoryImportedKey(ArmoryExtendedKey):
 # seed value.  If it is marked as BIP32_Floating, it means it is a branch 
 # of BIP32 tree for which we don't have the rootroot (maybe it's a piece 
 # of a BIP32 tree belonging to someone else given to us to generate payment 
-# addresses, or for a multisig wallet.  ARM135 is the old Armory wallet 
+# addresses, or for a multisig wallet).  ARM135 is the old Armory wallet 
 # algorithm that was used for the first 3 years of Armory's existence.  
 # JBOK stands for "Just a bunch of keys" (like RAID-JBOD).  JBOK mode will
 # most likely only be used for imported keys and old Bitcoin Core wallets.
@@ -1852,7 +1948,7 @@ class ArmoryRoot(ArmoryExtendedKey):
       super(ArmoryRoot, self).__init__()
 
       # General properties of this root object
-      self.createDate = 0
+      self.createDate  = 0
       self.labelName   = ''
       self.labelDescr  = ''
 
@@ -1861,7 +1957,12 @@ class ArmoryRoot(ArmoryExtendedKey):
       self.uniqueIDBin = ''
       self.uniqueIDB58 = ''    # Base58 version of reversed-uniqueIDBin
 
-      # If this root is intended to be used in multi-sig, it should be flagged
+      # Track the children of this node, and the highest used
+      self.childMap  = {}   # map of child pubHash160s to addrObjs
+      self.childList = []   # list of addrObjs indexed by child index
+      self.highestUsedChild = -1
+
+      # If this root is intended to be used in multi-sig, it should be flagged.
       # In some cases this root will be created with the intention to become
       # part of a multisig wallet.  In that case, multisig flag will be on,
       # but the relationshipID will be zeros.  Once a relationship is defined
@@ -1874,22 +1975,22 @@ class ArmoryRoot(ArmoryExtendedKey):
       # may do something different)
       self.rootType = ROOTTYPE.BIP32_Root
 
-      # Extra data that needs to be encrypted, if 
+      # Extra data that needs to be encrypted
       self.seedCryptInfo   = ArmoryCryptInfo(None)
-      self.bip32seed_plain = SecureBinaryData(0)
-      self.bip32seed_encr  = SecureBinaryData(0)
-      self.bip32seed_size  = 0
+      self.seedNumBytes    = 0
+      self.sbdSeedData     = SecureBinaryData(0)
 
-      # This helps identify where in the BIP 32 tree this node is.
-      self.rootID   = NULLSTR(8)
-      self.parentID = NULLSTR(8)
-      self.rootPath = []
+      # This describes how we plan to derive keys from this wallet. 
+      # "HSS" is "hard soft soft" which refers to hardened derivation
+      # at the first level (from depth-0 to depth-1 nodes), then 
+      # regular/soft/Type2 derivation from depth 1-2 and 2-3.  
+      self.derivePathScheme = "HSS_"
 
       # FLAGS
-      self.isPhoneRoot   = False # don't send from, unless emergency sweep
-      self.isFakeRoot    = True  # This root has no key data.  Mainly for JBOK
-      self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
-      self.isDepositOnly = False # Only use to gen deposit addrs, bal is meaningless
+      self.isPhoneRoot   = False  # don't send from, unless emergency sweep
+      self.isFakeRoot    = False  # This root has no key data.  Mainly for JBOK
+      self.isSiblingRoot = False  # observer root of a multi-sig wlt, don't use
+      self.isDepositOnly = False  # Only use to gen deposit addrs, bal is meaningless
 
       # In the event that some data type identifies this root as its parent AND
       # it identifies itself as critical AND we don't recognize it (such as if
@@ -1977,6 +2078,32 @@ class ArmoryRoot(ArmoryExtendedKey):
 
 
    #############################################################################
+   @VerifyArgTypes(keyData=[SecureBinaryData,None])
+   def getPlainSeedCopy(self, keyData=None, kdfObj=None, ekeyObj=None):
+      """
+      NOTE:  This returns an SBD object which needs to be .destroy()ed by
+             the caller when it is finished with it.
+      """
+      if self.seedCryptInfo.noEncryption():
+         return self.sbdPrivKeyData.copy()
+
+      aciDecryptAgs = self.getPrivCryptArgs(self.seedCryptInfo)
+
+      # Override any args returned above with non-empty args to this func
+      if not kdfObj is None:
+         aciDecryptAgs['kdfObj'] = kdfObj
+
+      if not ekeyObj is None:
+         aciDecryptAgs['ekeyObj'] = ekeyObj
+         
+      try:
+         return self.seedCryptInfo.decrypt( \
+                  self.binPrivKey32_Encr, keyData, **aciDecryptAgs)
+      except:
+         LOGEXCEPT('Failed to decrypt private key')
+         return NULLSBD()
+
+   #############################################################################
    def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
                                  kdfObj=None, ekeyObj=None, keyData=None, 
                                  seedBytes=20, extraEntropy=None):
@@ -2020,7 +2147,7 @@ class ArmoryRoot(ArmoryExtendedKey):
 
       # We have a 20-byte seed, but will need to be padded for 16-byte
       # blocksize if we ever need to encrypt it.
-      self.bip32seed_size = self.bip32seed_plain.getSize()
+      self.seedNumBytes = self.bip32seed_plain.getSize()
       self.bip32seed_plain.padDataMod(cryptInfo.getBlockSize())
   
 
@@ -2050,6 +2177,9 @@ class ArmoryRoot(ArmoryExtendedKey):
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
       self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
 
+   #############################################################################
+   def getDepth(self):
+      return len(self.derivePath)
 
    #############################################################################
    def getRootID(self, inBase58=True, nbytes=6):
@@ -2075,6 +2205,52 @@ class ArmoryRoot(ArmoryExtendedKey):
       return self.uniqueIDB58 if inBase58 else self.uniqueIDBin
 
 
+   #############################################################################
+   def getWalletChainIndex(self, chainType="External"):
+      """
+      In the case of single-sig wallets, we have just two chains, EXTERNAL (0)
+      and INTERNAL (1).  In the case of multi-sig, we have one pair of wallet
+      chains for each signing authority.  We use the ordering of the root pub
+      keys in the relationship object to determine which of the 2*N chains to
+      use.  
+      """
+
+      if self.relationshipID == NULLSTR(8):
+         return 0 if chainType.lower()=='external' else 1
+      elif not self.wltFileRef:
+         raise WalletExistsError('No wallet file ref to get multisig info')
+
+      # This is a multi-sig wallet and thus we need to fetch
+      relObj = self.wltFileRef.relationshipMap.get(self.relationshipID)
+      if relObj is None:
+         raise WalletExistsError('No relationship obj in wallet with ID=%s',
+                                         binary_to_hex(self.relationshipID))
+
+      indexSelf = relObj.getSiblingIndex(self.pubHash160)
+      return 2*indexSelf + (0 if chainType.lower()=='external' else 1)
+         
+   
+         
+
+   #############################################################################
+   def getNextUnusedAddrObj(self):
+      if not self.getDepth()==2:
+         raise WalletAddressError('Can only req new addrs from depth=2 nodes')
+      
+      # TODO:  Check that +1 is correct for hardened derivations, as well
+      self.highestUsedChild += 1
+      if self.highestUsedChild >= len(self.childList):
+         self.spawnChild(self.highestUsedChild)
+
+      childAddr = self.childList[self.highestUsedChild]
+      childAddr.isUsed = True
+      
+      self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
+      self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
+      self.wltFileRef.fsyncUpdates()
+      
+   
+   
 
    #############################################################################
    lkjlkfdsj
@@ -2172,37 +2348,24 @@ class ArmoryRoot(ArmoryExtendedKey):
 
 
    #############################################################################
-   def unlock(self, ekeyObj=None, encryptKey=None):
-      superUnlocked = super(ArmoryRoot, self).unlock(ekeyObj, encryptKey)
-
-      if superUnlocked and hdwDepth==0:
-         # This is a master root which also has seed data
-         if self.bip32seed_encr.getSize()  >  0 and \
-            self.bip32seed_plain.getSize() == 0:
-            self.bip32seed_plain = self.seedCryptInfo.decrypt( \
-                                                   self.bip32seed_encr, \
-                                                   ekeyObj=ekeyObj, \
-                                                   keyData=encryptKey)
-            self.bip32seed_plain.resize(self.bip32seed_size)
-
-      return superUnlocked
-
-
-   #############################################################################
-   def lock(self, ekeyObj=None, encryptKey=None):
-      superLocked = super(ArmoryRoot, self).lock(ekeyObj, encryptKey)
-      if superLocked and hdwDepth==0:
-         self.bip32seed_plain.destroy()
-
-
-   #############################################################################
-   def CreateNewJBOKRoot(self, typeStr='BIP32', cryptInfo=None):
+   @staticmethod
+   def CreateNewJBOKRoot(self, cryptInfo=None):
       """
       JBOK is "just a bunch of keys," like the original Bitcoin-Qt client 
       (prior to version... 0.8?).   We don't actually need a deterministic 
       part in this root/chain... it's only holding a bunch of unrelated 
       """
       self.isFakeRoot = True
+      self.privCryptInfo = cryptInfo.copy()
+
+   #############################################################################
+   @staticmethod
+   def CreateNewBIP32_Root(self, 
+      """
+      JBOK is "just a bunch of keys," like the original Bitcoin-Qt client 
+      (prior to version... 0.10?).  We don't actually need a deterministic 
+      part in this root/chain... it's only holding a bunch of unrelated keys
+      """
       self.privCryptInfo = cryptInfo.copy()
 
 
@@ -2285,6 +2448,7 @@ class ArmoryRoot(ArmoryExtendedKey):
          LOGERROR('meant by "multi-level key generation while locked')
          raise KeyDataError, 'Cannot do multi-level priv key gen while locked'
                               
+
       wasLocked  = False
       if privAvail==PRIV_KEY_AVAIL.Encrypted:
          if not self.verifyEncryptionKey(decryptKey):
@@ -2294,7 +2458,6 @@ class ArmoryRoot(ArmoryExtendedKey):
             privAvail = PRIV_KEY_AVAIL.Plain
             wasLocked = True # will re-lock at the end of this operation
 
-
       # If we have key data and it's encrypted, it's decrypted by now.
       # extchild has priv key if we have privavail == plain.  Else, we extend
       # only the public part
@@ -2302,8 +2465,8 @@ class ArmoryRoot(ArmoryExtendedKey):
       extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
 
       # In all cases we compute a new public key and chaincode
-      childAddr.binPubKey33or65 = extChild.getPub().copy()
-      childAddr.binChaincode    = extChild.getChain().copy()
+      childAddr.binPubKey33or65  = extChild.getPub().copy()
+      childAddr.binChaincode     = extChild.getChain().copy()
 
       if privAvail==PRIV_KEY_AVAIL.Plain:
          # We are extending a chain using private key data (unencrypted)
@@ -2325,16 +2488,17 @@ class ArmoryRoot(ArmoryExtendedKey):
          LOGERROR('Bailing without spawning child')
          raise KeyDataError
    
-      childAddr.parentHash160      = extChild.getParentHash160().copy()
-      childAddr.binAddr160         = self.binPubKey33or65.getHash160()
-      childAddr.useEncryption      = self.useEncryption
-      childAddr.isInitialized      = True
-      childAddr.childIdentifier    = childID
-      childAddr.hdwDepth           = self.hdwDepth+1
-      childAddr.indexList          = self.indexList[:]
+      childAddr.parentHash160    = extChild.getParentHash160().copy()
+      childAddr.binAddr160       = self.binPubKey33or65.getHash160()
+      childAddr.useEncryption    = self.useEncryption
+      childAddr.isInitialized    = True
+      childAddr.childIdentifier  = childID
+      childAddr.hdwDepth         = self.hdwDepth+1
+      childAddr.indexList        = self.indexList[:]
       childAddr.indexList.append(childID)
+      childAddr.derivePathScheme = self.derivePathScheme[1:]
 
-      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
+      if childAddr.useEncryption() and not childAddr.needToDerivePrivKey:
          # We can't get here without a [valid] decryptKey 
          childAddr.lock(decryptKey)
          if not wasLocked:

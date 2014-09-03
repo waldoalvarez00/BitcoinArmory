@@ -100,7 +100,7 @@ SecureBinaryData SecureBinaryData::GenerateRandom(uint32_t numBytes,
 {
    BTC_PRNG prng;
 
-   // Entropy here refers to *EXTRA* entropy.  Crypto++ has it's own mechanism
+   // Entropy here refers to *EXTRA* entropy.  Crypto++ has its own mechanism
    // for generating entropy which is sufficient, but it doesn't hurt to add
    // more if you have it.
    if(entropy.getSize() > 0)
@@ -812,7 +812,6 @@ bool CryptoECDSA::VerifyData(SecureBinaryData const & binMessage,
                                               binSignature.getSize());
 }
 
-// THIS FUNCTION IS UNTESTED AND MAY NOT BE ACCURATE.
 /////////////////////////////////////////////////////////////////////////////
 // Deterministically generate new private key using a chaincode
 // Changed:  added using the hash of the public key to the mix
