@@ -914,7 +914,7 @@ class ArmoryMainWindow(QMainWindow):
                <br><br>
                You are encouraged never to use modules that are not trusted!
                Do you wish to continue using this <i>potentially dangerous</i>
-               Armory module?""") % (name, modPath, modHash[:16]), 
+               Armory module?""") % (htmlColor('TextRed'), name, modPath, modHash[:16]), 
                QMessageBox.Yes | QMessageBox.No)
 
             if not reply==QMessageBox.Yes:
