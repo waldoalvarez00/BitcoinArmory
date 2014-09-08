@@ -493,8 +493,8 @@ class ArmoryMainWindow(QMainWindow):
       self.mainDisplayTabs.addTab(self.tabAnnounce,  'Announcements')
 
       ##########################################################################
-      if USE_TESTNET and not CLI_OPTIONS.disableModules:
-         self.loadArmoryModules()   
+      #if USE_TESTNET and not CLI_OPTIONS.disableModules:
+      self.loadArmoryModules()   
       ##########################################################################
 
 
@@ -912,10 +912,10 @@ class ArmoryMainWindow(QMainWindow):
                   <b>Module Path:</b>  %s<br>
                   <b>Module Hash:</b>  %s<br>
                <br><br>
-               You should <u>never</u> trust unsigned modules!  At this time,
-               Armory will not allow you to run this module unless you are 
-               in testnet mode.""") % \
-               (name, modPath, modHash[:16]), QMessageBox.Ok)
+               You are encouraged never to use modules that are not trusted!
+               Do you wish to continue using this <i>potentially dangerous</i>
+               Armory module?""") % (name, modPath, modHash[:16]), 
+               QMessageBox.Yes | QMessageBox.No)
 
             if not reply==QMessageBox.Yes:
                continue
