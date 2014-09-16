@@ -1,7 +1,13 @@
 from ArmoryUtils import *
 from ArmoryEncryption import *
 from WalletEntry import *
+from Timer import *
 
+
+DEFAULT_LOOKAHEAD_LVL1  = 2   # look ahead 2 wallets
+DEFAULT_LOOKAHEAD_LVL2  = 0   # look ahead 0 chains, we know ow many
+DEFAULT_LOOKAHEAD_LVL3a = 500 # keep 500 ahead for receiving addrs
+DEFAULT_LOOKAHEAD_LVL3b = 5   # look 5 ahead in "INTERNAL" wallet chains
 
 
 # DECORATOR
@@ -37,6 +43,9 @@ def EkeyMustBeUnlocked(func):
 
 
 
+#class AddrGeneratingRoot(ArmoryExtendedKey):
+#class RootGeneratingRoot(ArmoryExtendedKey):
+
 ################################################################################
 ################################################################################
 class ArmoryWalletFile(object):
@@ -67,6 +76,10 @@ class ArmoryWalletFile(object):
 
       # Last synchronized all chains to this block
       self.lastSyncBlockNum = 0
+
+      self.allWalletEntries = []
+      self.siblingRoots = {}
+      self.allRoots = {}
 
       # All wallet roots based on "standard" BIP 32 usage:
       #    rootMap[0] ~ Map of all zeroth-order roots, derived from seeds
@@ -115,6 +128,9 @@ class ArmoryWalletFile(object):
       # List of all WalletEntry objects that had an unrecoverable error
       self.unrecoverableList  = []
 
+      # List of all WalletEntry objects that had an unrecoverable error
+      self.wltParentMissing  = []
+
       # We have the ability to store arbitrary data in the wallet files
       # Among other things, this gives plugins a way to read and write
       # data to wallet files, and running Armory without the plugin will
@@ -124,6 +140,7 @@ class ArmoryWalletFile(object):
       # List of all WalletEntry object IDs disabled for various reasons
       # (usually from critical data not recognized in a child entry)
       self.disabledEntries = set()
+      self.disabledList = []
 
       # If != None, it means that this wallet holds only a subset of data 
       # in the parent file.  Probably just addr/tx comments and P2SH scripts
@@ -159,7 +176,7 @@ class ArmoryWalletFile(object):
       self.isReadOnly = False
 
 
-      # Wallet operations are not threadsafe.  
+      # Wallet operations are not threadsafe.  Detect multiple access
       self.midWriteFlag = threading.Event()
 
 
@@ -228,6 +245,7 @@ class ArmoryWalletFile(object):
          wltOther = ArmoryWalletFile.readWalletFile(filepath, openReadOnly=True)
 
 
+      '''
       rootRefList = []
 
       #
@@ -255,13 +273,14 @@ class ArmoryWalletFile(object):
          
          addFileOperationToQueue
 
-         if root.relationship.isMultiSig:
+         if root.relationship.isForMultisig:
             # Make sure to merge the sibling wallets, too
             for sib in root.relationship.siblingList:
                if not sib.rootID in rootRefList:
                   LOGINFO('Adding sibling to root-merge list')
                rootRefList.add(sib.rootID)
 
+      '''
 
 
 
@@ -376,6 +395,8 @@ class ArmoryWalletFile(object):
 
 
       # If outer encryption was used on any entries, decrypt & add, if possible
+      # (needed to add previous entries, because one is probably the decryption
+      # key and/or KDF needed to unlock outer encryption)
       if len(wlt.opaqueList) > 0:
          if len(outerCryptArgs) == 0:
             LOGWARN('Opaque entries in wallet, no decrypt args supplied')
@@ -395,44 +416,168 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    def addEntriesToWallet(self, weList):
+      """
+      This operates in two steps:  
+         (1) Filter the list of WalletEntry objects into the right lists/maps
+         (2) Go back through everything and set references between them and 
+             apply any operations that requires having all WE objects avail 
+             (such as disabling parents of unrecognized-but-critical children,
+             linking multi-sig roots based on relationship objects, etc)
+             
+      Everything that will be accessed by ID is stored in a map indexed by
+      ID.  For now, we will assume that all parent references are ArmoryRoot
+      objects (or None), and everything else will know which map to look in
+      (like looking in ekeyMap when looking for encryption keys).  Therefore,
+      we do not store a master map of all IDs.
+      """
       
       for we in weList:
          if we.isDeleted:  
             continue
 
+
          # In case the Reed-Solomon error correction actually finds an error
          if we.needRewrite and not openReadOnly:
-            wlt.addFileOperationToQueue('UpdateEntry', we)
+            self.addFileOperationToQueue('UpdateEntry', we)
 
          # If WE is unrecognized, ignore, if also critical, disable parent
          if we.isUnrecognized:
-            wlt.unrecognizedList.append(we)
+            self.unrecognizedList.append(we)
             if we.isRequired:
-               wlt.disabledEntries.add(we.parent160)
+               self.disabledEntries.add(we.parent160)
+            continue
 
          if we.isUnrecoverable:
-            wlt.unrecoverableList.append(we)
+            self.unrecoverableList.append(we)
+            continue
       
          if we.isOpaque:
-            wlt.opaqueList.append(we)
+            self.opaqueList.append(we)
+            continue
 
-         if isinstance(we, RootRelationship):
-            wlt.relationshipMap[we.relID] = we
-         elif isinstance(we, ArmoryRoot):
-         elif isinstance(we, AddressLabel):
-         elif isinstance(we, TxComment):
-         elif isinstance(we, LockboxEntry):
-         elif isinstance(we, EncryptinoKey):
-         elif isinstance(we, MultiPwdEncryptionKey):
-         elif isinstance(we, KdfObject):
-         elif isinstance(we, ArbitraryDataContainer):
+         # Everything else goes in the master list of entries
+         self.allWalletEntries.append(we)
+
+         # We explicitly don't use isinstance here, because it's easy to
+         # mess up derived classes, which will fall into conditional
+         # branches you weren't expecting
+         if we.FILECODE=='ROOT':
+            weID = we.getEntryID()
+            if weID in self.allRoots:
+               LOGWARN('Armory root is in wallet file multiple times!')
+            self.allRoots[weID] = we
+         if we.FILECODE=='AEK_':
+            self.masterAddrMap[we.getScrAddr()] = we
+         elif we.FILECODE=='RLAT':
+            self.relationshipMap[we.relID] = we
+         elif we.FILECODE=='ALBL':
+            self.allLabels[we.scrAddr] = we
+         elif we.FILECODE=='TLBL':
+            if we.txidFull: 
+               self.allLabels[we.txidFull] = we
+            if we.txidMall: 
+               self.allLabels[we.txidMall] = we
+         elif we.FILECODE=='LBOX':
+            self.lockboxMap[we.lboxID] = we
+         elif we.FILECODE in ['EKEY','MKEY']:
+            self.ekeyMap[we.ekeyID] = we
+         elif we.FILECODE=='KDF_':
+            self.kdfMap[we.kdfObjID] = we
+         elif we.FILECODE=='DATA':
+            self.arbitraryDataMap[we.dataName] = we
          
 
-      # Now set all references, 
-      for nodeID in wlt.disabledEntries:
-         wlt.findWalletObj(nodeID).isDisabled = True
+      # Set parent-child references for wallet entries' root vars
+      for i,we in enumerate(self.allWalletEntries):
+         wltParent = self.allRoots.get(we.wltParentRef)
+         if wltParent is None:
+            self.wltParentMissing.append(we)
+            del self.allWalletEntries[i]
+            continue
+         
+         we.wltParentRef = wltParent 
+         wltParent.wltChildRefs.append(we)
 
-      wlt.fsyncUpdates()
+         # AEK objects actually have a separate DAG structure for 
+         # relating keys to other keys, that is different from the
+         # relationships defined at the WalletEntry level
+         if isinstance(we, ArmoryExtendedKey):
+             
+         
+            
+      # Set Ekey and KDF references
+      for i,we in enumerate(self.allWalletEntries):
+         
+         if we.FILECODE == 'EKEY':
+            kdfid = we.keyCryptInfo.kdfObjID
+            ekeyKdf = self.kdfMap.get(kdfid)
+            if ekeyKdf is None:
+               LOGERROR('KDF %s for Ekey %s is not available' % \
+                  binary_to_hex(kdfid), binary_to_hex(we.ekeyID))
+               continue
+            we.setKdfObjectRef(ekeyKdf)
+         elif we.FILECODE == 'MKEY':
+            # We set multiple KDFs from the wallet file for each multi-pwd key
+            kdfList = []
+            for einfo in we.einfos:
+               kdfid = einfo.kdfObjID
+               ekeyKdf = self.kdfMap.get(kdfid)
+               if ekeyKdf is None:
+                  LOGERROR('KDF %s for Ekey %s is not available' % \
+                     binary_to_hex(kdfid), binary_to_hex(we.ekeyID))
+               continue
+               kdfList.append(ekeyKdf)
+            we.setKdfObjectRefList(kdfList)
+         elif isinstance(we, ArmoryExtendedKey):
+            ekid = we.privCryptInfo.keySource
+            ekey = self.ekeyMap.get(ekid)
+            if ekey is None:
+               LOGERROR('Ekey not in wallet file: %s' % binary_to_hex(ekid))
+               continue
+            we.masterEkeyRef = ekey
+
+
+            
+      # Aggregate roots that are part of multi-sig transactions
+      for root in self.allRoots:
+         if not isinstance(root, MultisigRoot):
+            continue
+
+         if not root.isComplete:
+            continue
+
+         for sib160 in root.sib160s:
+            sibRoot = self.allRoots.get(sib160)
+            if sibRoot is None: 
+               LOGWARN('Disabling multisig root b/c could not find sib root')
+               self.disabledEntries.append(root.getEntryID())
+               break
+
+            root.setSiblingRef(self, sibRoot):
+            sibRoot.isForMultisig = True
+
+
+      # First look for all children that have been marked to be disabled
+      # Mark their wltParent parents to be disabled
+      for node in self.allRoots:
+         if node.getEntryID() in self.disabledEntries or
+            node.wltParentRef.getEntryID() in self.disabledEntries:
+            node.isDisabled = True 
+            self.disabledList.append(node)
+            del self.allRoots[nodeID]
+            
+      # Then recursively disable all children of disabled roots
+      for node in self.disabledList:
+         node.disableAllWltChildren()
+         
+      # TODO: due to complexity, did not remove disabled children from
+      #       their respective lists, but I believe all that matters is
+      #       that the roots have been removed.  Need to test this.
+               
+         
+      if not self.isReadOnly:
+         self.fsyncUpdates()
+
       return wlt
 
       #self.rootMapBIP32 = [{}, {}, {}]
@@ -442,25 +587,25 @@ class ArmoryWalletFile(object):
       #self.kdfMap  = {}
       #self.relationshipMap  = {}
       #self.masterAddrMap  = {}
+      #self.arbitraryDataMap = {}
       #self.opaqueList  = []
       #self.unrecognizedList  = []
       #self.unrecoverableList  = []
-      #self.arbitraryDataMap = {}
       #self.disabledEntries = set()
 
       #'ROOT', ArmoryRoot, ISREQUIRED)
       #'ALBL', AddressLabel)
-      #'TLBL', TxComment)
+      #'TLBL', TxLabel)
       #'LBOX', MultiSigLockbox)
       #'RLAT', RootRelationship, ISREQUIRED)
       #'EKEY', EncryptionKey)
       #'MKEY', MultiPwdEncryptionKey)
-      #'KDFO', KdfObject)
+      #'KDF_', KdfObject)
       #'IDNT', IdentityPublicKey)
       #'SIGN', WltEntrySignature)
       #'DATA', ArbitraryDataContainer)
          
-        
+      
 
    #############################################################################
    def doFileOperation(self, operationType, theData, loc=None):
@@ -494,6 +639,9 @@ class ArmoryWalletFile(object):
       necessary information out of the object and do an "Append' or "Modify'
       as necessary.
       """
+      if self.isReadOnly:
+         raise WalletUpdateError('Cannot do file ops on ReadOnly wallet!')
+
       if not operationType.lower() in ['rewriteheader','addentry', 
                                        'updateentry', 'deleteentry']:
          raise BadInputError('Wallet update type invalid: %s' % operationType)
@@ -595,6 +743,8 @@ class ArmoryWalletFile(object):
       and the original file is fine.  THEREFORE -- this is implemented in such
       a way that the user should know two things:
       """
+      if self.isReadOnly:
+         raise WalletUpdateError('Wallet is opened in read-only mode!')
 
       if self.midWriteFlag.isSet():
          raise MultiThreadingError( \
@@ -849,7 +999,7 @@ class ArmoryWalletFile(object):
       
       LOGINFO('Creating new master encryption key')
       newEkey = EncryptionKey().createNewMasterKey(newKdf, encrAlgo, securePwd)
-      LOGINFO('New Ekey has ID=%s',  binary_to_hex(newEkey.getEkeyID()))
+      LOGINFO('New Ekey has ID=%s',  binary_to_hex(newEkey.ekeyID))
 
       
       # Copy all sensitive data into newSeed and destroy at the end.  If a SBD
@@ -1124,125 +1274,6 @@ class ArmoryWalletFile(object):
 
 
 
-
-
-#############################################################################
-#############################################################################
-class RootRelationship(WalletEntry):
-   """
-   A simple structure for storing the fingerprints of all the siblings of 
-   multi-sig wallet.  Each wallet chain that is part of this multi-sig 
-   should store a multi-sig flag and the ID of this object.    If a chain
-   has RRID zero but the multi-sig flag is on, it means that it was
-   generated to be part of a multi-sig but not all siblings have been 
-   acquired yet.
-
-   This object can be transferred between wallets and will be ignored if
-   none of the chains in the wallet use it.  Or transferred with all the
-   public chains to fully communicate a watching-only version of the 
-   multi-sig.  
-   """
-   FILECODE = 'RLAT'
-
-   #############################################################################
-   def __init__(self, M=None, N=None, siblingList=None, labels=None):
-      self.M = M if M else 0
-      self.N = N if N else 0
-      self.relID      = NULLSTR(8)
-      self.randID     = SecureBinaryData().GenerateRandom(8)
-      self.siblings   = []
-      self.sibLabels  = []
-      self.sibLookup  = []
-      self.isComplete = False
-
-
-      if siblingList is None:
-         siblingList = []
-
-      if labels is None:
-         labels = []
-
-      if len(siblingList) > 15:
-         raise MultisigError('Cannot have more than 15 wallets in multisig!')
-
-      if not (self.N == len(siblingList) == len(labels)):
-         raise MultisigError('Length of sibling list and labels must match N:'
-                             ' N=%d, len(sibs)=%d, len(lbls)=%d' % \
-                             (self.N, len(siblingList), len(labels))
-         
-      for sib,lbl in zip(siblingList, labels):
-         if not len(sib)==20:
-            raise MultisigError('All siblings must be 20-byte hash160 values')
-         self.addSibling(sib,lbl)
-
-
-
-   #############################################################################
-   def computeRelID(self):
-      self.relID = binary_to_base58(hash256(self.serialize()))[:8]
-      return self.relID
-
-      
-
-   #############################################################################
-   def addSibling(self, sibRootID, label):
-      if len(self.siblings) >= self.N:
-         raise BadInputError('RR already has %d siblings' % self.N)
-
-      self.siblings.append(sibRootID)
-      self.sibLabels.append(label)
-
-      if len(self.siblings) == self.N:
-         self.isComplete = True
-         self.siblings.sort()
-         for i,sib in enumerate(self.siblings):
-            self.sibLookup[sib] = i
-          
-
-   #############################################################################
-   def getSiblingIndex(self, sibID):
-      if not self.isComplete:
-         raise UninitializedError('Relationship object not full yet')
-
-      if not sibID in self.sibLookup:
-         raise UninitializedError('Sibling not found in this relationship obj')
-          
-      return self.sibLookup[sibID]
-      
-
-   #############################################################################
-   def serialize(self):
-      bp = BinaryPacker()
-      bp.put(BINARY_CHUNK, self.relID, widthBytes=8)
-      bp.put(BINARY_CHUNK, self.randID, widthBytes=8)
-      bp.put(UINT8, self.M)
-      bp.put(UINT8, self.N)
-      bp.put(UINT8, len(self.siblings))
-      for i in range(len(self.siblings)):
-         bp.put(VAR_STR, self.siblings[i])
-         bp.put(VAR_UNICODE, self.labels[i])
-
-      return bp.getBinaryString()
-
-
-   #############################################################################
-   def unserialize(self, theStr):
-      bu = makeBinaryUnpacker(theStr)
-      relID = bu.get(BINARY_CHUNK, 8)
-      rndID = bu.get(BINARY_CHUNK, 8)
-      M = bu.get(UINT8)
-      N = bu.get(UINT8)
-      nsib = bu.get(UINT8)
-      sibList = []
-      lblList = []
-      for i in range(nsib):
-         sibList.append(bu.get(VAR_STR))
-         lblList.append(bu.get(VAR_UNICODE))
-
-      self.__init__(M, N, sibList, lblList)
-      return self
-
-
       
 
 
@@ -1256,7 +1287,7 @@ class ArmoryAddress(WalletEntry):
       pass
 
 
-PRIV_KEY_AVAIL = enum('None', 'Plain', 'Encrypted', 'NextUnlock')
+PRIV_KEY_AVAIL = enum('None', 'Available', 'NeedDecrypt', 'NextUnlock')
 AEKTYPE = enum('Uninitialized', 'BIP32', 'ARMORY135', 'JBOK')
 
 
@@ -1293,7 +1324,7 @@ class AddressLabel(WalletEntry):
 
 
 ################################################################################
-class TxComment(WalletEntry):
+class TxLabel(WalletEntry):
 
    FILECODE = 'TLBL'
 
@@ -1315,7 +1346,7 @@ class TxComment(WalletEntry):
    def setComment(self, txidFull, txidMall, comment):
       self.txidFull =   '' if txidFull is None else txidFull[:]
       self.txidMall =   '' if txidMall is None else txidMall[:]
-      self.uComment  = u'' if comment  is None else toUnicode(comment
+      self.uComment  = u'' if comment  is None else toUnicode(comment)
 
    #############################################################################
    def serialize(self):
@@ -1492,8 +1523,8 @@ class ArmoryExtendedKey(WalletEntry):
       self.sbdPrivKeyData  = NULLSBD()
       self.sbdPublicKey33  = NULLSBD()
       self.sbdChaincode    = NULLSBD()
-      self.aekParent       = None
-      self.aekRoot         = None
+      self.aekParent160    = ''
+      self.aekRoot160      = ''
       self.derivePath      = []
       self.useCompressPub  = True
       self.aekType         = AEKTYPE.Uninitialized
@@ -1503,6 +1534,63 @@ class ArmoryExtendedKey(WalletEntry):
       self.keyRAMLifetime  = 10
       self.relockAtTime    = 0
 
+      self.aekChildMap     = {}
+      self.aekScrAddrMap   = {}
+      self.aekParent       = None
+      self.aekRoot         = None
+      self.masterEkeyRef   = None
+
+   #############################################################################
+   def getAEKCopy(self, newKeyData=None):
+      """
+      Note:  This copies just the base class AEK members.  It doesn't copy
+             any members that are in the derived class, though the child class
+             will be the same class as self 
+      """
+      childAddr = self.__class__()
+
+      childAddr.isWatchOnly     = self.isWatchOnly
+      childAddr.privCryptInfo   = self.privCryptInfo.copy()
+      childAddr.aekParent160    = self.aekParent160
+      childAddr.aekRoot160      = self.aekRoot160
+      childAddr.derivePath      = self.derivePath
+      childAddr.useCompressPub  = self.useCompressPub
+      childAddr.aekType         = self.aekType
+      childAddr.isUsed          = self.isUsed
+      childAddr.keyBornTime     = self.keyBornTime
+      childAddr.keyBornBlock    = self.keyBornBlock
+      childAddr.keyRAMLifetime  = self.keyRAMLifetime
+      childAddr.relockAtTime    = self.relockAtTime
+
+      childAddr.aekChildMap     = self.aekChildMap
+      childAddr.aekScrAddrMap   = self.aekScrAddrMap
+      childAddr.aekParent       = self.aekParent
+      childAddr.aekRoot         = self.aekRoot
+      childAddr.masterEkeyRef   = self.masterEkeyRef
+
+      if newKeyData is None:
+         childAddr.sbdPrivKeyData  = self.sbdPrivKeyData.copy()
+         childAddr.sbdPublicKey33  = self.sbdPublicKey33.copy()
+         childAddr.sbdChaincode    = self.sbdChaincode.copy()
+         childAddr.pubHash160      = self.pubHash160
+      else:
+         childAddr.sbdPrivKeyData  = NULLSBD()
+         childAddr.sbdPublicKey33  = newKeyData['PubKey'].copy()
+         childAddr.sbdChaincode    = newKeyData['Chaincode'].copy()
+         childAddr.scrAddrStr      = childAddr.generateScrAddr()
+         plainPriv = newKeyData['PlainPriv']
+
+         # If there's no encryption, the .encrypt call will use IDENTITY
+         if newKeyData['PlainPriv'].getSize() > 0:
+            childAddr.sbdPrivKeyData = self.privCryptInfo.encrypt( \
+                                 newKeyData['PlainPriv'], self.masterEkeyRef)
+
+      return childAddr
+
+
+   #############################################################################
+   def addChildRef(self, childAEK):
+      NotImplementedError('This needs to be reimplemented by derived class!')
 
    #############################################################################
    def initFromEncryptedPrivData(self, 
@@ -1589,7 +1677,7 @@ class ArmoryExtendedKey(WalletEntry):
       bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
       bp.put(VAR_STR,       parentID)
       bp.put(VAR_STR,       rootID)
-      bp.put(UINT16,         len(self.derivePath))
+      bp.put(UINT16,        len(self.derivePath))
       for idx in self.derivePath:
          bp.put(UINT32, idx)
       
@@ -1667,13 +1755,13 @@ class ArmoryExtendedKey(WalletEntry):
          return PRIV_KEY_AVAIL.None
       elif self.sbdPrivKeyData.getSize() > 0:
          if self.privCryptInfo.useEncryption():
-            return PRIV_KEY_AVAIL.Plain
+            return PRIV_KEY_AVAIL.Available
          else:
-            return PRIV_KEY_AVAIL.Encrypted
+            return PRIV_KEY_AVAIL.NeedDecrypt
       elif self.privKeyNextUnlock:
          return PRIV_KEY_AVAIL.NextUnlock
       else:
-         raise ShouldNotGetHereError('AEK that is not WO, but no key info')
+         raise ShouldNotGetHereError('AEK that is not WO, but no key info?')
 
 
    #############################################################################
@@ -1916,9 +2004,66 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
    def __init__(self, *args, **kwargs):
       super(Armory135ExtendedKey, self).__init__(*args, **kwargs)
       self.useCompressPub = False
+      self.chainIndex = None
+      self.derivePath = [0]
 
 
    #############################################################################
+   def getExtendedKeyByScrAddr(self, pathList, privSpawnReqd=False):
+      raise NotImplementedError('This method not avail for A135 wallet chains')
+
+   #############################################################################
+   def getExtendedKeyByChainIndex(self, pathList, privSpawnReqd=False):
+      raise NotImplementedError('This method not avail for A135 wallet chains')
+
+   #############################################################################
+   def getAddrObjByPath(self, pathList, privSpawnReqd=False):
+      raise NotImplementedError('This method not avail for A135 wallet chains')
+
+
+   #############################################################################
+   def addChildRef(self, childAEK):
+      # For Armory135 addrs, we store the child in both aekParent AND aekRoot
+      self.aekChildMap[0] = childAEK
+      self.aekRoot.aekChildMap[self.chainIndex] = childAEK
+      self.aekRoot.aekScrAddrMap[childAEK.getScrAddr()] = childAEK
+
+
+   #############################################################################
+   def calculateNextUnlockKeysIfNeeded(self):
+      if not self.privKeyNextUnlock:
+         return
+
+      if self.aekParent is None:
+         raise KeyDataError('No parent defined from which to derive this key')
+
+      if self.childID is None:
+         raise KeyDataError('No derivation path defined to derive this key')
+
+      # Originally used an elegant recursive call here, but was worried 
+      # about that corner case where someone has 100k addrs and will hit 
+      # the recursion limit... 
+
+      # Accum refs back to first key whose parent.privKeyNextUnlock==False
+      aekStack = [self]
+      while aekStack[-1].aekParent.privKeyNextUnlock:
+         aekStack.append(aekStack[-1].aekParent)
+      
+      # Now walk backwards, deriving every child from its parent
+      for aek in aekStack[::-1]:
+         # This is technically still recursive, but we've guaranteed it will
+         # only recurse once (because the parent.privKeyNextUnlock == False)
+         newAek = aek.aekParent.spawnChild(self.derivePath[-1], True)
+            
+         if aek.sbdPublicKey33.toBinStr()!=newAek.sbdPublicKey33.toBinStr():
+            raise KeyDataError('Derived key supposed to match but does not')
+      
+         aek.sbdPrivKeyData    = newAek.sbdPrivKeyData.copy()
+         aek.privKeyNextUnlock = False
+                              
+
+   #############################################################################
+   @TimeThisFunction('SpawnChild135')
    def spawnChild(self, childID=0, privSpawnReqd=False):
       """
       We require some fairly complicated logic here, due to the fact that a
@@ -1930,8 +2075,6 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
       data they will need to create the key, to be applied on next unlock.
       """
 
-      TimerStart('spawnChild_135')
-
       if not childID == 0:
          raise KeyDataError('Can only derive child ID=0 for 1.35 AEKs')
 
@@ -1939,30 +2082,17 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
       if privSpawnReqd:
-         if self.isWatchOnly:
+         pavail = self.getPrivKeyAvailability()
+         if self.isWatchOnly or pavail==PRIV_KEY_AVAIL.None:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
 
-         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted and 
+         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NeedDecrypt and 
             raise KeyDataError('Requires priv key, no way to decrypt it')
+
+         if pavail==PRIV_KEY_AVAIL.NextUnlock:
+            self.calculateNextUnlockKeysIfNeeded()
          
 
-      if self.privKeyNextUnlock:
-         if self.aekParent is None:
-            raise KeyDataError('No parent defined from which to derive this key')
-
-         if self.childID is None:
-            raise KeyDataError('No derivation path defined to derive this key')
-
-         # Recurse up the chain to extend from the last-fully-derived priv key
-         aek = self.aekParent.spawnChild(ekeyObj, keyData, privSpawnReqd)
-            
-         if not aek.sbdPublicKey33.toBinStr() == self.sbdPublicKey33.toBinStr():
-            raise keyData('Derived key supposed to match this one but does not')
-   
-         self.sbdPrivKeyData    = aek.sbdPrivKeyData.copy()
-         self.privKeyNextUnlock = False
-         startedLocked = True  # if needed to derive, it was effectively locked
-                              
 
       pubKey65 = CryptoECDSA().UncompressPoint(self.sbdPublicKey33)
       logMult1 = NULLSBD()
@@ -1973,16 +2103,16 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
 
 
       try:
-         CECDSA = CryptoECDSA()
-         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Plain:
+         ecdsaObj = CryptoECDSA()
+         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Available:
             privPlain = self.getPlainPrivKeyCopy()
             if privPlain.getSize()==0:
                raise KeyDataError('Private key not available for spawning')
-            extendFunc = CECDSA.ComputeChainedPrivateKey
+            extendFunc = ecdsaObj.ComputeChainedPrivateKey
             extendArgs = [privPlain, self.sbdChaincode, pubKey65, logMult1]
             extendType = 'Private'
          elif self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.None
-            extendFunc = CECDSA.ComputeChainedPublicKey
+            extendFunc = ecdsaObj.ComputeChainedPublicKey
             extendArgs = [pubKey65, self.sbdChaincode, logMult1]
             extendType = 'Public'
          
@@ -2018,8 +2148,6 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
                sbdNewKey1.destroy()
                sbdNewKey2.destroy()
                sbdNewKey3.destroy()
-               # This should crash just about any process that would try to use it
-               # without checking for empty private key. 
                raise KeyDataError('Chaining %s Key Failed!' % extendType)
       finally:
          privPlain.destroy()
@@ -2027,31 +2155,47 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
          sbdNewKey2.destroy()
          sbdNewKey3.destroy()
 
+      newAEK = {}
       if extendType=='Private':
-         sbdNewPriv  = sbdNewKey1.copy()
-         sbdNewPub   = CryptoECDSA().ComputePublicKey(sbdNewPriv)
-         sbdNewChain = self.sbdChaincode.copy()
+         newAEK['PlainPriv']  = sbdNewKey1.copy()
+         newAEK['PublicKey']   = CryptoECDSA().ComputePublicKey(sbdNewPriv)
+         newAEK['Chaincode'] = self.sbdChaincode.copy()
       else:
-         sbdNewPriv  = NULLSBD()
-         sbdNewPub   = sbdNewKey1.copy()
-         sbdNewChain = self.sbdChaincode.copy()
+         newAEK['PlainPriv']  = NULLSBD()
+         newAEK['PublicKey']   = sbdNewKey1.copy()
+         newAEK['Chaincode'] = self.sbdChaincode.copy()
 
-      childAddr = Armory135ExtendedKey(privKey=sbdNewPriv, 
+
+      childAddr = self.copy()
+      childAddr = self.getAEKCopy(self, newKeyData=newAEK):
+      childAddr.chainIndex = self.chainIndex + 1
+      childAddr.derivePath = [0]
+      self.addChildRef(childAddr)
+      return childAddr
+
+
+         
+
+   #############################################################################
+   def createChildKeyFromKeyData(self, sbdPlainPriv, sbdPub, sbdChain):
+      childAddr = self.copy()
+      childAddr 
+                                       privKey=sbdNewPriv, 
                                        pubKey=sbdNewPub, 
                                        chain=sbdNewChain)
+      
+      if extendType=='Private':
+         
                                         
-      childAddr.chainIndex = self.chainIndex + 1
+      childAddr.chainIndex     = self.chainIndex + 1
       childAddr.aekParent      = self
-      childAddr.aekParentID    = self.getExtKeyID()
+      childAddr.aekParent160   = self.getExtKeyID()
+      childAddr.aekRoot160     = self.aekRoot160
       childAddr.privCryptInfo  = self.privCryptInfo
       childAddr.isInitialized  = True
 
-      if startedLocked:
-         childAddr.lock(ekeyObj, keyData)
-         childAddr.unlock(ekeyObj, keyData)
-         childAddr.lock(ekeyObj, keyData)
-
       return childAddr
+
 
 
 ################################################################################
@@ -2064,19 +2208,17 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
 
 
    #############################################################################
+   def addChildRef(self, childAEK):
+      if len(childAEK.derivePath) == 0:
+         raise ValueError('Child AEK has no derive path')
+         
+      idx = childAEK.derivePath[-1]
+      self.aekChildMap[idx] = childAEK
+
+   #############################################################################
    def spawnChild(self, childID, privSpawnReqd=False):
       """
-      We require some fairly complicated logic here, due to the fact that a
-      user with a full, private-key-bearing wallet, may try to generate a new
-      key/address without supplying a passphrase.  If this happens, the wallet
-      logic gets mucked up -- we don't want to reject the request to
-      generate a new address, but we can't compute the private key until the
-      next time the user unlocks their wallet.  
-
-      We assume the master key is already unlocked if needed.  
-
-      Using privSpawnReqd doesn't mean that we need to do a "hardened"
-      derivation, it 
+      Derive a child extended key from this one. 
       """
 
       TimerStart('spawnChild')
@@ -2084,8 +2226,9 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
-      if privSpawnReqd or (childID & 0x80000000 > 0):
-         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.None:
+      privSpawnReqd = privSpawnReqd or (childID & 0x80000000 > 0)
+      if privSpawnReqd:
+         if self.isWatchOnly:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
 
          ekeyObj = self.getEkeyFromWallet(self.privCryptInfo.keySource)
@@ -2096,7 +2239,8 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
             raise WalletLockError('Must unlock private key to do priv spawn')
          
 
-      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NextUnlock:
+      # If we need the private key but it hasn't been calc yet, do it (recurse) 
+      if privSpawnReqd and self.privKeyNextUnlock:
          if self.aekParent is None:
             raise KeyDataError('No parent defined from which to derive this key')
 
@@ -2113,15 +2257,12 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
             raise keyData('Derived key supposed to match this one but does not')
    
          self.sbdPrivKeyData = aek.sbdPrivKeyData.copy()
-         startedLocked = True  # if needed to derive, it was effectively locked
                               
       # If the key is currently encrypted, going to need to unlock it
-      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted:
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NeedDecrypt:
          unlockSuccess = self.unlock(ekeyObj, keyData)
          if not unlockSuccess:
             raise PassphraseError('Incorrect decryption data to spawn child')
-         else:
-            startedLocked = True  # will re-lock at the end of this operation
 
 
          
@@ -2132,7 +2273,7 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
       childAddr.binPubKey33  = extChild.getPub().copy()
       childAddr.binChaincode = extChild.getChain().copy()
 
-      if privAvail==PRIV_KEY_AVAIL.Plain:
+      if privAvail==PRIV_KEY_AVAIL.Available:
          # We are extending a chain using private key data (unencrypted)
          childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
          childAddr.needToDerivePrivKey = False
@@ -2161,52 +2302,52 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
       childAddr.indexList          = self.indexList[:]
       childAddr.indexList.append(childID)
 
-      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
-         # We can't get here without a [valid] decryptKey 
-         childAddr.lock(ekeyObj, keyData))
-         if not startedLocked:
-            childAddr.unlock(ekeyObj, keyData)
-            self.unlock(ekeyObj, keyData)
 
       return ArmoryExtendedKey(
       return childAddr
 
+
+
    #############################################################################
-   def getWalletLocator(self, encryptWithParentChain=True)
+   def getAddrLocatorString(self, locatorType='Plain', baseID=None):
       """
-      @encryptWithParentChain:
-
-      The wallet locator information is really intended for the online
-      computer to identify to an offline computer that certain public
-      keys are a related to the wallet.  The problem is that the data
-      passes by a lot of unrelated parties on the way and wallet locators
-      with the same IDs or similar paths could leak privacy information.
-      However, both online and offline computer have data that no one
-      else should know: the chaincode.  So we simply put a unique 
-      identifier up front, and then encrypt the thing using the chaincode
-      of the parent/root as the AES256 key.  The offline computer will 
-      attempt to decrypt all wallet locators strings with the chaincode,
-      and if it succeeds, it will use the locator information as needed.
-      If you are unrelated to the wallet, it will look like random data.
-
-      One problem is that some devices may only have floating branches 
-      of a BIP32 wallet, and wouldn't recognize the root.  In other cases
-      we might have a system with thousands of wallets, and attempting 
-      decryption with every chain code might be excessive.   So we 
-      actually encrypt every sub-path:  i.e.
-
-         encrypt_m_x("y/z/a") | encrypt_m_x_y("z/a") | encrrypt_m_x_y_z("a")
-
-      The whole thing is the wallet locator, and if the wallet has no
-      floating chains, it only needs to attempt decryption of the first
-      16 bytes for each root (should be a small number).  
-
-      P.S. - At the time of this writing this is a stub and I have no
-             idea if this is what we want.
-      """
+      This is a string that can be bundled with offline/multisig transactions
+      to help lite devices identify that addresses/keys belong to them.  It's 
+      basically just a wallet ID and path string.
    
-      if encryptWithParentChain:
-         self.
+      Can change the baseID to make the addr locator based on a different 
+      root, perhaps the depth=1 node instead depth=0 
+      """
+
+      if not locatorType=='Plain':
+         raise NotImplementedError('Cannot handle anything other than plain') 
+
+      if baseID is None:
+         baseID = self.aekRoot.getHash160()
+
+      # Walk up the parent chain looking for the baseID, to make sure we
+      # are only adding deriv-paths up to that BIP32 node
+      aek   = self
+      aekID = self.getHash160()
+      derivePath = []
+      while not aekID==baseID:
+         if aek.aekParent is None:
+            raise WalletAddressError('Did not find specified base ID')
+
+         derivePath.append(aek.derivePath[-1])
+         aek   = aek.aekParent
+         aekID = aek.aekParent.getHash160()
+   
+
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, baseID)
+      bp.put(VAR_INT, len(derivePath))
+      for i in derivePath[::-1]:
+         bp.put(UINT32, i)
+      return bp.getBinaryString() 
+      
+
+      
 
 
 
@@ -2216,6 +2357,14 @@ class ArmoryImportedKey(ArmoryExtendedKey):
 
    EXTKEYTYPE = 'IMPORTED'
 
+   #############################################################################
+   def getAddrLocatorString(self):
+      return ''
+
+   #############################################################################
+   def addChildRef(self, childAEK):
+      newIdx = len(self.aekChildMap)
+      self.aekChildMap[newIdx] = childAEK
 
 # Root modes represent how we anticipate using this root.  An Armory root
 # marked as BIP32_Root means it is the top of a BIP32 tree generated from a 
@@ -2226,21 +2375,11 @@ class ArmoryImportedKey(ArmoryExtendedKey):
 # algorithm that was used for the first 3 years of Armory's existence.  
 # JBOK stands for "Just a bunch of keys" (like RAID-JBOD).  JBOK mode will
 # most likely only be used for imported keys and old Bitcoin Core wallets.
-ROOTTYPE = enum('BIP32_Root', 'BIP32_Floating', 'ARM135_Root', 'JBOK')
-
-################################################################################
-class ArmorySignAuthRoot(ArmoryExtendedKey):
-   """
-   This is anything that's not a root-root.  A root-root is derived directly
-   from a seed, and is managed directly by ArmoryWalletFile objects.  These
-   floating roots are everything else, and are managed/tracked by a rootroot.
-   """
-
-   FILECODE = 'FLOT'
+#ROOTTYPE = enum('UNINIT','ARM135', 'ARMORY20', 'JBOK', 'TREZV1', 'BTCHPV1')
 
 
 #############################################################################
-class ArmoryRootRoot(ArmoryExtendedKey):
+class ArmoryRoot(ArmoryExtendedKey):
    """
    A "wallet" will always have a root-root, which also will never be used
    for handling money (even though it technically has a private key).
@@ -2271,25 +2410,19 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       # part of a multisig wallet.  In that case, multisig flag will be on,
       # but the relationshipID will be zeros.  Once a relationship is defined
       # and added to the wallet, this structure will be updated.
-      self.isMultisig      = False
-      self.relationshipID  = NULLSTR(8)
+      self.isForMultisig   = False
+      self.relationshipID  = NULLSTR(20)
 
       # If this is a "normal" wallet, it is BIP32.  Other types of wallets 
       # (perhaps old Armory chains, will use different name to identify we
       # may do something different)
-      self.rootType = ROOTTYPE.BIP32_Root
-      self.rootSrc  = 'ARMRY2.0'  # "TREZV1.0'
+      #ROOTTYPE = enum('UNINIT','ARM135', 'ARMORY20', 'JBOK', 'TREZV1', 'BTCHPV1')
+      self.rootType = ROOTTYPE.UNINIT
 
       # Extra data that needs to be encrypted
       self.seedCryptInfo   = ArmoryCryptInfo(None)
       self.seedNumBytes    = 0
       self.sbdSeedCrypt    = SecureBinaryData(0)
-
-      # This describes how we plan to derive keys from this wallet. 
-      # "HSS" is "hard soft soft" which refers to hardened derivation
-      # at the first level (from depth-0 to depth-1 nodes), then 
-      # regular/soft/Type2 derivation from depth 1-2 and 2-3.  
-      self.derivePathScheme = "HSS_"
 
 
       # This is a root of a single-sig phone wallet.  We have the priv keys
@@ -2424,7 +2557,7 @@ class ArmoryRootRoot(ArmoryExtendedKey):
          return NULLSBD()
 
    #############################################################################
-   def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
+   def CreateNewMasterRoot(self, typeStr='ARMORY20', cryptInfo=None, \
                                  kdfObj=None, ekeyObj=None, keyData=None, 
                                  seedBytes=20, extraEntropy=None):
       """
@@ -2440,7 +2573,7 @@ class ArmoryRootRoot(ArmoryExtendedKey):
          LOGERROR('Cannot create any roots other than BIP32 (yet)')
          raise NotImplementedError, 'Only BIP32 wallets allowed so far')
 
-      self.walletType = typeStr
+      self.rootType = typeStr
       self.wltVersion = ARMORY_WALLET_VERSION
       self.wltSource  = 'ARMORY'.ljust(12, '\x00')
 
@@ -2532,24 +2665,10 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       and INTERNAL (1).  In the case of multi-sig, we have one pair of wallet
       chains for each signing authority.  We use the ordering of the root pub
       keys in the relationship object to determine which of the 2*N chains to
-      use.  
+      use.  This method will be overridden by the MultisigRoot class.
       """
+      return 0 if chainType.lower()=='external' else 1
 
-      if self.relationshipID == NULLSTR(8):
-         return 0 if chainType.lower()=='external' else 1
-      elif not self.wltFileRef:
-         raise WalletExistsError('No wallet file ref to get multisig info')
-
-      # This is a multi-sig wallet and thus we need to fetch
-      relObj = self.wltFileRef.relationshipMap.get(self.relationshipID)
-      if relObj is None:
-         raise WalletExistsError('No relationship obj in wallet with ID=%s',
-                                         binary_to_hex(self.relationshipID))
-
-      indexSelf = relObj.getSiblingIndex(self.pubHash160)
-      return 2*indexSelf + (0 if chainType.lower()=='external' else 1)
-         
-   
          
 
    #############################################################################
@@ -2590,27 +2709,6 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       if not self.hasChaincode():
          raise KeyDataError, 'No chaincode has been defined to extend chain'
 
-      privAvail = self.getPrivKeyAvailability()
-      if privAvail==PRIV_KEY_AVAIL.NextUnlock:
-         LOGERROR('Cannot allow multi-level priv key generation while locked')
-         LOGERROR('i.e. If your wallet has previously computed m/x and M/x,')
-         LOGERROR('but it is currently encrypted, then it can spawn m/x/y by')
-         LOGERROR('storing the encrypted version of m/x and its chaincode')
-         LOGERROR('and then computing it on next unlock.  But if m/x/y is ')
-         LOGERROR('currently in that state, you cannot then spawn m/x/y/z ')
-         LOGERROR('until you have unlocked m/x/y once.  This is what is ')
-         LOGERROR('meant by "multi-level key generation while locked')
-         raise KeyDataError, 'Cannot do multi-level priv key gen while locked'
-                              
-      wasLocked  = False
-      if privAvail==PRIV_KEY_AVAIL.Encrypted:
-         unlockSuccess = self.unlock(ekeyObj, keyData)
-         if not unlockSuccess:
-            raise PassphraseError, 'Incorrect decryption data to spawn child'
-         else:
-            privAvail = PRIV_KEY_AVAIL.Plain
-            wasLocked = True # will re-lock at the end of this operation
-
 
       # If we have key data and it's encrypted, it's decrypted by now.
       # extchild has priv key if we have privavail == plain.  Else, we extend
@@ -2627,7 +2725,7 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       childAddr.binPubKey33or65 = extChild.getPub().copy()
       childAddr.binChaincode    = extChild.getChain().copy()
 
-      if privAvail==PRIV_KEY_AVAIL.Plain:
+      if privAvail==PRIV_KEY_AVAIL.Available:
          # We are extending a chain using private key data (unencrypted)
          childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
          childAddr.needToDerivePrivKey = False
@@ -2656,12 +2754,6 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       childAddr.indexList          = self.indexList[:]
       childAddr.indexList.append(childID)
 
-      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
-         # We can't get here without a [valid] decryptKey 
-         childAddr.lock(ekeyObj, keyData))
-         if not wasLocked:
-            childAddr.unlock(ekeyObj, keyData)
-            self.unlock(ekeyObj, keyData)
       return childAddr
 
 
@@ -2770,16 +2862,16 @@ class ArmoryRootRoot(ArmoryExtendedKey):
                               
 
       wasLocked  = False
-      if privAvail==PRIV_KEY_AVAIL.Encrypted:
+      if privAvail==PRIV_KEY_AVAIL.NeedDecrypt:
          if not self.verifyEncryptionKey(decryptKey):
             raise PassphraseError, 'Incorrect passphrase entered to spawn child'
          else:
             self.unlock(decryptKey)
-            privAvail = PRIV_KEY_AVAIL.Plain
+            privAvail = PRIV_KEY_AVAIL.Available
             wasLocked = True # will re-lock at the end of this operation
 
       # If we have key data and it's encrypted, it's decrypted by now.
-      # extchild has priv key if we have privavail == plain.  Else, we extend
+      # extchild has priv key if we have privavail == Available.  Else, we extend
       # only the public part
       childAddr = ArmoryAddress()
       extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
@@ -2788,7 +2880,7 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       childAddr.binPubKey33or65  = extChild.getPub().copy()
       childAddr.binChaincode     = extChild.getChain().copy()
 
-      if privAvail==PRIV_KEY_AVAIL.Plain:
+      if privAvail==PRIV_KEY_AVAIL.Available:
          # We are extending a chain using private key data (unencrypted)
          childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
          childAddr.needToDerivePrivKey = False
@@ -2818,13 +2910,156 @@ class ArmoryRootRoot(ArmoryExtendedKey):
       childAddr.indexList.append(childID)
       childAddr.derivePathScheme = self.derivePathScheme[1:]
 
-      if childAddr.useEncryption() and not childAddr.needToDerivePrivKey:
-         # We can't get here without a [valid] decryptKey 
-         childAddr.lock(decryptKey)
-         if not wasLocked:
-            childAddr.unlock(decryptKey)
-            self.unlock(decryptKey)
       return childAddr
+
+
+################################################################################
+class MultisigRoot(ArmoryRoot):
+   # Replace RootRelationship with this...?
+   """
+   A simple structure for storing the fingerprints of all the siblings of 
+   multi-sig wallet.  Each wallet chain that is part of this multi-sig 
+   should store a multi-sig flag and the ID of this object.    If a chain
+   has RRID zero but the multi-sig flag is on, it means that it was
+   generated to be part of a multi-sig but not all siblings have been 
+   acquired yet.
+
+   This object can be transferred between wallets and will be ignored if
+   none of the chains in the wallet use it.  Or transferred with all the
+   public chains to fully communicate a watching-only version of the 
+   multi-sig.  
+   """
+   FILECODE = 'MSRT'
+
+   #############################################################################
+   def __init__(self, M=None, N=None, siblingList=None, labels=None):
+      super(MultisigRoot, self).__init__()
+
+      self.M = M if M else 0
+      self.N = N if N else 0
+      self.relID       = NULLSTR(8)
+      self.randID      = SecureBinaryData().GenerateRandom(8)
+      self.sib160s     = []
+      self.sibLabels   = []
+      self.sibLookup   = []
+      self.isComplete  = False
+      self.siblingRefs = []
+
+
+      if siblingList is None:
+         siblingList = []
+
+      if labels is None:
+         labels = []
+
+      if len(siblingList) > 15:
+         raise MultisigError('Cannot have more than 15 wallets in multisig!')
+
+      if not (self.N == len(siblingList) == len(labels)):
+         raise MultisigError('Length of sibling list and labels must match N:'
+                             ' N=%d, len(sibs)=%d, len(lbls)=%d' % \
+                             (self.N, len(siblingList), len(labels))
+         
+      for sib,lbl in zip(siblingList, labels):
+         if not len(sib)==20:
+            raise MultisigError('All siblings must be 20-byte hash160 values')
+         self.addSiblingID(sib,lbl)
+
+
+
+   #############################################################################
+   def getEntryID(self):
+      self.relID = binary_to_base58(hash256(self.serializeMultisigData()))[:8]
+      return self.relID
+
+      
+   #############################################################################
+   def getWalletChainIndex(self, chainType="External"):
+      # We have two chains for each sibling.  Pick the 
+      indexSelf = self.getSiblingIndex(self.multisigWhoAmI())
+      return 2*indexSelf + (0 if chainType.lower()=='external' else 1)
+
+   #############################################################################
+   def multisigWhoAmI(self):
+      LOGERROR('TODO: implement proper chain-selection for multisig wallets!')
+      return self.sib160s[0]
+
+
+   #############################################################################
+   def addSiblingID(self, sibRootID, label):
+      if len(self.sib160s) >= self.N:
+         raise BadInputError('RR already has %d siblings' % self.N)
+
+      self.sib160s.append(sibRootID)
+      self.sibLabels.append(label)
+      self.siblingRefs.append(None)
+
+      if len(self.sib160s) == self.N:
+         self.isComplete = True
+         self.sib160s.sort()
+         for i,sib in enumerate(self.sib160s):
+            self.sibLookup[sib] = i
+          
+   #############################################################################
+   def setSiblingRef(self, sibRef):
+      if not self.isComplete: 
+         raise MultisigError('Cannot add sibling refs until all IDs are added')
+      i = getSiblingIndex(sibRef.getEntryID())
+      self.siblingRefs[i] = sibRef
+
+   #############################################################################
+   def getSiblingIndex(self, sibID):
+      if not self.isComplete:
+         raise UninitializedError('Multisig root object not full yet')
+
+      if not sibID in self.sibLookup:
+         raise UninitializedError('Sibling not found in this root obj')
+          
+      return self.sibLookup[sibID]
+      
+
+   #############################################################################
+   def serializeMultisigData(self):
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, self.relID, widthBytes=8)
+      bp.put(BINARY_CHUNK, self.randID, widthBytes=8)
+      bp.put(UINT8, self.M)
+      bp.put(UINT8, self.N)
+      bp.put(UINT8, len(self.sib160s))
+      for i in range(len(self.sib160s)):
+         bp.put(VAR_STR, self.sib160s[i])
+         bp.put(VAR_UNICODE, self.labels[i])
+
+      return bp.getBinaryString()
+
+
+   #############################################################################
+   def unserializeMultisigData(self, theStr):
+      bu = makeBinaryUnpacker(theStr)
+      relID = bu.get(BINARY_CHUNK, 8)
+      rndID = bu.get(BINARY_CHUNK, 8)
+      M = bu.get(UINT8)
+      N = bu.get(UINT8)
+      nsib = bu.get(UINT8)
+      sibList = []
+      lblList = []
+      for i in range(nsib):
+         sibList.append(bu.get(VAR_STR))
+         lblList.append(bu.get(VAR_UNICODE))
+
+      self.__init__(M, N, sibList, lblList)
+      return self
+
+   #############################################################################
+   def serialize(self):
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, super(MultisigRoot, self).serialize())
+      bp.put(BINARY_CHUNK, self.serializeMultisigData())
+
+   #############################################################################
+   def unserialize(self, theStr):
+      bu = makeBinaryUnpacker(theStr)
+
 
 
 
@@ -2841,12 +3076,12 @@ class ArbitraryDataContainer(WalletEntry):
 ISREQUIRED=True
 WalletEntry.addClassToMap('ROOT', ArmoryRoot, ISREQUIRED)
 WalletEntry.addClassToMap('ALBL', AddressLabel)
-WalletEntry.addClassToMap('TLBL', TxComment)
+WalletEntry.addClassToMap('TLBL', TxLabel)
 WalletEntry.addClassToMap('LBOX', MultiSigLockbox)
 WalletEntry.addClassToMap('RLAT', RootRelationship, ISREQUIRED)
 WalletEntry.addClassToMap('EKEY', EncryptionKey)
 WalletEntry.addClassToMap('MKEY', MultiPwdEncryptionKey)
-WalletEntry.addClassToMap('KDFO', KdfObject)
+WalletEntry.addClassToMap('KDF_', KdfObject)
 WalletEntry.addClassToMap('IDNT', IdentityPublicKey)
 WalletEntry.addClassToMap('SIGN', WltEntrySignature)
 WalletEntry.addClassToMap('DATA', ArbitraryDataContainer)

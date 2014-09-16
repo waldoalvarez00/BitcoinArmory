@@ -2324,6 +2324,7 @@ def bytesToHumanSize(nBytes):
       return '%0.1f PB' % (nBytes/PETABYTE)
 
 
+#############################################################################
 ##### HEXSTR/VARINT #####
 def packVarInt(n):
    """ Writes 1,3,5 or 9 bytes depending on the size of n """
@@ -2344,6 +2345,7 @@ def unpackVarInt(hvi):
 
 
 
+#############################################################################
 def fixChecksumError(binaryStr, chksum, hashFunc=hash256):
    """
    Will only try to correct one byte, as that would be the most
@@ -2360,10 +2362,12 @@ def fixChecksumError(binaryStr, chksum, hashFunc=hash256):
 
    return ''
 
+#############################################################################
 def computeChecksum(binaryStr, nBytes=4, hashFunc=hash256):
    return hashFunc(binaryStr)[:nBytes]
 
 
+#############################################################################
 def verifyChecksum(binaryStr, chksum, hashFunc=hash256, fixIfNecessary=True, \
                                                               beQuiet=False):
    """
@@ -2421,6 +2425,7 @@ def verifyChecksum(binaryStr, chksum, hashFunc=hash256, fixIfNecessary=True, \
    return ''
 
 
+#############################################################################
 # Taken directly from rpc.cpp in reference bitcoin client, 0.3.24
 def binaryBits_to_difficulty(b):
    """ Converts the 4-byte binary difficulty string to a float """
@@ -2436,20 +2441,29 @@ def binaryBits_to_difficulty(b):
    return dDiff
 
 
+#############################################################################
 # TODO:  I don't actually know how to do this, yet...
 def difficulty_to_binaryBits(i):
    pass
 
 
+#############################################################################
 def roundUpMod(val, mod):
    return ((int(val)- 1) / mod + 1) * mod
 
 
+#############################################################################
 def padString(s, mod, pad='\x00'):
    currSz = len(s)
    needSz = roundUpMod(currSz, mod)
    return s + pad*(needSz-currSz)
 
+#############################################################################
+def getLeadingBits(binStr, nBits=3):
+   numBytes = roundUpMod(nBits, 8) / 8 
+   modShift = (8 - (nBits%8)) % 8
+   bitInt = binary_to_int(binStr[:numBytes], endIn=BIGENDIAN) >> modShift
+   return int_to_binary(bitInt, endOut=BIGENDIAN, widthBytes=numBytes)
 
 
 ################################################################################
