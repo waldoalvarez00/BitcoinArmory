@@ -667,12 +667,8 @@ bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
 // RETURN: Bool indicating if the key's on the curve (true) or not (false).
 bool CryptoECDSA::VerifyPublicKeyValid(SecureBinaryData const & pubKey33or65)
 {
-   assert(pubKey33or65.getSize() == 65);
-
    if(CRYPTO_DEBUG)
-   {
       cout << "BinPub: " << pubKey33or65.toHexStr() << endl;
-   }
 
    SecureBinaryData keyToCheck(65);
 
@@ -821,7 +817,7 @@ bool CryptoECDSA::VerifyData(SecureBinaryData const & binMessage,
 //           generation process)
 SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
                                  SecureBinaryData const & binPrivKey,
-                                 SecureBinaryData const & chainCode,
+                                 SecureBinaryData const & chaincode,
                                  SecureBinaryData binPubKey,
                                  SecureBinaryData* multiplierOut)
 {
@@ -829,7 +825,7 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
    {
       cout << "ComputeChainedPrivateKey:" << endl;
       cout << "   BinPrv: " << binPrivKey.toHexStr() << endl;
-      cout << "   BinChn: " << chainCode.toHexStr() << endl;
+      cout << "   BinChn: " << chaincode.toHexStr() << endl;
       cout << "   BinPub: " << binPubKey.toHexStr() << endl;
    }
 
@@ -837,19 +833,19 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
    if( binPubKey.getSize()==0 )
       binPubKey = ComputePublicKey(binPrivKey);
 
-   if( binPrivKey.getSize() != 32 || chainCode.getSize() != 32)
+   if( binPrivKey.getSize() != 32 || chaincode.getSize() != 32)
    {
       LOGERR << "***ERROR:  Invalid private key or chaincode (both must be 32B)";
       LOGERR << "BinPrivKey: " << binPrivKey.getSize();
       LOGERR << "BinPrivKey: (not logged for security)";
       //LOGERR << "BinPrivKey: " << binPrivKey.toHexStr();
-      LOGERR << "BinChain  : " << chainCode.getSize();
-      LOGERR << "BinChain  : " << chainCode.toHexStr();
+      LOGERR << "BinChain  : " << chaincode.getSize();
+      LOGERR << "BinChain  : " << chaincode.toHexStr();
    }
 
    // Adding extra entropy to chaincode by xor'ing with hash256 of pubkey
    BinaryData chainMod  = binPubKey.getHash256();
-   BinaryData chainOrig = chainCode.getRawCopy();
+   BinaryData chainOrig = chaincode.getRawCopy();
    BinaryData chainXor(32);
       
    for(uint8_t i=0; i<8; i++)
@@ -897,21 +893,21 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
 // Deterministically generate new public key using a chaincode
 SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
                                 SecureBinaryData const & binPubKey,
-                                SecureBinaryData const & chainCode,
+                                SecureBinaryData const & chaincode,
                                 SecureBinaryData* multiplierOut)
 {
    if(CRYPTO_DEBUG)
    {
       cout << "ComputeChainedPUBLICKey:" << endl;
       cout << "   BinPub: " << binPubKey.toHexStr() << endl;
-      cout << "   BinChn: " << chainCode.toHexStr() << endl;
+      cout << "   BinChn: " << chaincode.toHexStr() << endl;
    }
    static SecureBinaryData SECP256K1_ORDER_BE = SecureBinaryData::CreateFromHex(
            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
 
    // Added extra entropy to chaincode by xor'ing with hash256 of pubkey
    BinaryData chainMod  = binPubKey.getHash256();
-   BinaryData chainOrig = chainCode.getRawCopy();
+   BinaryData chainOrig = chaincode.getRawCopy();
    BinaryData chainXor(32);
       
    for(uint8_t i=0; i<8; i++)
@@ -1217,6 +1213,26 @@ const SecureBinaryData ExtendedKey::getIdentifier() const
    return compressedPubKey.getHash160();
 }
 
+// Returns empty string if no priv key exists
+SecureBinaryData ExtendedKey::getPrivateKey(void) const
+{
+   if(!isPrv())
+      return SecureBinaryData(0);
+   else
+      return key_.getSliceCopy(1,32);
+
+}
+
+// Gets the raw public key, default is compressed
+SecureBinaryData ExtendedKey::getPublicKey(bool compr) const
+{
+   if(compr)
+      return CryptoECDSA().CompressPoint(pubKey_);
+   else
+      return pubKey_;
+      
+
+}
 
 // Function that performs a Hash160 (SHA256, then RIPEMD160) on the uncompressed
 // public key.
@@ -1276,7 +1292,7 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
 
    // If we're good to go, set about creating the master key.
    key_ = key;
-   chainCode_ = ch;
+   chaincode_ = ch;
    updatePubKey();
    version_ = PRVVER;
    parentFP_ = SecureBinaryData::CreateFromHex("00000000");
@@ -1299,7 +1315,7 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
                          uint32_t netVer,
                          uint32_t inChildNum,
                          bool keyIsPub) :
-   chainCode_(ch),
+   chaincode_(ch),
    version_(netVer),
    indicesList_(parentTreeIdx)
 {
@@ -1345,14 +1361,14 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
                          uint32_t inChildNum) :
    key_(pr),
    pubKey_(pb),
-   chainCode_(ch),
+   chaincode_(ch),
    indicesList_(parentTreeIdx),
    parentFP_(parFP),
    version_(inVer)
 {
    assert(key_.getSize() == 0 || key_.getSize() == 33);
    assert(pubKey_.getSize() == 65);
-   assert(chainCode_.getSize() == 32);
+   assert(chaincode_.getSize() == 32);
    parentFP_ = parFP.getSliceRef(0, 4);
    indicesList_.push_back(inChildNum);
    validKey_ = true;
@@ -1391,7 +1407,7 @@ void ExtendedKey::destroy() {}
 // that guarantees I'm getting a copy, not a reference
 ExtendedKey ExtendedKey::copy() const
 {
-   return ExtendedKey(key_, pubKey_, chainCode_, parentFP_, indicesList_,
+   return ExtendedKey(key_, pubKey_, chaincode_, parentFP_, indicesList_,
                       version_, getChildNum());
 }
 
@@ -1405,7 +1421,7 @@ void ExtendedKey::debugPrint()
    cout << "Private Key:          " << key_.toHexStr() << endl;
    cout << "Public Key Comp:      " << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
    cout << "Public Key:           " << pubKey_.toHexStr() << endl;
-   cout << "Chain Code:           " << chainCode_.toHexStr() << endl;
+   cout << "Chain Code:           " << chaincode_.toHexStr() << endl;
    cout << "Hash160:              " << getHash160().toHexStr() << endl << endl;
 }
 
@@ -1471,7 +1487,7 @@ const SecureBinaryData ExtendedKey::getExtKeySer()
       outKey.append(parentFP_);
       tmpVal = WRITE_UINT32_BE(getChildNum());
       outKey.append(tmpVal);
-      outKey.append(chainCode_);
+      outKey.append(chaincode_);
       outKey.append(key_);
    }
 
@@ -1588,7 +1604,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       hashData.append(binaryN);
 
       // Hash that sucker and slice up the result!
-      SecureBinaryData hVal = HMAC_SHA512(extPar.getChainCode(), hashData);
+      SecureBinaryData hVal = HMAC_SHA512(extPar.getChaincode(), hashData);
       SecureBinaryData leftHMAC = hVal.getSliceRef(0, 32);
       SecureBinaryData rightHMAC = hVal.getSliceRef(32, 32);
 

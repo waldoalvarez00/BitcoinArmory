@@ -410,7 +410,7 @@ public:
    //           generation process)
    SecureBinaryData ComputeChainedPrivateKey(
                            SecureBinaryData const & binPrivKey,
-                           SecureBinaryData const & chainCode,
+                           SecureBinaryData const & chaincode,
                            SecureBinaryData binPubKey=SecureBinaryData(),
                            SecureBinaryData* computedMultiplier=NULL);
                                
@@ -418,7 +418,7 @@ public:
    // Deterministically generate new private key using a chaincode
    SecureBinaryData ComputeChainedPublicKey(
                            SecureBinaryData const & binPubKey,
-                           SecureBinaryData const & chainCode,
+                           SecureBinaryData const & chaincode,
                            SecureBinaryData* multiplierOut=NULL);
 
    /////////////////////////////////////////////////////////////////////////////
@@ -467,7 +467,7 @@ public:
 class ExtendedKey
 {
 public:
-   ExtendedKey() : key_(0), pubKey_(0), chainCode_(0), version_(TEST_PUB),
+   ExtendedKey() : key_(0), pubKey_(0), chaincode_(0), version_(TEST_PUB),
                    parentFP_(0), validKey_(false) {}
 
    // Constructor that requires an incoming key (pub or pri), chain code, parent
@@ -501,18 +501,23 @@ public:
    const bool isPub() const;
    const bool isPrv() const;
    const bool isMaster() const;
-   bool hasChainCode() const   { return (chainCode_.getSize() > 0); }
+   bool hasChaincode() const   { return (chaincode_.getSize() > 0); }
    bool isInitialized() const  { return validKey_; }
+
 
    SecureBinaryData const & getKey() const   { return key_; }
    SecureBinaryData const & getPub() const    { return pubKey_; }
-   SecureBinaryData const & getChainCode() const  { return chainCode_; }
+   SecureBinaryData const & getChaincode() const  { return chaincode_; }
    const SecureBinaryData getExtKeySer();
    list<uint32_t>           getIndicesList() const { return indicesList_; }
    vector<uint32_t>         getIndicesVect() const;
    const SecureBinaryData   getFingerprint() const;
    const SecureBinaryData   getIdentifier() const;
    SecureBinaryData const & getParentFP() const { return parentFP_; }
+
+   SecureBinaryData getPrivateKey(void) const;
+   SecureBinaryData getPublicKey(bool compr=true) const;
+
 
    BinaryData               getHash160() const;
    ExtendedKey              copy() const;
@@ -533,7 +538,7 @@ private:
    // Due to Crypto++ handling, these will be big/network endian.
    SecureBinaryData key_; // 33 bytes: (0x00 + prv key) or compressed pub key.
    SecureBinaryData pubKey_;  // 65 bytes - Key is uncompressed.
-   SecureBinaryData chainCode_; // 32 bytes.
+   SecureBinaryData chaincode_; // 32 bytes.
 
    list<uint32_t> indicesList_; // Shows where in the chain we are.
                                 // Empty if key is master or invalid.

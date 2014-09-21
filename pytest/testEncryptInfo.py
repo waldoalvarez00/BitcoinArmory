@@ -827,8 +827,8 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
       pwdpair = lambda s: [MPEK_FRAG_TYPE.PASSWORD, SecureBinaryData(s)]
       badPwdList = [pwdpair('abc'), pwdpair('123'), NULLPASSWD]
-      self.assertFalse(mkey.verifyPassphraseList(badPwdList))
-      self.assertTrue(mkey.verifyPassphraseList(goodLists[0]))
+      self.assertFalse(mkey.verifyPassphrase(badPwdList))
+      self.assertTrue(mkey.verifyPassphrase(goodLists[0]))
 
 
    #############################################################################
@@ -874,8 +874,8 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
       pwdpair = lambda s: [MPEK_FRAG_TYPE.PLAINFRAG, SecureBinaryData(s)]
       badPwdList = [pwdpair('\x03'*32), pwdpair('\x83'*32), NULLPASSWD]
-      self.assertFalse(mkey.verifyPassphraseList(badPwdList))
-      self.assertTrue(mkey.verifyPassphraseList(goodLists[0]))
+      self.assertFalse(mkey.verifyPassphrase(badPwdList))
+      self.assertTrue(mkey.verifyPassphrase(goodLists[0]))
 
 
    #############################################################################
@@ -1022,13 +1022,13 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          self.assertTrue(mkeyCmp.isLocked())
 
          newunlock2 = [finalPwdList2[0], NULLPASSWD, finalPwdList2[2]]
-         self.assertTrue(mkey.verifyPassphraseList(newunlock2))
+         self.assertTrue(mkey.verifyPassphrase(newunlock2))
 
          newunlock2 = [NULLPASSWD, finalPwdList2[1], finalPwdList2[2]]
-         self.assertTrue(mkey.verifyPassphraseList(newunlock2))
+         self.assertTrue(mkey.verifyPassphrase(newunlock2))
 
          newunlock2 = [finalPwdList2[0], finalPwdList2[1], finalPwdList2[2]]
-         self.assertTrue(mkey.verifyPassphraseList(newunlock2))
+         self.assertTrue(mkey.verifyPassphrase(newunlock2))
          
          for i in range(3):
             self.assertEqual(mkey.labels[i], newLabels[i])
@@ -1118,25 +1118,25 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          self.assertEqual(mkey.labels[i], newLbls[i])
 
 
-      self.assertTrue(mkey.verifyPassphraseList([ newPwds2[0],
-                                                  newPwds2[1],
-                                                  newPwds2[2],
-                                                  newPwds2[3],
-                                                  newPwds2[4] ]))
+      self.assertTrue(mkey.verifyPassphrase([ newPwds2[0],
+                                              newPwds2[1],
+                                              newPwds2[2],
+                                              newPwds2[3],
+                                              newPwds2[4] ]))
                                   
-      self.assertTrue(mkey.verifyPassphraseList([ newPwds2[0],
-                                                  NULLPASSWD,
-                                                  newPwds2[2],
-                                                  newPwds2[3],
-                                                  newPwds2[4] ]))
+      self.assertTrue(mkey.verifyPassphrase([ newPwds2[0],
+                                              NULLPASSWD,
+                                              newPwds2[2],
+                                              newPwds2[3],
+                                              newPwds2[4] ]))
 
-      self.assertTrue(mkey.verifyPassphraseList([ NULLPASSWD,
-                                                  NULLPASSWD,
-                                                  newPwds2[2],
-                                                  newPwds2[3],
-                                                  newPwds2[4] ]))
+      self.assertTrue(mkey.verifyPassphrase([ NULLPASSWD,
+                                              NULLPASSWD,
+                                              newPwds2[2],
+                                              newPwds2[3],
+                                              newPwds2[4] ]))
 
-      self.assertRaises(PassphraseError, mkey.verifyPassphraseList, 
+      self.assertRaises(PassphraseError, mkey.verifyPassphrase, 
                                                 [ NULLPASSWD,
                                                   NULLPASSWD,
                                                   newPwds2[2],
@@ -1223,7 +1223,7 @@ class ArmoryChainedACITests(unittest.TestCase):
       self.assertTrue(self.ekey.isLocked())
       self.assertEqual(computeCrypt, expectCrypt)
       
-      # Check that it works with the 
+      # Check that it works with maps
       kdfmap = {self.kdf.getKdfID(): self.kdf}
       ekeymap= {self.ekey.ekeyID: self.ekey}
       self.assertTrue(self.ekey.isLocked())

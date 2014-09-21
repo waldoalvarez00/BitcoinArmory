@@ -7616,7 +7616,7 @@ TEST_F(TestExtendedKey, BuildEK1)
    ExtendedKey masterKey1(seedKey1, seedCC1);
    SecureBinaryData retKey1       = masterKey1.getKey();
    SecureBinaryData retPubKey1    = masterKey1.getPub();
-   SecureBinaryData retChainCode1 = masterKey1.getChainCode();
+   SecureBinaryData retChaincode1 = masterKey1.getChaincode();
    SecureBinaryData testExtSer1   = masterKey1.getExtKeySer();
    SecureBinaryData testID1       = masterKey1.getIdentifier();
    SecureBinaryData testFP1       = masterKey1.getFingerprint();
@@ -7628,13 +7628,13 @@ TEST_F(TestExtendedKey, BuildEK1)
    string testString1             = masterKey1.getIndexListString();
 
    EXPECT_TRUE(masterKey1.isInitialized());
-   EXPECT_TRUE(masterKey1.hasChainCode());
+   EXPECT_TRUE(masterKey1.hasChaincode());
    EXPECT_TRUE(masterKey1.isPrv());
    EXPECT_TRUE(masterKey1.isMaster());
    EXPECT_FALSE(masterKey1.isPub());
    EXPECT_EQ(retKey1, seedKey1);
    EXPECT_EQ(retPubKey1, seedPubKey1);
-   EXPECT_EQ(retChainCode1, seedCC1);
+   EXPECT_EQ(retChaincode1, seedCC1);
    EXPECT_EQ(testExtSer1, seedExtSerPrv1);
    EXPECT_EQ(testID1, seedID1);
    EXPECT_EQ(testFP1, seedFP1);
@@ -7648,7 +7648,7 @@ TEST_F(TestExtendedKey, BuildEK1)
    ExtendedKey masterKey2(seedKey2, seedCC2);
    SecureBinaryData retKey2       = masterKey2.getKey();
    SecureBinaryData retPubKey2    = masterKey2.getPub();
-   SecureBinaryData retChainCode2 = masterKey2.getChainCode();
+   SecureBinaryData retChaincode2 = masterKey2.getChaincode();
    SecureBinaryData testExtSer2   = masterKey2.getExtKeySer();
    SecureBinaryData testID2       = masterKey2.getIdentifier();
    SecureBinaryData testFP2       = masterKey2.getFingerprint();
@@ -7660,13 +7660,13 @@ TEST_F(TestExtendedKey, BuildEK1)
    string testString2             = masterKey2.getIndexListString();
 
    EXPECT_TRUE(masterKey2.isInitialized());
-   EXPECT_TRUE(masterKey2.hasChainCode());
+   EXPECT_TRUE(masterKey2.hasChaincode());
    EXPECT_TRUE(masterKey2.isPrv());
    EXPECT_TRUE(masterKey2.isMaster());
    EXPECT_FALSE(masterKey2.isPub());
    EXPECT_EQ(retKey2, seedKey2);
    EXPECT_EQ(retPubKey2, seedPubKey2);
-   EXPECT_EQ(retChainCode2, seedCC2);
+   EXPECT_EQ(retChaincode2, seedCC2);
    EXPECT_EQ(testExtSer2, seedExtSerPrv2);
    EXPECT_EQ(testID2, seedID2);
    EXPECT_EQ(testFP2, seedFP2);
@@ -7739,13 +7739,13 @@ TEST_F(TestHDWalletCryptoSeed, BuildSeed)
 {
    HDWalletCryptoSeed testSeed1  = HDWalletCryptoSeed(seedInput1);
    SecureBinaryData testSeedKey1 = testSeed1.getMasterKey();
-   SecureBinaryData testSeedCC1  = testSeed1.getMasterChainCode();
+   SecureBinaryData testSeedCC1  = testSeed1.getMasterChain();
    EXPECT_EQ(testSeedKey1, seedKey1);
    EXPECT_EQ(testSeedCC1, seedCC1);
 
    HDWalletCryptoSeed testSeed2  = HDWalletCryptoSeed(seedInput2);
    SecureBinaryData testSeedKey2 = testSeed2.getMasterKey();
-   SecureBinaryData testSeedCC2  = testSeed2.getMasterChainCode();
+   SecureBinaryData testSeedCC2  = testSeed2.getMasterChain();
    EXPECT_EQ(testSeedKey2, seedKey2);
    EXPECT_EQ(testSeedCC2, seedCC2);
 }
@@ -8203,7 +8203,7 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       ExtendedKey childKey1 = HDWalletCrypto().childKeyDeriv(parentKey1, *it1);
       SecureBinaryData retKey1       = childKey1.getKey();
       SecureBinaryData retPubKey1    = childKey1.getPub();
-      SecureBinaryData retChainCode1 = childKey1.getChainCode();
+      SecureBinaryData retChaincode1 = childKey1.getChaincode();
       SecureBinaryData testExtSer1   = childKey1.getExtKeySer();
       SecureBinaryData testID1       = childKey1.getIdentifier();
       SecureBinaryData testFP1       = childKey1.getFingerprint();
@@ -8215,13 +8215,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       string testString1             = childKey1.getIndexListString();
 
       EXPECT_TRUE(childKey1.isInitialized());
-      EXPECT_TRUE(childKey1.hasChainCode());
+      EXPECT_TRUE(childKey1.hasChaincode());
       EXPECT_TRUE(childKey1.isPrv());
       EXPECT_FALSE(childKey1.isMaster());
       EXPECT_FALSE(childKey1.isPub());
       EXPECT_EQ(retKey1, set1PrvKey[s1]);
       EXPECT_EQ(retPubKey1, set1PubKey[s1]);
-      EXPECT_EQ(retChainCode1, set1CC[s1]);
+      EXPECT_EQ(retChaincode1, set1CC[s1]);
       EXPECT_EQ(testExtSer1, set1ExtSerPrv[s1]);
       EXPECT_EQ(testID1, set1ID[s1]);
       EXPECT_EQ(testFP1, set1FP[s1]);
@@ -8244,7 +8244,7 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       ExtendedKey childKey2 = HDWalletCrypto().childKeyDeriv(parentKey2, *it2);
       SecureBinaryData retKey2       = childKey2.getKey();
       SecureBinaryData retPubKey2    = childKey2.getPub();
-      SecureBinaryData retChainCode2 = childKey2.getChainCode();
+      SecureBinaryData retChaincode2 = childKey2.getChaincode();
       SecureBinaryData testExtSer2   = childKey2.getExtKeySer();
       SecureBinaryData testID2       = childKey2.getIdentifier();
       SecureBinaryData testFP2       = childKey2.getFingerprint();
@@ -8256,13 +8256,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       string testString2             = childKey2.getIndexListString();
 
       EXPECT_TRUE(childKey2.isInitialized());
-      EXPECT_TRUE(childKey2.hasChainCode());
+      EXPECT_TRUE(childKey2.hasChaincode());
       EXPECT_TRUE(childKey2.isPrv());
       EXPECT_FALSE(childKey2.isMaster());
       EXPECT_FALSE(childKey2.isPub());
       EXPECT_EQ(retKey2, set2PrvKey[s2]);
       EXPECT_EQ(retPubKey2, set2PubKey[s2]);
-      EXPECT_EQ(retChainCode2, set2CC[s2]);
+      EXPECT_EQ(retChaincode2, set2CC[s2]);
       EXPECT_EQ(testExtSer2, set2ExtSerPrv[s2]);
       EXPECT_EQ(testID2, set2ID[s2]);
       EXPECT_EQ(testFP2, set2FP[s2]);
