@@ -1,4 +1,5 @@
 from ArmoryUtils import *
+from ArmoryWallet import *
 
 UINT32_TOPBIT = 0x80000000
 UINT31_MASK   = 0x7fffffff
@@ -53,7 +54,7 @@ class StdBip32RootRole(Bip32Role):
 
 
 ################################################################################
-class Bip44PurposeRole(Bip32Role):
+class Bip44PurposeTreeNode(Bip32Role):
    def getChildRole(self, index):
       idx,hard = SplitChildIndex(index)
       expectedIdx = 1 if USE_TESTNET else 0
@@ -69,7 +70,7 @@ class Bip44PurposeRole(Bip32Role):
 
 
 ################################################################################
-class Bip44BitcoinRole(Bip32Role):
+class Bip44BitcoinTreeNode(Bip32Role):
    def getChildRole(self, index):
       idx,hard = SplitChildIndex(index)
       if hard:
@@ -84,7 +85,7 @@ class Bip44BitcoinRole(Bip32Role):
 
 
 ################################################################################
-class StdBip32WalletRole(Bip32Role):
+class StdBip32WalletTreeNode(Bip32Role):
    def getChildRole(self, index):
       idx,hard = SplitChildIndex(index)
       if hard:
