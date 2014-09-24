@@ -489,7 +489,7 @@ class ArmoryWalletFile(object):
          # AEK objects actually have a separate DAG structure for 
          # relating keys to other keys, that is different from the
          # relationships defined at the WalletEntry level
-         if isinstance(we, ArmoryExtendedKey):
+         if isinstance(we, ArmoryKeyPair):
              
          
             
@@ -516,7 +516,7 @@ class ArmoryWalletFile(object):
                continue
                kdfList.append(ekeyKdf)
             we.setKdfObjectRefList(kdfList)
-         elif isinstance(we, ArmoryExtendedKey):
+         elif isinstance(we, ArmoryKeyPair):
             ekid = we.privCryptInfo.keySource
             ekey = self.ekeyMap.get(ekid)
             if ekey is None:
@@ -1541,7 +1541,7 @@ class ArmoryFileHeader(object):
 
 ################################################################################
 ################################################################################
-class ArmoryExtendedKey(WalletEntry):
+class ArmoryKeyPair(WalletEntry):
    """
    This is essentailly a pure virtual class.  It's not intended to be used by
    itself, 
@@ -1549,7 +1549,7 @@ class ArmoryExtendedKey(WalletEntry):
 
    #############################################################################
    def __init__(self):
-      super(ArmoryExtendedKey, self).__init__()
+      super(ArmoryKeyPair, self).__init__()
 
       self.isWatchOnly     = False
       self.scrAddrStr      = ''
@@ -1559,7 +1559,8 @@ class ArmoryExtendedKey(WalletEntry):
       self.sbdChaincode    = NULLSBD()
       self.aekParScrAddr   = ''  # scraddr of parent, or empty
       self.aekRootScrAddr  = ''
-      self.derivePath      = []  # childIndex list relative to aekRoot
+      #self.derivePath      = []  # childIndex list relative to aekRoot
+      self.childIndex      = None
       self.useCompressPub  = True
       self.isUsed          = False
       self.keyBornTime     = 0
@@ -1595,7 +1596,7 @@ class ArmoryExtendedKey(WalletEntry):
       childAddr.privCryptInfo   = self.privCryptInfo.copy()
       childAddr.aekParScrAddr   = self.aekParScrAddr
       childAddr.aekRootScrAddr  = self.aekRootScrAddr
-      childAddr.derivePath      = self.derivePath
+      childAddr.childIndex      = self.childIndex
       childAddr.useCompressPub  = self.useCompressPub
       childAddr.aekType         = self.aekType
       childAddr.isUsed          = self.isUsed
@@ -1630,7 +1631,7 @@ class ArmoryExtendedKey(WalletEntry):
       if self.aekParentRef is None:
          raise KeyDataError('No parent defined from which to derive this key')
 
-      if len(self.derivePath)==0:
+      if self.childIndex is None:
          raise KeyDataError('No derivation path defined to derive this key')
 
       # Originally used an elegant recursive call here, but was worried 
@@ -1651,7 +1652,7 @@ class ArmoryExtendedKey(WalletEntry):
             # only recurse one level on each call, since parent.privKeyNextUnlock
             # is false.  fsync is always False in the recursive call, applied 
             # later if needed
-            newAek = aek.aekParentRef.spawnChild(childID=self.derivePath[-1], 
+            newAek = aek.aekParentRef.spawnChild(childID=self.childIndex,
                                                 privSpawnReqd=True, 
                                                 fsync=False)
             
@@ -1683,7 +1684,7 @@ class ArmoryExtendedKey(WalletEntry):
                            privKeyNextUnlock,
                            aekParScrAddr,
                            aekRootScrAddr,
-                           derivePath,
+                           childIndex,
                            useCompressPub,
                            isUsed,
                            keyBornTime=UINT32_MAX,
@@ -1700,7 +1701,7 @@ class ArmoryExtendedKey(WalletEntry):
       self.privKeyNextUnlock = privKeyNextUnlock
       self.aekParScrAddr   = aekParScrAddr
       self.aekRootScrAddr  = aekRootScrAddr
-      self.derivePath      = derivePath
+      self.childIndex      = childIndex
       self.useCompressPub  = useCompressPub
       self.isUsed          = isUsed
       self.keyBornTime     = keyBornTime
@@ -1749,9 +1750,7 @@ class ArmoryExtendedKey(WalletEntry):
       bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
       bp.put(VAR_STR,       parentID)
       bp.put(VAR_STR,       rootID)
-      bp.put(UINT16,        len(self.derivePath))
-      for idx in self.derivePath:
-         bp.put(UINT32, idx)
+      bp.put(UINT32,        self.childIndex)
       
       # Add Reed-Solomon error correction 
       allAEKData = bp.getBinaryString()
@@ -1804,11 +1803,7 @@ class ArmoryExtendedKey(WalletEntry):
       chain             = aekUnpack.get(VAR_STR)
       parentID          = aekUnpack.get(VAR_STR)
       rootID            = aekUnpack.get(VAR_STR)
-      pathSize          = aekUnpack.get(UINT16)
-      derivePath        = []
-
-      for idx in range(pathSize):
-         derivePath.append(aekUnpack.get(UINT32))
+      childIndex        = aekUnpack.get(UINT32)
 
 
 
@@ -1840,7 +1835,7 @@ class ArmoryExtendedKey(WalletEntry):
                           privKeyNextUnlock,
                           aekParScrAddr,
                           aekRootScrAddr,
-                          derivePath,
+                          childIndex,
                           useCompressPub,
                           isUsed,
                           bornTime,
@@ -1893,7 +1888,7 @@ class ArmoryExtendedKey(WalletEntry):
    @EkeyMustBeUnlocked
    def getSerializedPrivKey(self, serType='hex'):
       """
-      The various private key serializations: "hex", "sipa", "xprv", "bip38"
+      The various private key serializations: "bin", hex", "sipa", "xprv", "bip38"
       """
 
       if self.useEncryption() and self.isLocked():
@@ -1902,8 +1897,10 @@ class ArmoryExtendedKey(WalletEntry):
       lastByte = '\x01' if self.useCompressPub else ''
       binPriv = self.getPlainPrivKeyCopy().toBinStr() + lastByte
          
+      if serType.lower()=='bin':
+         return binPriv 
       if serType.lower()=='hex':
-         return binary_to_hex(hexPriv)
+         return binary_to_hex(binPriv)
       elif serType.lower()=='sipa':
          binSipa '\x80' + binPriv + computeChecksum('\x80' + binPriv)
          return binary_to_hex(binSipa)
@@ -1940,7 +1937,7 @@ class ArmoryExtendedKey(WalletEntry):
    #############################################################################
    def setNewPlainPrivKey(self, sbdPrivData, cryptInfo, ekeyRef=None):
       """
-      This 
+      
       """
       if sbdPrivData is None or sbdPrivData.getSize()==0:
          self.sbdPrivData = NULLSBD()
@@ -1961,6 +1958,14 @@ class ArmoryExtendedKey(WalletEntry):
 
       if self.masterEkeyRef.isLocked():
          raise EncryptionError('Ekey needs to be unlocked to set new priv key')
+
+      if cryptInfo.hasStoredIV():
+         # This method copies the ACI exactly, but we need to make sure that 
+         # no two privKeys share the same encryption IV.  PUBKEY20 guarnatees
+         # that the IV will be created from the pubkey at encrypt/decrypt time
+         # so if the private keys are different, so will be the IV.  But 
+         # if this ACI uses stored IV, that's a problem.
+         raise EncryptionError('New priv key crypto inheriting non-pubkey IV')
 
 
       self.privCryptInfo = cryptInfo.copy()
@@ -2118,7 +2123,7 @@ class ArmoryExtendedKey(WalletEntry):
 
 
 #############################################################################
-class ArmoryRootKey(ArmoryExtendedKey):
+class ArmoryRootKey(ArmoryKeyPair):
    """
    This is an isolated class which carries a little bit of extra metadata 
    needed turn AEK objects into AEK_Root objects.  Any AEK_Root class should
@@ -2214,6 +2219,7 @@ class ArmoryRootKey(ArmoryExtendedKey):
 
 
    #############################################################################
+   '''
    def CreateNewMasterRoot(self, typeStr='BIP44', cryptInfo=None, \
                                  kdfObj=None, ekeyObj=None, keyData=None, 
                                  seedBytes=20, extraEntropy=None):
@@ -2286,10 +2292,8 @@ class ArmoryRootKey(ArmoryExtendedKey):
       self.lastSyncBlockNum = 0
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
       self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
+   '''
 
-   #############################################################################
-   def getDepth(self):
-      return len(self.derivePath)
 
    #############################################################################
    def getRootID(self, inBase58=True, nbytes=6):
@@ -2421,7 +2425,7 @@ class ArmoryRootKey(ArmoryExtendedKey):
 
 ################################################################################
 ################################################################################
-class Armory135ExtendedKey(ArmoryExtendedKey):
+class Armory135KeyPair(ArmoryKeyPair):
 
    EXTKEYTYPE = 'ARMRY135'
    FILECODE = 'A135'
@@ -2443,19 +2447,19 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
       storing the chainIndex and [0] for the path.  Storing [0]*chainIndex 
       would create O(N^2) storage which would cripple us using huge wallets.
       """
-      super(Armory135ExtendedKey, self).__init__(*args, **kwargs)
+      super(Armory135KeyPair, self).__init__(*args, **kwargs)
 
       self.useCompressPub = False
       self.chainIndex = None
-      self.derivePath = [0]  # always [0] for Armory 135 keys
+      self.childIndex = 0  # always 0 for Armory 135 keys
 
 
    #############################################################################
-   def getExtendedKeyByScrAddr(self, scrAddr):
+   def getKeyPairByScrAddr(self, scrAddr):
       aekOut = self.aekChildByScrAddr.get(scrAddr)
 
    #############################################################################
-   def getExtendedKeyByChainIndex(self, cidx):
+   def getKeyPairByChainIndex(self, cidx):
       if cidx >= self.lowestUnusedChild:
          raise WalletAddressError('Must use spawnChild to get 1.35 addrs > max')
       elif not cidx in self.aekChildByIndex:
@@ -2476,8 +2480,9 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
       self.aekChildByScrAddr[childAEK.getScrAddr()] = childAEK
       self.aekRoot.aekChildByIndex[self.chainIndex] = childAEK
       self.aekRoot.aekChildByScrAddr[childAEK.getScrAddr()] = childAEK
-      self.aekRoot.lowestUnusedChild = max(self.aekRoot.lowestUnusedChild,
-                                          childAEK.chainIndex)
+      if childAEK.isUsed:
+         self.aekRoot.lowestUnusedChild = max(self.aekRoot.lowestUnusedChild,
+                                              childAEK.chainIndex+1)
 
       childAEK.aekParentRef  = self
       childAEK.aekParScrAddr = self.getScrAddr()
@@ -2503,8 +2508,8 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
+      pavail = self.getPrivKeyAvailability()
       if privSpawnReqd:
-         pavail = self.getPrivKeyAvailability()
          if pavail==PRIV_KEY_AVAIL.WatchOnly:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
          elif pavail==PRIV_KEY_AVAIL.NeedDecrypt:
@@ -2512,6 +2517,10 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
          elif pavail==PRIV_KEY_AVAIL.NextUnlock:
             self.resolveNextUnlockFlag(fsync)
          
+
+      # If we are not watch-only but only deriving a pub key, need to set flag
+      if pavail in [PRIV_KEY_AVAIL.NeedDecrypt, PRIV_KEY_AVAIL.NextUnlock]:
+         nextUnlockFlag = True
 
 
       privPlain = NULLSBD()
@@ -2526,7 +2535,6 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
 
       try:
          ecdsaObj = CryptoECDSA()
-         pavail = self.getPrivKeyAvailability()
          if pavail==PRIV_KEY_AVAIL.Available:
             privPlain = self.getPlainPrivKeyCopy()
             if privPlain.getSize()==0:
@@ -2534,15 +2542,10 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
             extendFunc = ecdsaObj.ComputeChainedPrivateKey
             extendArgs = [privPlain, self.sbdChaincode, pubKey65, logMult1]
             extendType = 'Private'
-            nextUnlockFlag = False
          else:
             extendFunc = ecdsaObj.ComputeChainedPublicKey
             extendArgs = [pubKey65, self.sbdChaincode, logMult1]
             extendType = 'Public'
-            nextUnlockFlag = False
-            if not pavail==PRIV_KEY_AVAIL.WatchOnly:
-               # If pubkey deriv only, but not intended to be WatchOnly...
-               nextUnlockFlag = True
          
    
          # Do key extension twice
@@ -2573,8 +2576,6 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
             else:
                raise KeyDataError('Chaining %s Key Failed!' % extendType)
 
-
-
          # Create a new object of the same class as this one, then copy 
          # all members and change a few
          childAddr = self.__class__()
@@ -2592,15 +2593,13 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
          # This sets the priv key (if non-empty)
          childAddr.setNewPlainPrivKey(privPlain, self.privCryptInfo)
          childAddr.privKeyNextUnlock = nextUnlockFlag
-
-         # The public key is always uncompressed, need to store it compressed
          childAddr.sbdPublicKey33 = CryptoECDSA().CompressPoint(pubKey65)
          childAddr.sbdChaincode   = self.sbdChaincode.copy()
          childAddr.scrAddrStr     = childAddr.generateScrAddr()
 
 
          childAddr.chainIndex = self.chainIndex + 1
-         childAddr.derivePath = [0]
+         childAddr.childIndex = 0
          childAddr.aekChildByIndex   = {}
          childAddr.aekChildByScrAddr = {}
          self.addChildRef(childAddr)
@@ -2623,7 +2622,7 @@ class Armory135ExtendedKey(ArmoryExtendedKey):
 
 ################################################################################
 ################################################################################
-class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
+class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
    EXTKEYTYPE = 'ARMBIP32'
    def __init__(self, *args, **kwargs):
@@ -2632,13 +2631,23 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
 
    #############################################################################
    def addChildRef(self, childAEK):
-      if len(childAEK.derivePath) == 0:
+      if childAEK.childIndex is None
          raise ValueError('Child AEK has no derive path')
          
-      self.aekChildByIndex[childAEK.derivePath[-1]] = childAEK
+      self.aekChildByIndex[childAEK.childIndex] = childAEK
       self.aekChildByScrAddr[childAEK.getScrAddr()] = childAEK
       childAEK.aekParentRef  = self
       childAEK.aekParScrAddr = self.getScrAddr()
+
+
+   #############################################################################
+   def getCppExtendedKey(self, needPriv=False):
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Available:
+         return Cpp.ExtendedKey(self.getPlainPrivKeyCopy(), self.sbdChaincode)
+      else:
+         if needPriv:
+            raise WalletLockError('Priv EK requested, but priv not avail')
+         return Cpp.ExtendedKey(self.sbdPublicKey33, self.sbdChaincode)
 
 
    #############################################################################
@@ -2650,71 +2659,39 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
       childAddr = self.__class__()
       childAddr.copyFromAEK(self)
 
-      TimerStart('spawnChild')
       startedLocked = False
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
+      pavail = self.getPrivKeyAvailability()
       privSpawnReqd = privSpawnReqd or (childID & 0x80000000 > 0)
+      nextUnlockFlag = False
       if privSpawnReqd:
-         pavail = self.getPrivKeyAvailability()
-         if self.isWatchOnly or pavail==PRIV_KEY_AVAIL.WatchOnly:
+         if pavail==PRIV_KEY_AVAIL.WatchOnly:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
-
-         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NeedDecrypt:
+         elif pavail==PRIV_KEY_AVAIL.NeedDecrypt:
             raise KeyDataError('Requires priv key, no way to decrypt it')
-         
-         if pavail==PRIV_KEY_AVAIL.NextUnlock:
+         elif pavail==PRIV_KEY_AVAIL.NextUnlock:
             self.resolveNextUnlockFlag(fsync)
 
 
+      if pavail in [PRIV_KEY_AVAIL.NeedDecrypt, PRIV_KEY_AVAIL.NextUnlock]:
+         nextUnlockFlag = True
+
+
       # Call the C++ code that implements BIP32/HDW calculations
-      extChild = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
+      extChild = HDWalletCrypto().ChildKeyDeriv(self.getCppExtendedKey(), childID)
 
       # This sets the priv key (if non-empty)
       childAddr.setNewPlainPrivKey(extChild.getPrivateKey(), self.privCryptInfo)
       childAddr.privKeyNextUnlock = nextUnlockFlag
-
-      # In all cases we compute a new public key and chaincode
       childAddr.binPubKey33  = extChild.getPublicKey().copy()
       childAddr.binChaincode = extChild.getChaincode().copy()
 
       if not childAddr.binPubKey33.getSize()==33:
          LOGERROR('Pubkey did not come out of HDW code compressed')
 
-      if privAvail==PRIV_KEY_AVAIL.Available:
-         # We are extending a chain using private key data (unencrypted)
-         childAddr = extChild.getPriv().copy()
-         childAddr.privKeyNextUnlock = False
-      elif privAvail==PRIV_KEY_AVAIL.NextUnlock:
-         # Copy the parent's encrypted key data to child, set flag
-         childAddr.binPrivKey32_Encr = NULLSBD()
-         childAddr.binChaincode      = self.binChaincode.copy()
-         childAddr.privKeyNextUnlock = True
-      elif privAvail==PRIV_KEY_AVAIL.WatchOnly:
-         # Probably just extending a public key
-         childAddr.binPrivKey32_Plain  = NULLSBD()
-         childAddr.privKeyNextUnlock = False
-      else:
-         LOGERROR('How did we get here?  spawnchild:')
-         LOGERROR('   privAvail == %s', privAvail)
-         LOGERROR('   encrypt   == %s', self.useEncryption)
-         LOGERROR('Bailing without spawning child')
-         raise KeyDataError
-   
-      #childAddr.parentHash160      = self.getHash160()
-      #childAddr.binAddr160         = self.binPubKey33or65.getHash160()
-      #childAddr.useEncryption      = self.useEncryption
-      #childAddr.isInitialized      = True
-      #childAddr.childIdentifier    = childID
-      #childAddr.hdwDepth           = self.hdwDepth+1
-      #childAddr.indexList          = self.indexList[:]
-      #childAddr.indexList.append(childID)
-      #return ArmoryExtendedKey(
-      #return childAddr
-
-      childAddr.derivePath = self.derivePath[:]
-      childAddr.derivePath.append(childID)
+      childAddr.childIndex = childID
       childAddr.aekChildByIndex   = {}
       childAddr.aekChildByScrAddr = {}
       self.addChildRef(childAddr)
@@ -2723,6 +2700,7 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
          self.fsync()
 
       return childAddr
+
 
    #############################################################################
    def getAddrLocatorString(self, locatorType='Plain', baseID=None):
@@ -2750,7 +2728,7 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
          if aek.aekParentRef is None:
             raise WalletAddressError('Did not find specified base ID')
 
-         derivePath.append(aek.derivePath[-1])
+         derivePath.append(aek.childIndex)
          aek   = aek.aekParentRef
          aekID = aek.aekParentRef.getScrAddr()
    
@@ -2769,7 +2747,7 @@ class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
 
 ################################################################################
 ################################################################################
-class ArmoryImportedKey(ArmoryExtendedKey):
+class ArmoryImportedKeyPair(ArmoryKeyPair):
 
    EXTKEYTYPE = 'IMPORTED'
    def __init__(self, *args, **kwargs):
@@ -2781,10 +2759,12 @@ class ArmoryImportedKey(ArmoryExtendedKey):
 
    #############################################################################
    def addChildRef(self, childAEK):
-      LOGWARN('Using addChildRef() for imported key; need to confirm works')
       newIdx = len(self.aekChildByIndex)
       self.aekChildByIndex[newIdx] = childAEK
 
+   #############################################################################
+   def getScrAddr(self):
+      return self.sbdPublicKey33
 
 
 # Root modes represent how we anticipate using this root.  An Armory root
@@ -2803,15 +2783,15 @@ class ArmoryImportedKey(ArmoryExtendedKey):
 
 
 ################################################################################
-class ArmoryMultisigKey(ArmoryExtendedKey):
-   # Replace RootRelationship with this...?
+class ArmoryMultisigKeyPair(ArmoryKeyPair):
    """
-   A simple structure for storing the fingerprints of all the siblings of 
-   multi-sig wallet.  Each wallet chain that is part of this multi-sig 
-   should store a multi-sig flag and the ID of this object.    If a chain
-   has RRID zero but the multi-sig flag is on, it means that it was
-   generated to be part of a multi-sig but not all siblings have been 
-   acquired yet.
+   "KeyPair" is a misnomer in this class name, but it behaves like (and derives
+   from) the ArmoryKeyPair class.  It can be used almost identically to the
+   other EKP objects, but instead of storing keydata, it references N different
+   EKP objects to be used as part of a multisig.  
+
+   For instance, "spawnChild" simply calls "spawnChild" of all the multisig
+   "siblings", and then combines the result into an M-of-N script.
    """
    FILECODE = 'MSRT'
 
@@ -2847,6 +2827,12 @@ class ArmoryMultisigKey(ArmoryExtendedKey):
       msScript = pubkeylist_to_multisig_script(pkList)  # sorts the pubkeys
       self.p2shScript = script_to_p2sh_script(msScript)
       self.scrAddr = script_to_scrAddr(self.p2shScript)
+
+   #############################################################################
+   def getChild(self):
+
+   #############################################################################
+   def getNextUnusedAddrObj(self):
 
 
 
