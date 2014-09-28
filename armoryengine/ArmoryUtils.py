@@ -1742,18 +1742,20 @@ def hash160(s):
    return Cpp.BtcUtils().getHash160_SWIG(s)
 
 
-def HMAC(key, msg, hashfunc=sha512, hashsz=None):
+def HMAC(key, msg, hashfunc=sha512, blocksize=None):
    """ This is intended to be simple, not fast.  For speed, use HDWalletCrypto() """
-   hashsz = len(hashfunc('')) if hashsz==None else hashsz
-   key = (hashfunc(key) if len(key)>hashsz else key)
-   key = key.ljust(hashsz, '\x00')
+   blocksize = len(hashfunc('')) if blocksize==None else blocksize
+   key = (hashfunc(key) if len(key)>blocksize else key)
+   key = key.ljust(blocksize, '\x00')
    okey = ''.join([chr(ord('\x5c')^ord(c)) for c in key])
    ikey = ''.join([chr(ord('\x36')^ord(c)) for c in key])
    return hashfunc( okey + hashfunc(ikey + msg) )
 
-HMAC256 = lambda key,msg: HMAC(key, msg, sha256, 32)
-HMAC512 = lambda key,msg: HMAC(key, msg, sha512, 64)
-
+# Armory 0.92 and earlier had a buggy HMAC implementation...!  
+HMAC256_buggy = lambda key,msg: HMAC(key, msg, sha256,  32)
+HMAC512_buggy = lambda key,msg: HMAC(key, msg, sha512,  64)
+HMAC256       = lambda key,msg: HMAC(key, msg, sha256,  64)
+HMAC512       = lambda key,msg: HMAC(key, msg, sha512, 128)
 
 ################################################################################
 def prettyHex(theStr, indent='', withAddr=True, major=8, minor=8):
@@ -1788,6 +1790,7 @@ def pprintHex(theStr, indent='', withAddr=True, major=8, minor=8):
    grouping size (major * minor = hexCharsPerRow)
    """
    print prettyHex(theStr, indent, withAddr, major, minor)
+
 
 
 def pprintDiff(str1, str2, indent=''):
@@ -2667,7 +2670,7 @@ def SplitSecret(secret, needed, pieces, nbytes=None, use_random_x=False):
    lasthmac = secret[:]
    othernum = []
    for i in range(pieces+needed-1):
-      lasthmac = HMAC512(lasthmac, 'splitsecrets')[:nbytes]
+      lasthmac = HMAC512_buggy(lasthmac, 'splitsecrets')[:nbytes]
       othernum.append(binary_to_int(lasthmac))
 
    def poly(x):
@@ -3499,13 +3502,18 @@ def send_email(send_from, server, password, send_to, subject, text):
 
 
 #############################################################################
-def DeriveChaincodeFromRootKey(sbdPrivKey):
-   return SecureBinaryData( HMAC256( sbdPrivKey.getHash256(), \
+def DeriveChaincodeFromRootKey_135(sbdPrivKey):
+   # The original 1.35 wallets use an HMAC256 implementation that had an
+   # incorrect constant.  Apparently no one else tried to replicate the
+   # process with an independent crypto library.   The end result is that
+   # we must keep the buggy implementation with us for as long as we keep
+   # supporting Armory 1.35 wallets.
+   return SecureBinaryData( HMAC256_buggy( sbdPrivKey.getHash256(), \
                                      'Derive Chaincode from Root Key'))
 
 
 #############################################################################
-def getLastBytesOfFile(filename, nBytes=500*1024):
+def getLastBytesOfFile(filename, nBytes=500*KILOBYTE):
    if not os.path.exists(filename):
       LOGERROR('File does not exist!')
       return ''
@@ -3544,7 +3552,7 @@ def HardcodedKeyMaskParams():
    def hardcodeCreateSecurePrintPassphrase(secret):
       if isinstance(secret, basestring):
          secret = SecureBinaryData(secret)
-      bin7 = HMAC512(secret.getHash256(), paramMap['SALT'].toBinStr())[:7]
+      bin7 = HMAC512_buggy(secret.getHash256(), paramMap['SALT'].toBinStr())[:7]
       out,bin7 = SecureBinaryData(binary_to_base58(bin7 + hash256(bin7)[0])), None
       return out
 

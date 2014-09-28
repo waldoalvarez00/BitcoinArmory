@@ -5,32 +5,7 @@ from ArmoryKeyPair import *
 from Timer import *
 
 
-DEFAULT_LOOKAHEAD_LVL1  = 2   # look ahead 2 wallets
-DEFAULT_LOOKAHEAD_LVL2  = 0   # look ahead 0 chains, we know ow many
-DEFAULT_LOOKAHEAD_LVL3a = 500 # keep 500 ahead for receiving addrs
-DEFAULT_LOOKAHEAD_LVL3b = 5   # look 5 ahead in "INTERNAL" wallet chains
-
          
-
-# DECORATOR
-# Use this for AEK functions that assume ekey is available and unlocked.  
-# This not only checks that the key is unlocked, it sets a flag that prevents 
-# another thread from locking the Ekey
-def EkeyMustBeUnlocked(func):
-
-   def wrappedFunc(*args, **kwargs):
-      aekSelf = args[0]
-      if aekSelf.cryptInfoObj.useEncryption() and aekSelf.masterEkeyRef.isLocked():
-         raise WalletLockError('Ekey locked when calling %s' % func.__name__)
-
-      try:
-         aekSelf.masterEkeyRef.keyIsInUseDontLock.set()
-         return func(*args, **kwargs)
-      finally:
-         aekSelf.masterEkeyRef.keyIsInUseDontLock.clear()
-         
-   return wrappedFunc
-
 
 
 ################################################################################
@@ -1262,14 +1237,6 @@ class ArmoryWalletFile(object):
       return self
 
 
-
-      
-
-
-
-
-PRIV_KEY_AVAIL = enum('WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
-AEKTYPE = enum('Uninitialized', 'BIP32', 'ARMORY135', 'JBOK')
 
 
 

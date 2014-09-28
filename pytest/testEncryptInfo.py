@@ -42,7 +42,7 @@ SampleCryptStr  = SecureBinaryData(hex_to_binary( \
 SampleMasterEKey = SecureBinaryData('samplemasterkey0' + '\xfa'*16)
 SampleMasterCrypt = SecureBinaryData(hex_to_binary( \
       '5ab2e112def50f0e1f4fd7e5d81a3af37c6754f28bc7533c2db9f779ba0a79b8'))
-SampleMasterEkeyID = hex_to_binary('fde0e1ce387a0e85')
+SampleMasterEkeyID = hex_to_binary('0524acc0d96da57f')
 
 LOGERROR('LOGGING IS ENABLED:  APPROX 20 ERROR MESSAGES IS NORMAL')
 LOGERROR('If the tests pass ("OK" is at the end), you can ignore the errors')
