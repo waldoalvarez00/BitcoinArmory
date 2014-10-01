@@ -63,9 +63,8 @@ class WalletEntry(object):
    FILECODEMAP    = {}
    REQUIRED_TYPES = set()
    KEYPAIR_TYPES  = set()
-
-   CheckRSECCode  = ReedSolomonWrapper.checkRSECCode
-   CreateRSECCode = ReedSolomonWrapper.createRSECCode
+   RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
+                 'Check':  ReedSolomonWrapper.checkRSECCode}
 
    #############################################################################
    @staticmethod
@@ -100,8 +99,19 @@ class WalletEntry(object):
       which was created "manually" and the user didn't have a library for 
       creating the RSEC codes.  
       """
-      WalletEntry.CreateRSECCode = createFunc
-      WalletEntry.CheckRSECCode  = checkFunc
+      WalletEntry.RSEC_FUNCS['Create'] = createFunc
+      WalletEntry.RSEC_FUNCS['Check']  = checkFunc
+
+
+   #############################################################################
+   @staticmethod
+   def CreateRSECCode(*args, **kwargs):
+      return WalletEntry.RSEC_FUNCS['Create'](*args, **kwargs)
+
+   #############################################################################
+   @staticmethod
+   def CheckRSECCode(*args, **kwargs):
+      return WalletEntry.RSEC_FUNCS['Check'](*args, **kwargs)
 
    #############################################################################
    @staticmethod
@@ -111,7 +121,7 @@ class WalletEntry(object):
          
       def createfn(data, rsecBytes=ReedSolomonWrapper.RSEC_PARITY_BYTES, 
                          perDataBytes=ReedSolomonWrapper.RSEC_PER_DATA_BYTES):
-         nChunk = (data-1)/perDataBytes + 1
+         nChunk = (len(data)-1)/perDataBytes + 1
          return '\x00' * rsecBytes * nChunk
 
       WalletEntry.ChangeRSECAlgos(createfn, checkfn)
@@ -120,14 +130,17 @@ class WalletEntry(object):
 
    #############################################################################
    def __init__(self, wltFileRef=None, offset=None, weSize=None, reqdBit=False,    
-                      parScrAddr=None, outerCrypt=None, ekeyRef=None, 
+                      parEntryID=None, outerCrypt=None, ekeyRef=None, 
                       serPayload=None, defaultPad=256):
+
+      # TODO:  Why on earth is this needed here...?  
+      from ArmoryEncryption import ArmoryCryptInfo
       self.wltFileRef = wltFileRef
       self.wltByteLoc = offset
       self.wltEntrySz = weSize
       self.isRequired = reqdBit
-      self.parScrAddr = parScrAddr
-      self.outerCrypt = outerCrypt
+      self.parEntryID = parEntryID
+      self.outerCrypt = outerCrypt.copy() if outerCrypt else ArmoryCryptInfo(None)
       self.serPayload = serPayload
       self.defaultPad = defaultPad
 
@@ -142,8 +155,24 @@ class WalletEntry(object):
       self.isUnrecoverable = False
       self.isDeleted = False
       self.isDisabled = False
-      self.needRewrite = False
-      self.needsFsync = False
+      self.needFsync = False
+
+
+   #############################################################################
+   def copyFromWE(self, weOther):
+      self.wltFileRef = weOther.wltFileRef
+      self.wltByteLoc = weOther.wltByteLoc
+      self.wltEntrySz = weOther.wltEntrySz
+      self.isRequired = weOther.isRequired
+      self.parEntryID = weOther.parEntryID
+      self.outerCrypt = weOther.outerCrypt.copy()
+      self.serPayload = weOther.serPayload
+      self.defaultPad = weOther.defaultPad
+
+      self.wltParentRef = weOther.wltParentRef
+      self.wltChildRefs = weOther.wltChildRefs[:]
+      self.outerEkeyRef = weOther.outerEkeyRef
+      
          
    #############################################################################
    @staticmethod
@@ -182,7 +211,7 @@ class WalletEntry(object):
       plBits = BitSet(16)
       plBits.setBit(0, self.FILECODE in WalletEntry.REQUIRED_TYPES)
 
-      payload = BinaryPacker() 
+      bpPayload = BinaryPacker() 
       bpPayload.put(BINARY_CHUNK, self.FILECODE, width=8) 
       bpPayload.put(BITSET,       plBits, 2)
       bpPayload.put(VAR_STR,      self.getEntryID())
@@ -204,8 +233,8 @@ class WalletEntry(object):
       bp = BinaryPacker()
       bp.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
       bp.put(BITSET,       weFlags, 2)
-      bp.put(VAR_STR,      self.parScrAddr)
-      bp.put(BINARY_CHUNK, self.outerCrypt,  width=32)
+      bp.put(VAR_STR,      self.parEntryID)
+      bp.put(BINARY_CHUNK, self.outerCrypt.serialize(),  width=32)
       bp.put(VAR_STR,      serPayload)
       bp.put(VAR_STR,      rsecCode)
       return bp.getBinaryString()
@@ -227,7 +256,13 @@ class WalletEntry(object):
       of the correct class type, and set all the members on it that were set
       on the "we" object earlier
       """
+      # TODO: Need to fix the circ ref issues that are requiring these imports
+      from ArmoryEncryption import ArmoryCryptInfo
+
       we = WalletEntry()
+      we.wltFileRef = parentWlt
+      we.wltByteLoc = fOffset 
+
       toUnpack = makeBinaryUnpacker(toUnpack)
       unpackStart  = toUnpack.getPosition()
 
@@ -241,6 +276,7 @@ class WalletEntry(object):
 
 
       we.isDeleted = weFlags.getBit(0)
+
       if we.isDeleted:
          # Don't use VAR_INT/VAR_SIZE for size of zero chunk due to complixty 
          # of handling the size being at the boundary of two VAR_INT sizes
@@ -248,19 +284,17 @@ class WalletEntry(object):
          we.wltEntrySz = toUnpack.get(UINT32) + 10
          shouldBeZeros = toUnpack.get(BINARY_CHUNK, we.wltEntrySz - 10)
          if not len(shouldBeZeros)==shouldBeZeros.count('\x00'):
-            raise UnpackerError('Deleted entry is not all zero bytes')
+            raise UnserializeError('Deleted entry is not all zero bytes')
          return we
 
 
-      parentScrAddr = toUnpack.get(VAR_STR)
+      parEntryID    = toUnpack.get(VAR_STR)
       serCryptInfo  = toUnpack.get(BINARY_CHUNK, 32)  
       serPayload    = toUnpack.get(VAR_STR)  
       rsecCode      = toUnpack.get(VAR_STR)
 
 
-      we.parScrAddr   = parentScrAddr
-      we.wltFileRef   = parentWlt
-      we.wltStartByte = fOffset 
+      we.parEntryID   = parEntryID
       we.wltEntrySz   = toUnpack.getPosition() - unpackStart
       we.payloadSz    = len(serPayload)
 
@@ -276,7 +310,7 @@ class WalletEntry(object):
          return we
       elif mod:
          LOGWARN('Error in wallet file corrected successfully')
-         we.needRewrite = True 
+         we.needFsync = True 
 
 
       we.outerCrypt = ArmoryCryptInfo().unserialize(serCryptInfo)
@@ -326,13 +360,9 @@ class WalletEntry(object):
          return self
 
       # Return value is actually a subclass of WalletEntry
-      weOut = WalletEntry.FILECODEMAP[plType]().unserialize(plData, self.wltFileRef)
-      weOut.wltFileRef   = self.wltFileRef
-      weOut.wltStartByte = self.wltStartByte
-      weOut.wltEntrySz   = self.wltEntrySz
-      weOut.payloadSz    = self.payloadSz
-      #weOut.wltEntryID   = self.wltEntryID
-      weOut.needRewrite  = self.needRewrite or weOut.needRewrite
+      weOut = WalletEntry.FILECODEMAP[plType]().unserialize(plData)
+      weOut.copyFromWE(self)
+      weOut.needFsync = self.needFsync or weOut.needFsync
       # (subclass might've triggered rewrite flag, don't want to overwrite it)
 
       if not weOut.getEntryID() == plObjID:
@@ -373,7 +403,7 @@ class WalletEntry(object):
          LOGERROR('Attempted to rewrite WE object but no wlt file ref.')
          return
 
-      if self.wltStartByte<=0:
+      if self.wltByteLoc<=0:
          self.wltFileRef.doFileOperation('AddEntry', self)
       else:
          self.wltFileRef.doFileOperation('UpdateEntry', self)
@@ -403,10 +433,11 @@ class WalletEntry(object):
       #print fmtField('in', self.self.wltFileRef.filepath.basename(), 4),
 
 
+from ArmoryEncryption import *
+
 try:
    from ArmoryKeyPair import *
 except:
    LOGERROR('Could not import ArmoryKeyPair module')
 
-from ArmoryEncryption import *
 

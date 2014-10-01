@@ -50,7 +50,7 @@ from qrcodenative import QRCode, QRErrorCorrectLevel
 
 
 # Version Numbers
-BTCARMORY_VERSION      = (0, 92,  1, 0)  # (Major, Minor, Bugfix, AutoIncrement)
+BTCARMORY_VERSION      = (0, 97,  9, 0)  # (Major, Minor, Bugfix, AutoIncrement)
 ARMORY_WALLET_VERSION  = (2,  0,  0, 0)  # (Major, Minor, Bugfix, AutoIncrement)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
@@ -1793,19 +1793,22 @@ def pprintHex(theStr, indent='', withAddr=True, major=8, minor=8):
 
 
 
+################################################################################
 def pprintDiff(str1, str2, indent=''):
-   if not len(str1)==len(str2):
-      print 'pprintDiff: Strings are different length!'
-      return
+   #$if not len(str1)==len(str2):
+      #$print 'pprintDiff: Strings are different length!'
+      #$return
 
    byteDiff = []
-   for i in range(len(str1)):
+   for i in range(min(len(str1), len(str2))):
       if str1[i]==str2[i]:
-         byteDiff.append('-')
+         byteDiff.append('--')
       else:
-         byteDiff.append('X')
+         byteDiff.append('XX')
 
    pprintHex(''.join(byteDiff), indent=indent)
+   pprintHex(binary_to_hex(str1))
+   pprintHex(binary_to_hex(str2))
 
 
 ##### Switch endian-ness #####

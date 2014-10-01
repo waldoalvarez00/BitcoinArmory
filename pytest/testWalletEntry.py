@@ -16,6 +16,14 @@ WALLET_VERSION_BIN = hex_to_binary('002d3101')
 WalletEntry.DisableRSEC()
 
 
+MSO_FILECODE   = 'MOCKOBJ_'
+MSO_ENTRY_ID   = '\x01'+'\x33'*20
+MSO_FLAGS_REG  = '\x00\x00'
+MSO_FLAGS_DEL  = '\x80\x00'
+MSO_PARSCRADDR = '\x05'+'\x11'*20
+MSO_PAYLOAD    = '\xaf'*5
+
+
 ################################################################################
 class MockWalletFile(object):
    def __init__(self):
@@ -30,15 +38,17 @@ class MockWalletFile(object):
 
 ################################################################################
 class MockSerializableObject(WalletEntry):
-   FILECODE = "MOCKOBJ_"
+   FILECODE = MSO_FILECODE
 
    def __init__(self, txt=None):
-      self.text = None
-      if txt:
-         self.setText(txt)
+      super(MockSerializableObject, self).__init__()
+      self.setText(txt)
 
    def setText(self, txt):
-      self.text = txt
+      self.text = '' if txt is None else txt
+
+   def getEntryID(self):
+      return MSO_ENTRY_ID
 
    def serialize(self):
       bp = BinaryPacker()
@@ -48,7 +58,13 @@ class MockSerializableObject(WalletEntry):
    def unserialize(self, toUnpack):
       bu = makeBinaryUnpacker(toUnpack) 
       self.text = bu.get(VAR_STR)
+      return self
       
+
+
+WalletEntry.RegisterWalletStorageClass(MockSerializableObject)
+
+
 
 ################################################################################
 def skipFlagExists():
@@ -72,8 +88,8 @@ class WalletEntryTests(unittest.TestCase):
       self.assertEqual(we.wltByteLoc, None)
       self.assertEqual(we.wltEntrySz, None)
       self.assertEqual(we.isRequired, False)
-      self.assertEqual(we.parScrAddr, None)
-      self.assertEqual(we.outerCrypt, None)
+      self.assertEqual(we.parEntryID, None)
+      self.assertEqual(we.outerCrypt.serialize(), ArmoryCryptInfo(None).serialize())
       self.assertEqual(we.serPayload, None)
       self.assertEqual(we.defaultPad, 256)
 
@@ -88,22 +104,21 @@ class WalletEntryTests(unittest.TestCase):
       self.assertEqual(we.isUnrecoverable, False)
       self.assertEqual(we.isDeleted,       False)
       self.assertEqual(we.isDisabled,      False)
-      self.assertEqual(we.needRewrite,     False)
-      self.assertEqual(we.needsFsync,      False)
+      self.assertEqual(we.needFsync,       False)
 
 
       # Init with all args supplied
       mockWlt = MockWalletFile()
-      we = WalletEntry(mockWlt, 10, 10, True, '\xfa'*21, 
-                       ArmoryCryptInfo(None), None, '\xaf'*5, 128)
+      we = WalletEntry(mockWlt, 10, 10, True, MSO_PARSCRADDR,
+                       ArmoryCryptInfo(None), None, MSO_PAYLOAD, 128)
 
       self.assertEqual(we.wltFileRef.getName(), 'MockWalletFile')
       self.assertEqual(we.wltByteLoc, 10)
       self.assertEqual(we.wltEntrySz, 10)
       self.assertEqual(we.isRequired, True)
-      self.assertEqual(we.parScrAddr, '\xfa'*21)
-      self.assertEqual(we.outerCrypt.useEncryption(), False)
-      self.assertEqual(we.serPayload, '\xaf'*5)
+      self.assertEqual(we.parEntryID, MSO_PARSCRADDR)
+      self.assertEqual(we.outerCrypt.serialize(), ArmoryCryptInfo(None).serialize())
+      self.assertEqual(we.serPayload, MSO_PAYLOAD)
       self.assertEqual(we.defaultPad, 128)
 
       #self.assertEqual(we.flagBitset.toBitString(), '0'*16)
@@ -117,24 +132,144 @@ class WalletEntryTests(unittest.TestCase):
       self.assertEqual(we.isUnrecoverable, False)
       self.assertEqual(we.isDeleted,       False)
       self.assertEqual(we.isDisabled,      False)
-      self.assertEqual(we.needRewrite,     False)
-      self.assertEqual(we.needsFsync,      False)
+      self.assertEqual(we.needFsync,       False)
 
 
    #############################################################################
    def testSerializeDeleted(self):
-
-      for testSize in [11, 53, 127, 128, 245, 246, 247, 255, 256, 257]:
+      for testSize in [20, 53, 127, 128, 245, 246, 247, 255, 256, 257, 512]:
          we = WalletEntry.CreateDeletedEntry(testSize)
          ser = we.serializeEntry()
          self.assertEqual(len(ser), testSize)
 
          expected = BinaryPacker()
          expected.put(BINARY_CHUNK, WALLET_VERSION_BIN, 4)
-         expected.put(BINARY_CHUNK, '\x80\x00', 2)
+         expected.put(BINARY_CHUNK, MSO_FLAGS_DEL, 2)
          expected.put(UINT32,       testSize-10)
          expected.put(BINARY_CHUNK, '\x00'*(testSize-10))
          self.assertEqual(ser, expected.getBinaryString())
+
+
+   #############################################################################
+   def testUnserializeDeleted(self):
+      mockWlt = MockWalletFile()
+
+      for testSize in [20, 53, 127, 128, 245, 246, 247, 255, 256, 257, 512]:
+         expected = BinaryPacker()
+         expected.put(BINARY_CHUNK, WALLET_VERSION_BIN, 4)
+         expected.put(BINARY_CHUNK, MSO_FLAGS_DEL, 2)
+         expected.put(UINT32,       testSize-10)
+         expected.put(BINARY_CHUNK, '\x00'*(testSize-10))
+         delData = expected.getBinaryString()
+
+         we = WalletEntry.UnserializeEntry(delData, mockWlt, 20)
+
+         self.assertTrue(we.isDeleted)
+         self.assertEqual(we.wltEntrySz, testSize)
+         self.assertEqual(we.serializeEntry(), delData)
+         self.assertEqual(we.wltFileRef.getName(), 'MockWalletFile')
+         self.assertEqual(we.wltByteLoc, 20)
+
+         delData = delData[:12] + '\x01' + delData[13:]
+         self.assertRaises(UnserializeError, WalletEntry.UnserializeEntry, delData, mockWlt, 20)
+
+   #############################################################################
+   def testSerializeObj(self):
+      # For reference, a payload with a 20-byte ID will have:
+      #    FILECODE(8) + flags(2) + EntryID(1+21) + SerObj(VI+N)
+      
+      for pad in [1, 16, 64, 256, 1024]:
+         for testSize in [0, 20, 53, 221, 222, 223, 224, 255, 256]:
+            data = '\x9f'*testSize
+            mso = MockSerializableObject(data)
+            mso.parEntryID = MSO_PARSCRADDR
+            mso.defaultPad = pad
+            serCompute = mso.serialize()
+            serExpect = packVarInt(testSize)[0] + data
+            self.assertEqual(serCompute, serExpect)
+
+            bpInner = BinaryPacker()
+            bpInner.put(BINARY_CHUNK,  MSO_FILECODE)
+            bpInner.put(BINARY_CHUNK,  MSO_FLAGS_REG)
+            bpInner.put(VAR_STR,       MSO_ENTRY_ID)
+            bpInner.put(VAR_STR,       serExpect)
+            innerStr = bpInner.getBinaryString()
+            innerStr = padString(innerStr, mso.defaultPad)
+
+            bpOuter = BinaryPacker()
+            bpOuter.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
+            bpOuter.put(BITSET,       BitSet(16), 2)
+            bpOuter.put(VAR_STR,      MSO_PARSCRADDR)
+            bpOuter.put(BINARY_CHUNK, ArmoryCryptInfo(None).serialize())
+            bpOuter.put(VAR_STR,      innerStr)
+            bpOuter.put(VAR_STR,      '\x00'*16)
+            weSerExpect = bpOuter.getBinaryString()
+
+            weSerCompute = mso.serializeEntry()
+
+            #pprintDiff(weSerCompute, weSerExpect)
+
+            self.assertEqual(len(weSerCompute), len(weSerExpect))
+            self.assertEqual(weSerCompute, weSerExpect)
+   
+      
+   #############################################################################
+   def testSerUnserRT(self):
+      # For reference, a payload with a 21-byte ID will have:
+      #    FILECODE(8) + flags(2) + EntryID(1+21) + SerObj(VI+N)
+      
+      mockWlt = MockWalletFile()
+      for pad in [1, 16, 64, 256, 1024]:
+         for testSize in [0, 20, 53, 221, 222, 223, 224, 255, 256]:
+            data = '\x9f'*testSize
+            mso = MockSerializableObject(data)
+            mso.parEntryID = MSO_PARSCRADDR
+            mso.defaultPad = pad
+            serExpect = packVarInt(testSize)[0] + data
+
+            bpInner = BinaryPacker()
+            bpInner.put(BINARY_CHUNK,  MSO_FILECODE)
+            bpInner.put(BINARY_CHUNK,  MSO_FLAGS_REG)
+            bpInner.put(VAR_STR,       MSO_ENTRY_ID)
+            bpInner.put(VAR_STR,       serExpect)
+            innerStr = bpInner.getBinaryString()
+            innerStr = padString(innerStr, mso.defaultPad)
+
+            bpOuter = BinaryPacker()
+            bpOuter.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
+            bpOuter.put(BITSET,       BitSet(16), 2)
+            bpOuter.put(VAR_STR,      MSO_PARSCRADDR)
+            bpOuter.put(BINARY_CHUNK, ArmoryCryptInfo(None).serialize())
+            bpOuter.put(VAR_STR,      innerStr)
+            bpOuter.put(VAR_STR,      '\x00'*16)
+            weSerExpect = bpOuter.getBinaryString()
+
+   
+            # First pass uses expected serialization, second pass uses the 
+            # output of .serializeEntry()
+            for i in range(2):
+               mso = WalletEntry.UnserializeEntry(weSerExpect, mockWlt, 0)
+
+               self.assertEqual(mso.wltFileRef.getName(), 'MockWalletFile')
+               self.assertEqual(mso.wltByteLoc, 0)
+               self.assertTrue(testSize < mso.wltEntrySz)
+               self.assertEqual(mso.isRequired, False)
+               self.assertEqual(mso.parEntryID, MSO_PARSCRADDR)
+               self.assertEqual(mso.outerCrypt.serialize(), ArmoryCryptInfo(None).serialize())
+               #self.assertEqual(mso.serPayload, innerStr)
+               self.assertEqual(mso.defaultPad, 256)
+
+               self.assertEqual(mso.wltParentRef, None)
+               self.assertEqual(mso.wltChildRefs, [])
+               self.assertEqual(mso.outerEkeyRef, None)
+
+               self.assertEqual(mso.isOpaque,        False)
+               self.assertEqual(mso.isUnrecognized,  False)
+               self.assertEqual(mso.isUnrecoverable, False)
+               self.assertEqual(mso.isDeleted,       False)
+               self.assertEqual(mso.isDisabled,      False)
+               self.assertEqual(mso.needFsync,       False)
+               weSerExpect = mso.serializeEntry()
 
 
 ################################################################################

@@ -735,6 +735,13 @@ class BitSetTests(unittest.TestCase):
       self.assertEqual(bp.getBinaryString(), '\xf0\xf1\x55\x00\x00')
 
 
+################################################################################
+class LeadingBitTests(unittest.TestCase):
+
+   #############################################################################
+   def testGetLeadingBits(self):
+      raise NotImplementedError('I totally forgot to finish this test!')
+      
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
 # You must run tests with "python -m unittest <module name>" or run all tests with "python -m unittest discover"
