@@ -316,12 +316,14 @@ class WalletEntry(object):
       we.outerCrypt = ArmoryCryptInfo().unserialize(serCryptInfo)
 
       if we.outerCrypt.noEncryption():
+         # Parse payload
          return we.parsePayloadReturnNewObj()
       else:
-         we.isOpaque   = True
+         we.isOpaque  = True
          if len(decryptKwargs)==0:
             return we
          else:
+            # Decrypt-then-parse payload
             return we.decryptPayloadReturnNewObj(**decryptKwargs)
 
 
@@ -355,7 +357,7 @@ class WalletEntry(object):
       # Use the 8-byte FILECODE to determine the type of object to unserialize
       clsType = WalletEntry.FILECODEMAP.get(plType)
       if clsType is None:
-         LOGWARN('Unrecognized data type in wallet')
+         LOGWARN('Unrecognized data type in wallet: "%s"' % plType)
          self.isUnrecognized = True
          return self
 

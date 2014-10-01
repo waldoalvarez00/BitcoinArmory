@@ -23,6 +23,8 @@ MSO_FLAGS_DEL  = '\x80\x00'
 MSO_PARSCRADDR = '\x05'+'\x11'*20
 MSO_PAYLOAD    = '\xaf'*5
 
+FAKE_KDF_ID  = '\x42'*8
+FAKE_EKEY_ID = '\x9e'*8
 
 ################################################################################
 class MockWalletFile(object):
@@ -250,14 +252,25 @@ class WalletEntryTests(unittest.TestCase):
             for i in range(2):
                mso = WalletEntry.UnserializeEntry(weSerExpect, mockWlt, 0)
 
+               self.assertTrue(isinstance(mso, MockSerializableObject))
+
                self.assertEqual(mso.wltFileRef.getName(), 'MockWalletFile')
                self.assertEqual(mso.wltByteLoc, 0)
                self.assertTrue(testSize < mso.wltEntrySz)
                self.assertEqual(mso.isRequired, False)
                self.assertEqual(mso.parEntryID, MSO_PARSCRADDR)
                self.assertEqual(mso.outerCrypt.serialize(), ArmoryCryptInfo(None).serialize())
-               #self.assertEqual(mso.serPayload, innerStr)
-               self.assertEqual(mso.defaultPad, 256)
+               self.assertEqual(mso.defaultPad, 256)  
+
+               if pad==256: 
+                  # NOTE:     
+                  #    The Round-trip test is not perfect, b/c serialization
+                  #    requires an unrecorded padding value in it.
+                  #    Since the loop mods the padding, the UnserializeEntry
+                  #    call has no way to know how what the unserialized 
+                  #    padding is.  As such, we can only do a perfect R/T
+                  #    test if the padding on ser is equal to the default (256)
+                  self.assertEqual(mso.serPayload, innerStr)
 
                self.assertEqual(mso.wltParentRef, None)
                self.assertEqual(mso.wltChildRefs, [])
@@ -270,6 +283,97 @@ class WalletEntryTests(unittest.TestCase):
                self.assertEqual(mso.isDisabled,      False)
                self.assertEqual(mso.needFsync,       False)
                weSerExpect = mso.serializeEntry()
+
+
+            # Might as well check whether it deletes, properly too
+            serDelete = mso.serializeEntry(doDelete=True)
+            delExpect = WalletEntry.CreateDeletedEntry(len(weSerExpect))
+            self.assertEqual(serDelete, delExpect.serializeEntry())
+
+
+
+   #############################################################################
+   def testUnrecog(self):
+      # For reference, a payload with a 21-byte ID will have:
+      #    FILECODE(8) + flags(2) + EntryID(1+21) + SerObj(VI+N)
+      
+      mockWlt = MockWalletFile()
+      for pad in [1, 16, 64, 256, 1024]:
+         for testSize in [0, 20, 53, 221, 222, 223, 224, 255, 256]:
+            data = '\x9f'*testSize
+            mso = MockSerializableObject(data)
+            mso.parEntryID = MSO_PARSCRADDR
+            mso.defaultPad = pad
+            serExpect = packVarInt(testSize)[0] + data
+
+            bpInner = BinaryPacker()
+            bpInner.put(BINARY_CHUNK,  'UNRECOG_')
+            bpInner.put(BINARY_CHUNK,  MSO_FLAGS_REG)
+            bpInner.put(VAR_STR,       MSO_ENTRY_ID)
+            bpInner.put(VAR_STR,       serExpect)
+            innerStr = bpInner.getBinaryString()
+            innerStr = padString(innerStr, mso.defaultPad)
+
+            bpOuter = BinaryPacker()
+            bpOuter.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
+            bpOuter.put(BITSET,       BitSet(16), 2)
+            bpOuter.put(VAR_STR,      MSO_PARSCRADDR)
+            bpOuter.put(BINARY_CHUNK, ArmoryCryptInfo(None).serialize())
+            bpOuter.put(VAR_STR,      innerStr)
+            bpOuter.put(VAR_STR,      '\x00'*16)
+            weSerExpect = bpOuter.getBinaryString()
+
+   
+            mso = WalletEntry.UnserializeEntry(weSerExpect, mockWlt, 0)
+
+            self.assertEqual(mso.__class__, WalletEntry)
+            self.assertTrue(mso.isUnrecognized)
+            self.assertEqual(mso.serPayload, innerStr)
+            self.assertEqual(mso.parEntryID, MSO_PARSCRADDR)
+            
+            serDelete = mso.serializeEntry(doDelete=True)
+            delExpect = WalletEntry.CreateDeletedEntry(len(serDelete))
+            self.assertEqual(serDelete, delExpect.serializeEntry())
+            
+
+   #############################################################################
+   def testOpaque(self):
+      mockWlt = MockWalletFile()
+      AciObject = ArmoryCryptInfo(FAKE_KDF_ID, 'AE256CBC', FAKE_EKEY_ID, 'PUBKEY20')
+      for pad in [1, 16, 64, 256, 1024]:
+         for testSize in [0, 20, 53, 221, 222, 223, 224, 255, 256]:
+            data = '\x9f'*testSize
+            mso = MockSerializableObject(data)
+            mso.parEntryID = MSO_PARSCRADDR
+            mso.defaultPad = pad
+            serExpect = packVarInt(testSize)[0] + data
+
+            bpInner = BinaryPacker()
+            bpInner.put(BINARY_CHUNK,  'UNRECOG_')
+            bpInner.put(BINARY_CHUNK,  MSO_FLAGS_REG)
+            bpInner.put(VAR_STR,       MSO_ENTRY_ID)
+            bpInner.put(VAR_STR,       serExpect)
+            innerStr = bpInner.getBinaryString()
+            innerStr = padString(innerStr, mso.defaultPad)
+
+            bpOuter = BinaryPacker()
+            bpOuter.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
+            bpOuter.put(BITSET,       BitSet(16), 2)
+            bpOuter.put(VAR_STR,      MSO_PARSCRADDR)
+            bpOuter.put(BINARY_CHUNK, AciObject.serialize())
+            bpOuter.put(VAR_STR,      innerStr)
+            bpOuter.put(VAR_STR,      '\x00'*16)
+            weSerExpect = bpOuter.getBinaryString()
+
+   
+            mso = WalletEntry.UnserializeEntry(weSerExpect, mockWlt, 0)
+            self.assertTrue(mso.isOpaque)
+            self.assertEqual(mso.parEntryID, MSO_PARSCRADDR)
+                  
+            # Test that we can delete opaque objects
+            serDelete = mso.serializeEntry(doDelete=True)
+            delExpect = WalletEntry.CreateDeletedEntry(len(serDelete))
+            self.assertEqual(serDelete, delExpect.serializeEntry())
 
 
 ################################################################################
