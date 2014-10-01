@@ -1,4 +1,6 @@
 from ArmoryUtils import *
+import ReedSolomonWrapper
+
 
 ################################################################################
 class WalletEntry(object):
@@ -12,14 +14,7 @@ class WalletEntry(object):
    will be set in the serialization telling the application that it 
    should throw an error if it does not recognize it.
 
-   Example 1 -- Relationship objects:
-      Wallets that are born to be part of M-of-N linked wallets are 
-      never used for single-sig addresses.  If an application does
-      not implement the relationship type, it should not attempt to 
-      use the wallet at all, since it would skip the RLAT code and 
-      create single-sig addresses.
-
-   Example 2 -- Colored Coins (not implemented yet):
+   Example 1 -- Colored Coins (not implemented yet):
       If a given wallet handles colored coins, it could be a disaster
       if the application did not recognize that, and let you spend 
       your colored coins as if they were regular BTC.  Thefore, if you
@@ -28,7 +23,7 @@ class WalletEntry(object):
       coin support) is used to read the wallet, it will not allow the 
       user to use that wallet
          
-   Example 3 -- P2SH Scripts:
+   Example 2 -- P2SH Scripts:
       This is borderline, and I may add this to the REQUIRED_TYPES list
       as I get further into implementation.  Strictly speaking, you don't
       *need* P2SH information in order to use the non-P2SH information 
@@ -60,57 +55,87 @@ class WalletEntry(object):
    blockchain ... they must have access to at least the watching-only wlt).
   
    """
+   # Any classes that inherit from WalletEntry that want WalletEntry to be
+   # able to spawn objects of its type when found in a wallet file, needs
+   # to call RegisterWalletStorageClass.  Technically, we could get around
+   # this using reflection, but reading direct class names out of wallet
+   # files and invoking them feels as dangerous like using eval()
+   FILECODEMAP    = {}
+   REQUIRED_TYPES = set()
+   KEYPAIR_TYPES  = set()
 
-   #FILECODEMAP = { #'HEAD': ArmoryFileHeader,
-                    #'ADDR': ArmoryAddress,
-                    #'ROOT': ArmoryRoot,
-                    #'LABL': AddressLabel,
-                    #'COMM': TxLabel,
-                    #'LBOX': MultiSigLockbox,
-                    #'ZERO': ZeroData, 
-                    #'RLAT': RootRelationship,
-                    #'EKEY': EncryptionKey,
-                    #'MKEY': MultiPwdEncryptionKey,
-                    #'KDFO': KdfObject,
-                    #'IDNT': IdentityPublicKey,
-                    #'SIGN': WltEntrySignature }
-
-   #REQUIRED_TYPES = ['ADDR', 'ROOT', 'RLAT']
-
-   # See end of armoryengine/ArmoryWallet.py for the list -- this had to be
-   # done dynamically because at the time this file is imported, not all the
-   # classes above have been defined.
-   FILECODEMAP   = {}
-   REQUIRED_TYPES = []
+   CheckRSECCode  = ReedSolomonWrapper.checkRSECCode
+   CreateRSECCode = ReedSolomonWrapper.createRSECCode
 
    #############################################################################
    @staticmethod
-   def addClassToMap(clsType, isReqd=False):
+   def RegisterWalletStorageClass(clsType, isReqd=False):
       weCode = clsType.FILECODE
       if weCode in WalletEntry.FILECODEMAP:
          raise ValueError('Class with code "%s" is already in map!' % weCode)
 
       WalletEntry.FILECODEMAP[clsType.FILECODE] = clsType
       if isReqd:
-         WalletEntry.REQUIRED_TYPES.append(weCode)
+         WalletEntry.REQUIRED_TYPES.add(weCode)
 
+      try:
+         if issubclass(clsType, ArmoryKeyPair):
+            WalletEntry.KEYPAIR_TYPES.add(weCode)
+            LOGINFO('Registered %s class as a keypair type')
+      except:
+         LOGERROR('Failed to check if class is keypair type: %s' % clsType.__name__)
+         # This is when ArmoryKeyPair hasn't been defined yet.  That's fine.
+         pass
 
    #############################################################################
-   def __init__(self, wltFileRef=None, offset=-1, weSize=-1, reqdBit=False,    
-              wltPar160=None, outerCrypt=None, serPayload=None, defaultPad=256):
+   @staticmethod
+   def ChangeRSECAlgos(createFunc, checkFunc):
+      """
+      This is mainly for testing purposes.  See DisableRSEC(...) for an example 
+      calling this function.  You could even change the algos to some other 
+      error correction scheme, but you'll need to make sure it uses the 1024/16
+      ratio.
+
+      One reason we might want to disable RSEC is that we have a wallet file 
+      which was created "manually" and the user didn't have a library for 
+      creating the RSEC codes.  
+      """
+      WalletEntry.CreateRSECCode = createFunc
+      WalletEntry.CheckRSECCode  = checkFunc
+
+   #############################################################################
+   @staticmethod
+   def DisableRSEC():
+      def checkfn(data, parity):
+         return data, False, False
+         
+      def createfn(data, rsecBytes=ReedSolomonWrapper.RSEC_PARITY_BYTES, 
+                         perDataBytes=ReedSolomonWrapper.RSEC_PER_DATA_BYTES):
+         nChunk = (data-1)/perDataBytes + 1
+         return '\x00' * rsecBytes * nChunk
+
+      WalletEntry.ChangeRSECAlgos(createfn, checkfn)
+   
+         
+
+   #############################################################################
+   def __init__(self, wltFileRef=None, offset=None, weSize=None, reqdBit=False,    
+                      parScrAddr=None, outerCrypt=None, ekeyRef=None, 
+                      serPayload=None, defaultPad=256):
       self.wltFileRef = wltFileRef
       self.wltByteLoc = offset
       self.wltEntrySz = weSize
       self.isRequired = reqdBit
-      self.wltPar160 = wltPar160
+      self.parScrAddr = parScrAddr
       self.outerCrypt = outerCrypt
       self.serPayload = serPayload
-      self.rsecCode   = rsecCode 
-      self.flagBytes  = BitSet(8)
+      self.defaultPad = defaultPad
 
       self.wltParentRef = None
       self.wltChildRefs = []
-      self.uniqueID20 = None
+      self.outerEkeyRef = None
+      #self.wltEntryID = None
+      #self.flagBitset = BitSet(16)
 
       self.isOpaque = False
       self.isUnrecognized = False
@@ -119,22 +144,72 @@ class WalletEntry(object):
       self.isDisabled = False
       self.needRewrite = False
       self.needsFsync = False
-
-
-      self.defaultPad = defaultPad
          
    #############################################################################
    @staticmethod
-   def CreateDeletedEntry(weSize):
+   def CreateDeletedEntry(weSize, wltFileRef=None, wltOffset=None):
       we = WalletEntry()
       we.isDeleted = True
       we.wltEntrySz = weSize
+      we.wltFileRef = wltFileRef
+      we.wltOffset  = wltOffset
       return we
       
    #############################################################################
    def getEntryID(self):
       raise NotImplementedError('This must be overriden by derived class!')
 
+   #############################################################################
+   def serializeEntry(self, doDelete=False, **encryptKwargs):
+
+      weFlags = BitSet(16)
+      if self.isDeleted or doDelete:
+         weFlags.setBit(0, True)
+         nZero = self.wltEntrySz - 10  # version(4) + flags(2) + numZero(4)
+         
+         bp = BinaryPacker()
+         bp.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
+         bp.put(BITSET,       weFlags, 2)
+         bp.put(UINT32,       nZero)
+         bp.put(BINARY_CHUNK, '\x00'*nZero)
+         return bp.getBinaryString()
+         
+         
+      # Going to create the sub-serialized object that might be encrypted
+      serObject = self.serialize()
+      lenObject = len(serObject)
+
+      plBits = BitSet(16)
+      plBits.setBit(0, self.FILECODE in WalletEntry.REQUIRED_TYPES)
+
+      payload = BinaryPacker() 
+      bpPayload.put(BINARY_CHUNK, self.FILECODE, width=8) 
+      bpPayload.put(BITSET,       plBits, 2)
+      bpPayload.put(VAR_STR,      self.getEntryID())
+      bpPayload.put(VAR_STR,      serObject)
+
+      # Now we have the full unencrypted version of the data for the file
+      serPayload = padString(bpPayload.getBinaryString(), self.defaultPad)
+       
+      if self.outerCrypt.useEncryption():
+         raise NotImplementedError('Outer encryption not yet implemented!')
+         if not len(serPayload) % self.outerCrypt.getBlockSize() == 0:
+            raise EncryptionError('Improper padding on payload data for encryption')
+         serPayload = self.outerCrypt.encrypt(serPayload, **encryptKwargs)
+
+      # Computes 16-byte Reed-Solomon error-correction code per 1024 bytes
+      rsecCode = WalletEntry.CreateRSECCode(serPayload)
+
+      # Now we have everything we need to serialize the wallet entry
+      bp = BinaryPacker()
+      bp.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
+      bp.put(BITSET,       weFlags, 2)
+      bp.put(VAR_STR,      self.parScrAddr)
+      bp.put(BINARY_CHUNK, self.outerCrypt,  width=32)
+      bp.put(VAR_STR,      serPayload)
+      bp.put(VAR_STR,      rsecCode)
+      return bp.getBinaryString()
+      
 
    #############################################################################
    @staticmethod
@@ -157,7 +232,7 @@ class WalletEntry(object):
       unpackStart  = toUnpack.getPosition()
 
       wltVersion   = toUnpack.get(UINT32)
-      weFlags      = toUnpack.get(BITSET, 1)  # one byte
+      weFlags      = toUnpack.get(BITSET, 2)  # one byte
 
       if wltVersion != getVersionInt(ARMORY_WALLET_VERSION):
          LOGWARN('WalletEntry version: %s,  Armory Wallet version: %s', 
@@ -169,20 +244,21 @@ class WalletEntry(object):
       if we.isDeleted:
          # Don't use VAR_INT/VAR_SIZE for size of zero chunk due to complixty 
          # of handling the size being at the boundary of two VAR_INT sizes
-         we.wltEntrySz = toUnpack.get(UINT32) + 9
-         shouldBeZeros = toUnpack.get(BINARY_CHUNK, we.wltEntrySz - 9)
+         # 10 == version(4) + flags(2) + numZero(4)
+         we.wltEntrySz = toUnpack.get(UINT32) + 10
+         shouldBeZeros = toUnpack.get(BINARY_CHUNK, we.wltEntrySz - 10)
          if not len(shouldBeZeros)==shouldBeZeros.count('\x00'):
             raise UnpackerError('Deleted entry is not all zero bytes')
          return we
 
 
-      parent160    = toUnpack.get(BINARY_CHUNK, 20)
-      serCryptInfo = toUnpack.get(BINARY_CHUNK, 32)  
-      serPayload   = toUnpack.get(VAR_STR)  
-      rsecCode     = toUnpack.get(VAR_STR)
+      parentScrAddr = toUnpack.get(VAR_STR)
+      serCryptInfo  = toUnpack.get(BINARY_CHUNK, 32)  
+      serPayload    = toUnpack.get(VAR_STR)  
+      rsecCode      = toUnpack.get(VAR_STR)
 
 
-      we.parent160    = parent160
+      we.parScrAddr   = parentScrAddr
       we.wltFileRef   = parentWlt
       we.wltStartByte = fOffset 
       we.wltEntrySz   = toUnpack.getPosition() - unpackStart
@@ -193,12 +269,12 @@ class WalletEntry(object):
       we.isUnrecoverable = False
 
       # Detect and correct any bad bytes in the data
-      we.serPayload,failFlag,modFlag = checkRSECCode(serPayload, rsecCode)
-      if failFlag:
+      we.serPayload,fail,mod = WalletEntry.CheckRSECCode(serPayload, rsecCode)
+      if fail:
          LOGERROR('Unrecoverable error in wallet entry')
          we.isUnrecoverable = True 
          return we
-      elif modFlag:
+      elif mod:
          LOGWARN('Error in wallet file corrected successfully')
          we.needRewrite = True 
 
@@ -225,8 +301,8 @@ class WalletEntry(object):
       # all hidden/opaque if it's encrypted
       buPayload = BinaryUnpacker(self.serPayload)
       plType  = buPayload.get(BINARY_CHUNK, 8)
-      plFlags = buPayload.get(BITSET, 1)
-      plObjID = buPayload.get(BINARY_CHUNK, 20)
+      plFlags = buPayload.get(BITSET, 2)
+      plObjID = buPayload.get(VAR_STR)
       plData  = buPayload.get(VAR_STR)
 
       # Throw an error if padding consists of more than \x00... don't want
@@ -237,12 +313,9 @@ class WalletEntry(object):
          raise EncryptionError('Padding in wlt entry is non-zero!')
 
 
-      self.uniqueID20 = plObjID
-
       # The first bit tells us that if we don't understand this wallet entry,
       # we shouldn't use this wallet (perhaps this wallet manages colored coins
-      # and was loaded on vanilla Armory -- we dont' want to spend those 
-      # coins.
+      # and was loaded on vanilla Armory -- we don't want to spend those coins.
       self.isRequired = plFlags.getBit(0)
 
       # Use the 8-byte FILECODE to determine the type of object to unserialize
@@ -258,9 +331,12 @@ class WalletEntry(object):
       weOut.wltStartByte = self.wltStartByte
       weOut.wltEntrySz   = self.wltEntrySz
       weOut.payloadSz    = self.payloadSz
-      weOut.uniqueID20   = self.uniqueID20
+      #weOut.wltEntryID   = self.wltEntryID
       weOut.needRewrite  = self.needRewrite or weOut.needRewrite
       # (subclass might've triggered rewrite flag, don't want to overwrite it)
+
+      if not weOut.getEntryID() == plObjID:
+         raise UnserializeError('Stored obj ID does not match computed')
 
       return weOut
 
@@ -281,57 +357,6 @@ class WalletEntry(object):
       
 
 
-   #############################################################################
-   def serializeEntry(self, doDelete=False, **encryptKwargs):
-
-      weFlags = BitSet(8)
-      if self.isDeleted or doDelete:
-         weFlags.setBit(0, True)
-         nZero = self.wltEntrySz - 9  # version(4) + flags(2) + numZero(4)
-         
-         bp = BinaryPacker()
-         bp.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
-         bp.put(BITSET,       weFlags, 1)
-         bp.put(UINT32,       nZero)
-         bp.put(BINARY_CHUNK, '\x00'*nZero)
-         return bp.getBinaryString()
-         
-         
-      # Going to create the sub-serialized object that might be encrypted
-      serObject = self.serialize()
-      lenObject = len(serObject)
-
-      plBits = BitSet(8)
-      plBits.setBit(0, self.FILECODE in WalletEntry.REQUIRED_TYPES)
-
-      payload = BinaryPacker() 
-      bpPayload.put(BINARY_CHUNK, self.FILECODE, width=8) 
-      bpPayload.put(BITSET,       plBits, 1)
-      bpPayload.put(BINARY_CHUNK, self.uniqueID20, width=20)
-      bpPayload.put(VAR_STR,      serObject)
-
-      # Now we have the full unencrypted version of the data for the file
-      serPayload = padString(bpPayload.getBinaryString(), self.defaultPad)
-       
-      if self.outerCryptInfo.useEncryption():
-         raise NotImplementedError('Outer encryption not yet implemented!')
-         if not len(serPayload) % self.outerCryptInfo.getBlockSize() == 0:
-            raise EncryptionError('Improper padding on payload data for encryption')
-         serPayload = self.outerCryptInfo.encrypt(serPayload, **encryptKwargs)
-
-      # Computes 16-byte Reed-Solomon error-correction code per 1024 bytes
-      rsecCode = createRSECCode(serPayload)
-
-      # Now we have everything we need to serialize the wallet entry
-      bp = BinaryPacker()
-      bp.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
-      bp.put(BITSET,       weFlags, 1)
-      bp.put(BINARY_CHUNK, self.parent160,       width=20)
-      bp.put(BINARY_CHUNK, self.outerCryptInfo,  width=32)
-      bp.put(VAR_STR,      serPayload)
-      bp.put(VAR_STR,      rsecCode)
-      return bp.getBinaryString()
-      
 
    #############################################################################
    def getEkeyFromWallet(self, ekeyID):
@@ -346,15 +371,17 @@ class WalletEntry(object):
    def fsync(self):
       if self.wltFileRef is None:
          LOGERROR('Attempted to rewrite WE object but no wlt file ref.')
+         return
 
       if self.wltStartByte<=0:
          self.wltFileRef.doFileOperation('AddEntry', self)
       else:
          self.wltFileRef.doFileOperation('UpdateEntry', self)
 
+
    #############################################################################
    def useOuterEncryption(self):
-      return outerCryptInfo.useEncryption()
+      return outerCrypt.useEncryption()
 
         
    #############################################################################
@@ -364,40 +391,22 @@ class WalletEntry(object):
          child.disableAllWltChildren()   
          
 
-
-
    #############################################################################
-   def removeEncryption(self, oldKey, oldIV=None):
+   def removeOuterEncryption(self, oldKey, oldIV=None):
       raise NotImplementedError
 
 
    #############################################################################
-   def pprintOneLine(self, nIndent=0):
-      fmtField = lambda lbl,val,wid: '(%s %s)'%(lbl,str(val)[:wid].rjust(wid))
-      print fmtField('', self.FILECODE, 8),
-      print fmtField('in', self.self.wltFileRef.filepath.basename(), 4),
-
-      #toPrint = [self.FILECODE, \
-                 #self.wltFileRef.path.basename, \
-                 #self.wltStartByte, \
-                 #binary_to_hex(self.parentRoot160[:4]), \
-
-      #self.FILECODE       = weCode
-
-      #self.wltFileRef      = wltFileRef
-      #self.wltStartByte      = wltByteLoc
-
-      #self.wltParent160   = wltPar160
-      #self.outerCryptInfo     = encr
-      #self.initPayload(payload, payloadSize, encr)
-
-      # Default to padding all data in file to modulo 16 (helps with crypto)
-      #self.setPayloadPadding(16)
-
-      #self.lockTimeout  = 9   # seconds after unlock, that key is discarded
-      #self.relockAtTime = 0    # seconds after unlock, that key is discarded
+   #def pprintOneLine(self, nIndent=0):
+      #fmtField = lambda lbl,val,wid: '(%s %s)'%(lbl,str(val)[:wid].rjust(wid))
+      #print fmtField('', self.FILECODE, 8),
+      #print fmtField('in', self.self.wltFileRef.filepath.basename(), 4),
 
 
+try:
+   from ArmoryKeyPair import *
+except:
+   LOGERROR('Could not import ArmoryKeyPair module')
 
-
+from ArmoryEncryption import *
 

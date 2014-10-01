@@ -442,11 +442,11 @@ class ArmoryKeyPair(WalletEntry):
       bp.put(UINT32,        self.childIndex)
       
       # Add Reed-Solomon error correction 
-      allAKPData = bp.getBinaryString()
-      rsecData = createRSECCode(allAKPData)
+      akpData = bp.getBinaryString()
+      rsecData = WalletEntry.CreateRSECCode(akpData)
 
       output = BinaryPacker()
-      output.put(VAR_STR, allAKPData)
+      output.put(VAR_STR, akpData)
       output.put(VAR_STR, rsecData)
       return output.getBinaryString()
 
@@ -455,10 +455,10 @@ class ArmoryKeyPair(WalletEntry):
    def unserializeAKP(self, toUnpack):
       toUnpack = makeBinaryUnpacker(toUnpack)
 
-      allAKPData = toUnpack.get(VAR_STR)
-      rsecData   = toUnpack.get(VAR_STR)
+      akpData  = toUnpack.get(VAR_STR)
+      rsecData = toUnpack.get(VAR_STR)
 
-      allAKPData,failFlag,modFlag = checkRSECCode(allAKPData, rsecData)
+      akpData,failFlag,modFlag = WalletEntry.CheckRSECCode(akpData, rsecData)
 
       if failFlag:
          LOGERROR('Unrecoverable error in wallet entry')
@@ -469,7 +469,7 @@ class ArmoryKeyPair(WalletEntry):
          self.needRewrite = True 
 
 
-      akpUnpack = BinaryUnpacker(allAKPData)
+      akpUnpack = BinaryUnpacker(akpData)
 
       version = akpUnpack.get(UINT32) 
       if version != getVersionInt(ARMORY_WALLET_VERSION):
@@ -1589,7 +1589,7 @@ class ArmoryImportedKeyPair(ArmoryKeyPair):
 
    FILECODE = 'IMPORTED'
    def __init__(self, *args, **kwargs):
-      super(ArmoryImportedKey, self).__init__(*args, **kwargs)
+      super(ArmoryImportedKeyPair, self).__init__(*args, **kwargs)
 
    #############################################################################
    def getAddrLocatorString(self):
@@ -2202,4 +2202,27 @@ class MBEK_StdBip32Root(MultisigABEK):
 
 
 
+
+
+
+WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
+WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Purpose)
+WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Bitcoin)
+
+WalletEntry.RegisterWalletStorageClass(ABEK_StdBip32Seed)
+WalletEntry.RegisterWalletStorageClass(ABEK_StdWallet)
+WalletEntry.RegisterWalletStorageClass(ABEK_StdChainExt)
+WalletEntry.RegisterWalletStorageClass(ABEK_StdChainInt)
+WalletEntry.RegisterWalletStorageClass(ABEK_StdLeaf)
+
+WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
+WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
+WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
+WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
+WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
+
+WalletEntry.RegisterWalletStorageClass(Armory135Root)
+WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
+WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
+WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
 

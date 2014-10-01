@@ -7,9 +7,9 @@
 ################################################################################
 #
 # Project:    Armory
-# Author:     Andy Ofiesh
+# Author:     Alan Reiner
 # Website:    www.bitcoinarmory.com
-# Orig Date:  2 January, 2014
+# Orig Date:  20 September, 2014
 #
 ################################################################################
 import sys
@@ -50,7 +50,9 @@ LOGERROR('If the tests pass ("OK" is at the end), you can ignore the errors')
 
 def skipFlagExists():
    if os.path.exists('skipmosttests.flag'):
+      print '*'*80
       print 'SKIPPING MOST TESTS.  REMOVE skipMostTests.flag TO REENABLE'
+      print '*'*80
       return True
    else:
       return False

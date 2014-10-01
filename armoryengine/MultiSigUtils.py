@@ -1,5 +1,6 @@
 from armoryengine.ArmoryUtils import *
 from armoryengine.Transaction import *
+from armoryengine.WalletEntry import *
 
 MULTISIG_VERSION = 1
 
@@ -218,8 +219,9 @@ def isMofNNonStandardToSpend(m, n):
           
 ################################################################################
 ################################################################################
-class MultiSigLockbox(AsciiSerializable):
+class MultiSigLockbox(AsciiSerializable, WalletEntry):
 
+   FILECODE  = 'LOCKBOX_'  # for WalletEntry class
    OBJNAME   = 'Lockbox'
    BLKSTRING = 'LOCKBOX'
    EMAILSUBJ = 'Armory Lockbox Definition - %s'

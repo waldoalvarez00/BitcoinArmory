@@ -69,8 +69,8 @@ class ArmoryWalletFile(object):
       # Maps relationship IDs to relationship objects
       self.relationshipMap  = {}
 
-      # Master address list of all wallets/roots/chains that could receive BTC
-      self.masterAddrMap  = {}
+      # Master address list of all wallets/roots/chains/leaves
+      self.masterScrAddrMap  = {}
 
       # List of all encrypted wallet entries that couldn't be decrypted 
       # Perhaps later find a way decrypt and put them into the other maps
@@ -425,15 +425,11 @@ class ArmoryWalletFile(object):
          # We explicitly don't use isinstance here, because it's easy to
          # mess up derived classes, which will fall into conditional
          # branches you weren't expecting
-         if we.FILECODE=='ROOT':
-            weID = we.getEntryID()
-            if weID in self.allRoots:
-               LOGWARN('Armory root is in wallet file multiple times!')
+         if we.FILECODE in WalletEntry.KEYPAIR_TYPES:
+            if weID in self.masterScrAddrMap:
+               LOGWARN('ScrAddr is in wallet file multiple times!')
+            self.masterScrAddrMap[we.getScrAddr()] = we
             self.allRoots[weID] = we
-         if we.FILECODE=='AEK_':
-            self.masterAddrMap[we.getScrAddr()] = we
-         elif we.FILECODE=='RLAT':
-            self.relationshipMap[we.relID] = we
          elif we.FILECODE=='ALBL':
             self.allLabels[we.scrAddr] = we
          elif we.FILECODE=='TLBL':
@@ -441,13 +437,13 @@ class ArmoryWalletFile(object):
                self.allLabels[we.txidFull] = we
             if we.txidMall: 
                self.allLabels[we.txidMall] = we
-         elif we.FILECODE=='LBOX':
+         elif we.FILECODE=='LOCKBOX_':
             self.lockboxMap[we.lboxID] = we
-         elif we.FILECODE in ['EKEY','MKEY']:
+         elif we.FILECODE in ['EKEYREG_','EKEYMOFN']:
             self.ekeyMap[we.ekeyID] = we
-         elif we.FILECODE=='KDF_':
+         elif we.FILECODE=='KDFOBJCT':
             self.kdfMap[we.kdfObjID] = we
-         elif we.FILECODE=='DATA':
+         elif we.FILECODE=='ARBDATA_':
             self.arbitraryDataMap[we.dataName] = we
          
 
@@ -550,7 +546,7 @@ class ArmoryWalletFile(object):
       #self.ekeyMap = {}
       #self.kdfMap  = {}
       #self.relationshipMap  = {}
-      #self.masterAddrMap  = {}
+      #self.masterScrAddrMap  = {}
       #self.arbitraryDataMap = {}
       #self.opaqueList  = []
       #self.unrecognizedList  = []
@@ -1246,7 +1242,7 @@ class ArmoryWalletFile(object):
 ################################################################################
 class AddressLabel(WalletEntry):
   
-   FILECODE = 'ALBL' 
+   FILECODE = 'ADDRLABL' 
 
    def __init__(self, scrAddrStr=None, label=None):
       self.scrAddr = scrAddrStr
@@ -1274,7 +1270,7 @@ class AddressLabel(WalletEntry):
 ################################################################################
 class TxLabel(WalletEntry):
 
-   FILECODE = 'TLBL'
+   FILECODE = 'TXLABEL_'
 
    #############################################################################
    def __init__(self, txidFull=None, txidMall=None, comment=None):
@@ -1512,8 +1508,9 @@ class ArmoryFileHeader(object):
 
 ################################################################################
 class ArbitraryDataContainer(WalletEntry):
-
-   self.
+   FILECODE = 'ARBDATA_'
+   def __init__(self):
+      pass
 
 
 
@@ -1521,15 +1518,13 @@ class ArbitraryDataContainer(WalletEntry):
 # We should have all the classes availale by now, we can add the 
 # class list to the WalletEntry static members
 ISREQUIRED=True
-WalletEntry.addClassToMap('ROOT', ArmoryRootKey, ISREQUIRED)
-WalletEntry.addClassToMap('ALBL', AddressLabel)
-WalletEntry.addClassToMap('TLBL', TxLabel)
-WalletEntry.addClassToMap('LBOX', MultiSigLockbox)
-WalletEntry.addClassToMap('RLAT', RootRelationship, ISREQUIRED)
-WalletEntry.addClassToMap('EKEY', EncryptionKey)
-WalletEntry.addClassToMap('MKEY', MultiPwdEncryptionKey)
-WalletEntry.addClassToMap('KDF_', KdfObject)
-WalletEntry.addClassToMap('IDNT', IdentityPublicKey)
-WalletEntry.addClassToMap('SIGN', WltEntrySignature)
-WalletEntry.addClassToMap('DATA', ArbitraryDataContainer)
+WalletEntry.RegisterWalletStorageClass(AddressLabel)
+WalletEntry.RegisterWalletStorageClass(TxLabel)
+WalletEntry.RegisterWalletStorageClass(MultiSigLockbox)
+WalletEntry.RegisterWalletStorageClass(EncryptionKey)
+WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
+WalletEntry.RegisterWalletStorageClass(KdfObject)
+WalletEntry.RegisterWalletStorageClass(IdentityPublicKey)
+WalletEntry.RegisterWalletStorageClass(WltEntrySignature)
+WalletEntry.RegisterWalletStorageClass(ArbitraryDataContainer)
 

@@ -9,7 +9,7 @@ from CppBlockUtils import SecureBinaryData, CryptoAES, CryptoECDSA
 from armoryengine.ArmoryUtils import ADDRBYTE, hash256, binary_to_base58, \
    KeyDataError, RightNow, LOGERROR, ChecksumError, convertKeyDataToAddress, \
    verifyChecksum, WalletLockError, createDERSigFromRS, binary_to_int, \
-   computeChecksum, getVersionInt, PYBTCWALLET_VERSION, bitset_to_int, \
+   computeChecksum, getVersionInt, ARMORY_WALLET_VERSION, bitset_to_int, \
    LOGDEBUG, Hash160ToScrAddr, int_to_bitset, UnserializeError, \
    hash160_to_addrStr, int_to_binary, BIGENDIAN, \
    BadAddressError, checkAddrStrValid, binary_to_hex
@@ -942,7 +942,7 @@ class PyBtcAddress(object):
       binOut = BinaryPacker()
       binOut.put(BINARY_CHUNK,   self.addrStr20,                    width=20)
       binOut.put(BINARY_CHUNK,   chk(self.addrStr20),               width= 4)
-      binOut.put(UINT32,         getVersionInt(PYBTCWALLET_VERSION))
+      binOut.put(UINT32,         getVersionInt(ARMORY_WALLET_VERSION))
       binOut.put(UINT64,         bitset_to_int(flags))
 
       # Write out address-chaining parameters (for deterministic wallets)

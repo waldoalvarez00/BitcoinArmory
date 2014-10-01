@@ -50,8 +50,8 @@ from qrcodenative import QRCode, QRErrorCorrectLevel
 
 
 # Version Numbers
-BTCARMORY_VERSION    = (0, 92,  1, 0)  # (Major, Minor, Bugfix, AutoIncrement)
-PYBTCWALLET_VERSION  = (1, 35,  0, 0)  # (Major, Minor, Bugfix, AutoIncrement)
+BTCARMORY_VERSION      = (0, 92,  1, 0)  # (Major, Minor, Bugfix, AutoIncrement)
+ARMORY_WALLET_VERSION  = (2,  0,  0, 0)  # (Major, Minor, Bugfix, AutoIncrement)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
 ARMORY_DONATION_PUBKEY = ( '04'
@@ -547,7 +547,7 @@ if sys.argv[0]=='ArmoryQt.py':
    print '********************************************************************************'
    print 'Loading Armory Engine:'
    print '   Armory Version:      ', getVersionString(BTCARMORY_VERSION)
-   print '   PyBtcWallet  Version:', getVersionString(PYBTCWALLET_VERSION)
+   print '   PyBtcWallet  Version:', getVersionString(ARMORY_WALLET_VERSION)
    print 'Detected Operating system:', OS_NAME
    print '   OS Variant            :', OS_VARIANT
    print '   User home-directory   :', USER_HOME_DIR
@@ -1120,7 +1120,7 @@ LOGINFO('Invoked: ' + ' '.join(sys.argv))
 LOGINFO('************************************************************')
 LOGINFO('Loading Armory Engine:')
 LOGINFO('   Armory Version        : ' + getVersionString(BTCARMORY_VERSION))
-LOGINFO('   PyBtcWallet  Version  : ' + getVersionString(PYBTCWALLET_VERSION))
+LOGINFO('   PyBtcWallet  Version  : ' + getVersionString(ARMORY_WALLET_VERSION))
 LOGINFO('Detected Operating system: ' + OS_NAME)
 LOGINFO('   OS Variant            : ' + (OS_VARIANT[0] if OS_MACOSX else '-'.join(OS_VARIANT)))
 LOGINFO('   User home-directory   : ' + USER_HOME_DIR)

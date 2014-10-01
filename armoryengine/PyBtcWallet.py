@@ -90,7 +90,7 @@ class PyBtcWallet(object):
    Version 1.0:
    ---
    fileID      -- (8)  '\xbaWALLET\x00' for wallet files
-   version     -- (4)   getVersionInt(PYBTCWALLET_VERSION)
+   version     -- (4)   getVersionInt(ARMORY_WALLET_VERSION)
    magic bytes -- (4)   defines the blockchain for this wallet (BTC, NMC)
    wlt flags   -- (8)   64 bits/flags representing info about wallet
    binUniqueID -- (6)   first 5 bytes of first address in wallet
@@ -163,7 +163,7 @@ class PyBtcWallet(object):
    def __init__(self):
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
-      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
+      self.version        = ARMORY_WALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
       self.eofByte        = 0
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
@@ -2214,7 +2214,7 @@ class PyBtcWallet(object):
 
 
       ### Update the wallet version if necessary ###
-      if getVersionInt(self.version) < getVersionInt(PYBTCWALLET_VERSION):
+      if getVersionInt(self.version) < getVersionInt(ARMORY_WALLET_VERSION):
          LOGERROR('Wallets older than version 1.35 no longer supported!')
          return
 
@@ -3118,7 +3118,7 @@ class PyBtcWallet(object):
       outjson = {}
       outjson['name']             = self.labelName
       outjson['description']      = self.labelDescr
-      outjson['walletversion']    = getVersionString(PYBTCWALLET_VERSION)
+      outjson['walletversion']    = getVersionString(ARMORY_WALLET_VERSION)
       outjson['balance']          = AmountToJSON(self.getBalance('Spend'))
       outjson['keypoolsize']      = self.addrPoolSize
       outjson['numaddrgen']       = len(self.addrMap)
@@ -3145,7 +3145,7 @@ class PyBtcWallet(object):
       jsonVer = hex_to_binary(jsonMap['walletversion'])
 
       # Issue a warning if the versions don't match
-      if not jsonVer == getVersionString(PYBTCWALLET_VERSION):
+      if not jsonVer == getVersionString(ARMORY_WALLET_VERSION):
          LOGWARN('Unserializing wallet of different version')
          LOGWARN('   Wallet Version: %d' % jsonVer)
          LOGWARN('   Armory Version: %d' % UNSIGNED_TX_VERSION)
