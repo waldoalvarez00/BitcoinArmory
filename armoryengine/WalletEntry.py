@@ -78,6 +78,7 @@ class WalletEntry(object):
          WalletEntry.REQUIRED_TYPES.add(weCode)
 
       try:
+         from ArmoryKeyPair import ArmoryKeyPair
          if issubclass(clsType, ArmoryKeyPair):
             WalletEntry.KEYPAIR_TYPES.add(weCode)
             LOGINFO('Registered %s class as a keypair type')

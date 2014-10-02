@@ -41,7 +41,7 @@ PRIV_KEY_AVAIL = enum('WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
 
 #####
 def SplitChildIndex(cIdx): 
-   if not cIdx < 1<<32:
+   if not 0 <= cIdx < 2**32:
       raise ValueError('Child indices must be less than 2^32')
    childNum   = int(cIdx & 0x7fffffff)
    isHardened = (cIdx & 0x80000000) > 0
@@ -58,7 +58,7 @@ def CreateChildIndex(childNum, isHardened):
 #####
 def ChildIndexToStr(cIdx):
    cnum,hard = SplitChildIndex(cIdx)
-   return str(cnum) + "'" if hard else ''
+   return str(cnum) + ("'" if hard else '')
 
 
 class ChildDeriveError(Exception): pass
@@ -2068,12 +2068,16 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 class MBEK_StdWallet(MultisigABEK):
 
    FILECODE = 'MEK32WLT'
-   self.SiblingClass = ABEK_StdWallet
 
    #############################################################################
    def __init__(self, M=None, N=None, siblingList=None):
       super(MBEK_StdWallet, self).__init__(M, N, siblingList)
       
+    
+   #############################################################################
+   def getSiblingClass(self):
+      return ABEK_StdWallet
+
 
    #############################################################################
    def initialize(self, M, N, siblingList):
@@ -2082,9 +2086,8 @@ class MBEK_StdWallet(MultisigABEK):
       if N is not None:
          self.maxChildren = 2*N
 
-   #############################################################################
-   for sib in siblingList:
-      self.addSiblingID(sib)
+      for sib in siblingList:
+         self.addSiblingID(sib)
 
    #############################################################################
    def isTreeLeaf(self):
@@ -2105,8 +2108,6 @@ class MBEK_StdWallet(MultisigABEK):
 
 
 
-
-
 ################################################################################
 class MBEK_StdChainExt(MultisigABEK):
    FILECODE = 'MEK32CEX'
@@ -2115,6 +2116,9 @@ class MBEK_StdChainExt(MultisigABEK):
       super(ABEK_StdLeaf, self).__init__()
       self.maxChildren = UINT32_MAX
 
+   #############################################################################
+   def getSiblingClass(self):
+      return ABEK_StdChainExt
 
    #############################################################################
    def getChildClass(self, index):
@@ -2133,6 +2137,11 @@ class MBEK_StdChainInt(MultisigABEK):
       super(ABEK_StdLeaf, self).__init__()
       self.maxChildren = UINT32_MAX
 
+
+   #############################################################################
+   def getSiblingClass(self):
+      return ABEK_StdChainInt
+
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
@@ -2150,6 +2159,10 @@ class MBEK_StdLeaf(MultisigABEK):
    def __init__(self):
       super(ABEK_StdLeaf, self).__init__()
       self.maxChildren = 0
+
+   #############################################################################
+   def getSiblingClass(self):
+      return ABEK_StdLeaf
 
    #############################################################################
    def isTreeLeaf(self): 
@@ -2185,10 +2198,15 @@ class MBEK_StdBip32Root(MultisigABEK):
 
       NOTE: We do *not* use the hardened derivation for generating the child
       MBEKs, as that would defeat the purpose:  it'd require having the
-      private keys for all sibling ABEKs in order to generate new wallets.
+      private keys for all sibling ABEKs in order to generate new "accounts"
       """
 
       super(MBEK_StdBip32Root, self).__init__(M, N, siblingList, labels)
+
+
+   #############################################################################
+   def getSiblingClass(self):
+      return ABEK_StdBip32Seed
 
    #####
    def getChildClass(self, index):
@@ -2205,24 +2223,28 @@ class MBEK_StdBip32Root(MultisigABEK):
 
 
 
-WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
-WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Purpose)
-WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Bitcoin)
 
-WalletEntry.RegisterWalletStorageClass(ABEK_StdBip32Seed)
-WalletEntry.RegisterWalletStorageClass(ABEK_StdWallet)
-WalletEntry.RegisterWalletStorageClass(ABEK_StdChainExt)
-WalletEntry.RegisterWalletStorageClass(ABEK_StdChainInt)
-WalletEntry.RegisterWalletStorageClass(ABEK_StdLeaf)
+# TODO:  Figure out how to prevent this code from getting run 4+ times without
+#        this conditional
+if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
+   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
+   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Purpose)
+   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Bitcoin)
 
-WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
-WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
-WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
-WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
-WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
+   WalletEntry.RegisterWalletStorageClass(ABEK_StdBip32Seed)
+   WalletEntry.RegisterWalletStorageClass(ABEK_StdWallet)
+   WalletEntry.RegisterWalletStorageClass(ABEK_StdChainExt)
+   WalletEntry.RegisterWalletStorageClass(ABEK_StdChainInt)
+   WalletEntry.RegisterWalletStorageClass(ABEK_StdLeaf)
 
-WalletEntry.RegisterWalletStorageClass(Armory135Root)
-WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
-WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
-WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
+   WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
+   WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
+   WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
+   WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
+   WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
+
+   WalletEntry.RegisterWalletStorageClass(Armory135Root)
+   WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
+   WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
+   WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
 
