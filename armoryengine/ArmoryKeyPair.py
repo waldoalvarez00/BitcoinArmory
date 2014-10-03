@@ -35,6 +35,9 @@ DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 DEFAULT_CHILDPOOLSIZE['ARMORY135_SEED']    = 1000  # old Armory wallets
 
 
+# A key type with no constraints on child generation, mainly for testing
+DEFAULT_CHILDPOOLSIZE['ABEK_Generic'] = 5
+
 
 PRIV_KEY_AVAIL = enum('WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
 
@@ -1378,7 +1381,8 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
    #############################################################################
    def getCppExtendedKey(self, needPriv=False):
       if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Available:
-         return Cpp.ExtendedKey(self.getPlainPrivKeyCopy(), self.sbdChaincode)
+         privWith00 = SecureBinaryData('\x00' + self.getPlainPrivKeyCopy().toBinStr())
+         return Cpp.ExtendedKey(privWith00, self.sbdChaincode)
       else:
          if needPriv:
             raise WalletLockError('Priv EK requested, but priv not avail')
@@ -1409,7 +1413,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       Derive a child extended key from this one. 
       """
 
-      childAddr = self.getChildClass()()
+      childAddr = self.getChildClass()(childID)
       childAddr.copyFromAKP(self)
 
       startedLocked = False
@@ -1925,7 +1929,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
          pkList.append(ch.getSerializedPubKey())
 
 
-      childMBEK = self.getChildClass()()
+      childMBEK = self.getChildClass()(childID)
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
 
 
@@ -2219,8 +2223,43 @@ class MBEK_StdBip32Root(MultisigABEK):
                               (ChildIndexToStr(index), self.getName()))
 
 
+#############################################################################
+class ABEK_Generic(ArmoryBip32ExtendedKey):
+   def __init__(self):
+      super(ABEK_Generic, self).__init__()
+      self.maxChildren = UINT32_MAX
+
+   def getChildClass(self, index): 
+      return ABEK_Generic
 
 
+
+#############################################################################
+'''
+# Fun experiment to make arbitrarily-configurable trees, but totally unnecessary
+def makeABEKGenericClass(depth=3):
+   if depth==1:
+      class ABEK_GenericLeaf(ArmoryBip32ExtendedKey):
+         def __init__(self): 
+            super(ABEK_Generic, self).__init__()
+         def getChildClass(self, index): 
+            raise ChildDeriveError('Leaf!')
+         def isTreeLeaf(self): 
+            return True
+   
+      return ABEK_GenericLeaf
+     
+   else:
+      #############################################################################
+      class ABEK_Generic(ArmoryBip32ExtendedKey):
+         def __init__(self):
+            super(ABEK_Generic, self).__init__()
+            self.maxChildren = UINT32_MAX
+         def getChildClass(self, index): 
+            return makeABEKGenericClass(depth-1)
+
+      return ABEK_Generic
+'''
 
 
 

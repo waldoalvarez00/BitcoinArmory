@@ -7750,6 +7750,21 @@ TEST_F(TestHDWalletCryptoSeed, BuildSeed)
    EXPECT_EQ(testSeedCC2, seedCC2);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Build a seed (key + chain code), and confirm the values are what we expect.
+TEST_F(TestHDWalletCryptoSeed, ConvertSeed)
+{
+   ExtendedKey ek;
+   ek = HDWalletCrypto().ConvertSeedToMasterKey(seedInput1);
+   EXPECT_EQ(ek.getPrivateKey(), seedKey1.getSliceCopy(1,32));
+   EXPECT_EQ(ek.getChaincode(), seedCC1);
+
+   ek = HDWalletCrypto().ConvertSeedToMasterKey(seedInput2);
+   EXPECT_EQ(ek.getPrivateKey(), seedKey2.getSliceCopy(1,32));
+   EXPECT_EQ(ek.getChaincode(),  seedCC2);
+}
+
+
 class TestHDWalletCrypto : public ::testing::Test
 {
 protected:

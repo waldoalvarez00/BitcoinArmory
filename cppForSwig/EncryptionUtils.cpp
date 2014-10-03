@@ -1153,6 +1153,9 @@ BinaryData CryptoECDSA::ECInverse(BinaryData const & Ax,
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
 {
+   if(pubKey65.getSize() == 33)
+      return pubKey65;
+
    assert(pubKey65.getSize() == 65);
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    BTC_ECPOINT ptPub;
@@ -1167,6 +1170,9 @@ SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::UncompressPoint(SecureBinaryData const & pubKey33)
 {
+   if(pubKey33.getSize() == 65)
+      return pubKey33;
+
    assert(pubKey33.getSize() == 33);
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    BTC_ECPOINT ptPub;
@@ -1293,6 +1299,11 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
    // If we're good to go, set about creating the master key.
    key_ = key;
    chaincode_ = ch;
+
+   // This allows us to initialize a public extended key
+   if(key[0] == 0x02 || key[0] == 0x03)
+      pubKey_ = key.copy();
+
    updatePubKey();
    version_ = PRVVER;
    parentFP_ = SecureBinaryData::CreateFromHex("00000000");
@@ -1693,7 +1704,10 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
 ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed)
 {
    HDWalletCryptoSeed newSeed(seed);
-   ExtendedKey masterKey(newSeed.getMasterKey(), newSeed.getMasterChain());
+   SecureBinaryData newMasterPriv = SecureBinaryData().CreateFromHex("00");
+   SecureBinaryData master32 = newSeed.getMasterKey().copy();
+   newMasterPriv.append(master32);
+   ExtendedKey masterKey(newMasterPriv, newSeed.getMasterChain());
    return masterKey;
 }
 

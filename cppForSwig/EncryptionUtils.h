@@ -507,7 +507,6 @@ public:
 
    SecureBinaryData const & getKey() const   { return key_; }
    SecureBinaryData const & getPub() const    { return pubKey_; }
-   SecureBinaryData const & getChaincode() const  { return chaincode_; }
    const SecureBinaryData getExtKeySer();
    list<uint32_t>           getIndicesList() const { return indicesList_; }
    vector<uint32_t>         getIndicesVect() const;
@@ -515,8 +514,10 @@ public:
    const SecureBinaryData   getIdentifier() const;
    SecureBinaryData const & getParentFP() const { return parentFP_; }
 
+
    SecureBinaryData getPrivateKey(void) const;
    SecureBinaryData getPublicKey(bool compr=true) const;
+   SecureBinaryData getChaincode() const  { return chaincode_; }
 
 
    BinaryData               getHash160() const;
@@ -586,7 +587,7 @@ class HDWalletCryptoSeed
 {
 public:
    HDWalletCryptoSeed() {}
-   HDWalletCryptoSeed(const SecureBinaryData& rngData);
+   HDWalletCryptoSeed(SecureBinaryData const & rngData);
 
    const SecureBinaryData& getMasterKey()   { return masterKey_; }
    const SecureBinaryData& getMasterChain() { return masterChain_; }
