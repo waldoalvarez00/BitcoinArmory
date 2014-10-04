@@ -38,6 +38,8 @@ FAKE_EKEY_ID = '\x9e'*8
 
 
 BIP32TestVectors = []
+
+# 0
 BIP32TestVectors.append( \
    {
       'seedKey': SecureBinaryData(hex_to_binary("00e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")),
@@ -52,6 +54,7 @@ BIP32TestVectors.append( \
       'nextChild': 2147483648 
    })
 
+# 1
 BIP32TestVectors.append( \
    {
       'seedKey': SecureBinaryData(hex_to_binary("00edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea")),
@@ -66,6 +69,7 @@ BIP32TestVectors.append( \
       'nextChild': 1
    })
 
+# 2
 BIP32TestVectors.append( \
    {
       'seedKey': SecureBinaryData(hex_to_binary("003c6cb8d0f6a264c91ea8b5030fadaa8e538b020f0a387421a12de9319dc93368")),
@@ -80,6 +84,7 @@ BIP32TestVectors.append( \
       'nextChild': 2147483650
    })
 
+# 3
 BIP32TestVectors.append( \
    {
       'seedKey': SecureBinaryData(hex_to_binary("00cbce0d719ecf7431d88e6a89fa1483e02e35092af60c042b1df2ff59fa424dca")),
@@ -94,6 +99,7 @@ BIP32TestVectors.append( \
       'nextChild': 2
    })
 
+# 4
 BIP32TestVectors.append( \
    {
       'seedKey': SecureBinaryData(hex_to_binary("000f479245fb19a38a1954c5c7c0ebab2f9bdfd96a17563ef28a6a4b1a2a764ef4")),
@@ -108,6 +114,7 @@ BIP32TestVectors.append( \
       'nextChild': 1000000000
    })
 
+# 5
 BIP32TestVectors.append( \
    {
       'seedKey': SecureBinaryData(hex_to_binary("00471b76e389e528d6de6d816857e012c5455051cad6660850e58372a6c3e6e7c8")),
@@ -237,23 +244,14 @@ class TestHDWalletLogic(unittest.TestCase):
          self.assertEqual(compEK.getPublicKey(), nextEKdata['seedCompPubKey'])
          self.assertEqual(compEK.getChaincode(), nextEKdata['seedCC'])
 
-         #if currEKdata['nextChild'] & 0x80000000 == 0:
+         if currEKdata['nextChild'] & 0x80000000 == 0:
             # Now test the same thing from the just the public key
-            #currEK = Cpp.ExtendedKey(currEKdata['seedCompPubKey'], currEKdata['seedCC'])
-            #compEK = Cpp.HDWalletCrypto().childKeyDeriv(currEK, currEKdata['nextChild'])
+            currEK = Cpp.ExtendedKey(currEKdata['seedCompPubKey'], currEKdata['seedCC'])
+            compEK = Cpp.HDWalletCrypto().childKeyDeriv(currEK, currEKdata['nextChild'])
+            #self.assertTrue(currEK.isPub())
             #self.assertEqual(compEK.getPublicKey(), nextEKdata['seedCompPubKey'])
             #self.assertEqual(compEK.getChaincode(), nextEKdata['seedCC'])
          
-         #'seedKey': SecureBinaryData(hex_to_binary("00edb2e14f9ee77
-         #'seedCC': SecureBinaryData(hex_to_binary("47fdacbd0f109704
-         #'seedPubKey': SecureBinaryData(hex_to_binary("045a784662a4
-         #'seedCompPubKey': SecureBinaryData(hex_to_binary("035a7846
-         #'seedExtSerPrv': SecureBinaryData(hex_to_binary("0488ade40
-         #'seedExtSerPub': SecureBinaryData(hex_to_binary("0488b21e0
-         #'seedID': SecureBinaryData(hex_to_binary("5c1bd648ed23aa5f
-         #'seedFP': SecureBinaryData(hex_to_binary("5c1bd648"))
-         #'seedParFP': SecureBinaryData(hex_to_binary("3442193e"))
-         #'nextChild': 1
          
 
 
@@ -270,10 +268,196 @@ class AKPTests(unittest.TestCase):
       
 
    #############################################################################
-   def testInitLeaf(self):
+   def testInitABEK(self):
       #leaf = makeABEKGenericClass()
-      leaf = ABEK_StdBip32Seed()
+      abek = ABEK_Generic()
+         
+      self.assertEqual(abek.isWatchOnly, False)
+      self.assertEqual(abek.sbdPrivKeyData, NULLSBD())
+      self.assertEqual(abek.sbdPublicKey33, NULLSBD())
+      self.assertEqual(abek.sbdChaincode, NULLSBD())
+      self.assertEqual(abek.useCompressPub, True)
+      self.assertEqual(abek.isUsed, False)
+      self.assertEqual(abek.keyBornTime, 0)
+      self.assertEqual(abek.keyBornBlock, 0)
+      self.assertEqual(abek.privKeyNextUnlock, False)
+      self.assertEqual(abek.akpParScrAddr, '')
+      self.assertEqual(abek.akpRootScrAddr, '')
+      self.assertEqual(abek.childIndex, UINT32_MAX)
+      self.assertEqual(abek.childPoolSize, 5)
+      self.assertEqual(abek.maxChildren, UINT32_MAX)
+      self.assertEqual(abek.rawScript, None)
+      self.assertEqual(abek.scrAddrStr, None)
+      self.assertEqual(abek.uniqueIDBin, None)
+      self.assertEqual(abek.uniqueIDB58, None)
+      self.assertEqual(abek.akpChildByIndex, {})
+      self.assertEqual(abek.akpChildByScrAddr, {})
+      self.assertEqual(abek.lowestUnusedChild, 0)
+      self.assertEqual(abek.highestCalcChild, 0)
+      self.assertEqual(abek.akpParentRef, None)
+      self.assertEqual(abek.masterEkeyRef, None)
 
+      self.assertEqual(abek.isTreeLeaf(), False)
+      self.assertEqual(abek.getName(), 'ABEK_Generic')
+      self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Uninit)
+
+      # WalletEntry fields
+      self.assertEqual(abek.wltFileRef, None)
+      self.assertEqual(abek.wltByteLoc, None)
+      self.assertEqual(abek.wltEntrySz, None)
+      self.assertEqual(abek.isRequired, False)
+      self.assertEqual(abek.parEntryID, None)
+      self.assertEqual(abek.outerCrypt.serialize(), ArmoryCryptInfo(None).serialize())
+      self.assertEqual(abek.serPayload, None)
+      self.assertEqual(abek.defaultPad, 256)
+      self.assertEqual(abek.wltParentRef, None)
+      self.assertEqual(abek.wltChildRefs, [])
+      self.assertEqual(abek.outerEkeyRef, None)
+      self.assertEqual(abek.isOpaque,        False)
+      self.assertEqual(abek.isUnrecognized,  False)
+      self.assertEqual(abek.isUnrecoverable, False)
+      self.assertEqual(abek.isDeleted,       False)
+      self.assertEqual(abek.isDisabled,      False)
+      self.assertEqual(abek.needFsync,       False)
+
+   #############################################################################
+   def testSpawnABEK(self):
+      sbdPriv  = SecureBinaryData(BIP32TestVectors[1]['seedKey'].toBinStr()[1:])
+      sbdPubk  = BIP32TestVectors[1]['seedCompPubKey']
+      sbdChain = BIP32TestVectors[1]['seedCC']
+      nextIdx  = BIP32TestVectors[1]['nextChild']
+
+      parA160    = hash160(sbdPubk.toBinStr())
+      parScript  = hash160_to_p2pkhash_script(parA160)
+      parScrAddr = SCRADDR_P2PKH_BYTE + parA160
+
+      nextPriv  = SecureBinaryData(BIP32TestVectors[2]['seedKey'].toBinStr()[1:])
+      nextPubk  = BIP32TestVectors[2]['seedCompPubKey']
+      nextChain = BIP32TestVectors[2]['seedCC']
+
+      chA160    = hash160(nextPubk.toBinStr())
+      chScript  = hash160_to_p2pkhash_script(chA160)
+      chScrAddr = SCRADDR_P2PKH_BYTE + chA160
+
+      abek = ABEK_Generic()
+      abek.isWatchOnly = False
+      abek.sbdPrivKeyData = sbdPriv.copy()
+      abek.sbdPublicKey33 = sbdPubk.copy()
+      abek.sbdChaincode   = sbdChain.copy()
+      abek.useCompressPub = True
+      abek.privKeyNextUnlock = False
+
+      childAbek = abek.spawnChild(nextIdx, fsync=False)
+
+      self.assertEqual(childAbek.sbdPrivKeyData, nextPriv)
+      self.assertEqual(childAbek.sbdPublicKey33.toHexStr(), nextPubk.toHexStr())
+      self.assertEqual(childAbek.sbdChaincode,   nextChain)
+      self.assertEqual(childAbek.useCompressPub, True)
+      self.assertEqual(childAbek.isUsed, False)
+      self.assertEqual(childAbek.privKeyNextUnlock, False)
+      self.assertEqual(childAbek.akpParScrAddr, None)
+      self.assertEqual(childAbek.akpRootScrAddr, None)
+      self.assertEqual(childAbek.childIndex, nextIdx)
+      self.assertEqual(childAbek.childPoolSize, 5)
+      self.assertEqual(childAbek.maxChildren, UINT32_MAX)
+      self.assertEqual(childAbek.rawScript, chScript)
+      self.assertEqual(childAbek.scrAddrStr, chScrAddr)
+      #self.assertEqual(childAbek.uniqueIDBin, None)
+      #self.assertEqual(childAbek.uniqueIDB58, None)
+      #self.assertEqual(childAbek.akpChildByIndex, {})
+      #self.assertEqual(childAbek.akpChildByScrAddr, {})
+      self.assertEqual(childAbek.lowestUnusedChild, 0)
+      self.assertEqual(childAbek.highestCalcChild, 0)
+      self.assertEqual(childAbek.akpParentRef, None)
+      self.assertEqual(childAbek.masterEkeyRef, None)
+      
+      # Test setting the child ref, which is normally done for you if fsync=True
+      abek.addChildRef(childAbek)
+      self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
+
+
+
+   #############################################################################
+   def testInitABEK(self):
+      #leaf = makeABEKGenericClass()
+      abek = ABEK_Generic()
+
+      '''
+      #'seedKey': SecureBinaryData(hex_to_binary("00e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")),
+      #'seedCC': SecureBinaryData(hex_to_binary("873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508")),
+      #'seedPubKey': SecureBinaryData(hex_to_binary("0439a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c23cbe7ded0e7ce6a594896b8f62888fdbc5c8821305e2ea42bf01e37300116281")),
+      #'seedCompPubKey': SecureBinaryData(hex_to_binary("0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2")),
+      sbdPriv  = BIP32TestVectors[0]['seedKey']
+      sbdPubk  = BIP32TestVectors[0]['seedCompPubKey']
+      sbdChain = BIP32TestVectors[0]['seedCC']
+
+      a160    = hash160(sbdPubk.toBinStr())
+      rawScr  = hash160_to_p2pkhash_script(a160)
+      scrAddr = SCRADDR_P2PKH_BYTE + a160
+
+      #
+      #childAbek  = abek.spawnChild(0x7fffffff, fsync=False)
+      #child256  = hash256(childAbek.getScrAddr())
+      #firstByte = binary_to_int(child256[0])
+      #newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
+      #uidBin = int_to_binary(newFirst) + child256[1:6]
+      #uidB58 = binary_to_base58(uidBin)
+
+
+      # No encryption on this ABEK
+      aci = ArmoryCryptInfo(None)
+
+      parScrAddr = None
+
+      t = long(RightNow())
+      abek.initializeAKP(isWatchOnly=False,
+                         privCryptInfo=aci,
+                         sbdPrivKeyData=sbdPriv,
+                         sbdPublicKey33=sbdPubk,
+                         sbdChaincode=sbdChain,
+                         privKeyNextUnlock=False,
+                         akpParScrAddr=None,
+                         akpRootScrAddr=None,
+                         childIndex=None,
+                         useCompressPub=True,
+                         isUsed=True,
+                         keyBornTime=t,
+                         keyBornBlock=t)
+                           
+      self.assertEqual(abek.isWatchOnly, False)
+      self.assertEqual(abek.sbdPrivKeyData, sbdPriv)
+      self.assertEqual(abek.sbdPublicKey33, sbdPubk)
+      self.assertEqual(abek.sbdChaincode, sbdChain)
+      self.assertEqual(abek.useCompressPub, True)
+      self.assertEqual(abek.isUsed, True)
+      self.assertEqual(abek.keyBornTime, t)
+      self.assertEqual(abek.keyBornBlock, t)
+      self.assertEqual(abek.privKeyNextUnlock, False)
+      self.assertEqual(abek.akpParScrAddr, None)
+      self.assertEqual(abek.akpRootScrAddr, None)
+      self.assertEqual(abek.childIndex, None)
+      self.assertEqual(abek.childPoolSize, 5)
+      self.assertEqual(abek.maxChildren, UINT32_MAX)
+      self.assertEqual(abek.rawScript, rawScr)
+      self.assertEqual(abek.scrAddrStr, scrAddr)
+      #self.assertEqual(abek.uniqueIDBin, uidBin)
+      #self.assertEqual(abek.uniqueIDB58, uidB58)
+      self.assertEqual(abek.akpChildByIndex, {})
+      self.assertEqual(abek.akpChildByScrAddr, {})
+      self.assertEqual(abek.lowestUnusedChild, 0)
+      self.assertEqual(abek.highestCalcChild, 0)
+      self.assertEqual(abek.akpParentRef, None)
+      self.assertEqual(abek.masterEkeyRef, None)
+
+      self.assertEqual(abek.isTreeLeaf(), False)
+      self.assertEqual(abek.getName(), 'ABEK_Generic')
+      #print abek.getPrivKeyAvailability()
+      #print abek.isWatchOnly
+      #print pprintHex(binary_to_hex(abek.privCryptInfo.serialize()))
+      #print 'use:', abek.privCryptInfo.useEncryption()
+      #print 'no: ', abek.privCryptInfo.noEncryption()
+      self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
+      '''
 
 
 

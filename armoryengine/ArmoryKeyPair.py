@@ -39,7 +39,7 @@ DEFAULT_CHILDPOOLSIZE['ARMORY135_SEED']    = 1000  # old Armory wallets
 DEFAULT_CHILDPOOLSIZE['ABEK_Generic'] = 5
 
 
-PRIV_KEY_AVAIL = enum('WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
+PRIV_KEY_AVAIL = enum('Uninit', 'WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
 
 
 #####
@@ -118,8 +118,8 @@ class ArmoryKeyPair(WalletEntry):
       self.keyBornTime     = 0
       self.keyBornBlock    = 0
       self.privKeyNextUnlock = False
-      self.aekParScrAddr   = None
-      self.aekRootScrAddr  = None
+      self.akpParScrAddr   = None
+      self.akpRootScrAddr  = None
       self.childIndex      = None
 
       # Used for the recursive fill-keypool call
@@ -226,9 +226,9 @@ class ArmoryKeyPair(WalletEntry):
       childAKP.akpParentRef  = self
       childAKP.akpParScrAddr = self.getScrAddr()
 
-      self.highestCalcChild = max(self.highestCalcChild, childAKP.chainIndex)
+      self.highestCalcChild = max(self.highestCalcChild, childAKP.childIndex)
       if childAKP.isUsed:
-         self.lowestUnusedChild = max(self.lowestUnusedChild, childAKP.chainIndex+1)
+         self.lowestUnusedChild = max(self.lowestUnusedChild, childAKP.childIndex+1)
 
 
    #############################################################################
@@ -292,28 +292,28 @@ class ArmoryKeyPair(WalletEntry):
       """
 
       self.isWatchOnly     = other.isWatchOnly
+
       self.privCryptInfo   = other.privCryptInfo.copy()
-      self.akpParScrAddr   = other.akpParScrAddr
-      self.akpRootScrAddr  = other.akpRootScrAddr
-      self.childIndex      = other.childIndex
+      self.sbdPrivKeyData  = other.sbdPrivKeyData.copy()
+      self.sbdPublicKey33  = other.sbdPublicKey33.copy()
+      self.sbdChaincode    = other.sbdChaincode.copy()
       self.useCompressPub  = other.useCompressPub
-      self.akpType         = other.akpType
       self.isUsed          = other.isUsed
       self.keyBornTime     = other.keyBornTime
       self.keyBornBlock    = other.keyBornBlock
       self.privKeyNextUnlock = other.privKeyNextUnlock
+
+      self.akpParScrAddr   = other.akpParScrAddr
+      self.akpRootScrAddr  = other.akpRootScrAddr
+      self.childIndex      = other.childIndex
 
       self.akpChildByIndex   = other.akpChildByIndex.copy()
       self.akpChildByScrAddr = other.akpChildByScrAddr.copy()
       self.lowestUnusedChild = other.lowestUnusedChild
       self.highestCalcChild  = other.highestCalcChild
       self.akpParentRef    = other.akpParentRef
-      self.akpRootRef         = other.akpRootRef
       self.masterEkeyRef   = other.masterEkeyRef
 
-      self.sbdPrivKeyData  = other.sbdPrivKeyData.copy()
-      self.sbdPublicKey33  = other.sbdPublicKey33.copy()
-      self.sbdChaincode    = other.sbdChaincode.copy()
       self.scrAddrStr      = other.scrAddrStr
       self.rawScript       = other.rawScript
 
@@ -403,7 +403,11 @@ class ArmoryKeyPair(WalletEntry):
       if self.sbdPublicKey33.getSize() == 65:
          self.sbdPublicKey33 = CryptoECDSA().CompressPoint(newPub)
       
-      self.scrAddrStr      = self.getScrAddr()
+
+      self.recomputeScript()
+      self.recomputeScrAddr()
+      self.recomputeUniqueIDBin()
+      self.recomputeUniqueIDB58()
 
 
    
@@ -417,6 +421,12 @@ class ArmoryKeyPair(WalletEntry):
 
       parentID = self.akpParScrAddr
       rootID   = self.akpRootScrAddr
+      isRootRoot = False
+      if parentID is None:
+         parentID = ''
+         rootID = ''
+         childIndex = UINT32_MAX
+         isRootRoot = True
 
       flags = BitSet(16)
       flags.setBit(0, self.isWatchOnly)
@@ -425,6 +435,7 @@ class ArmoryKeyPair(WalletEntry):
       flags.setBit(3, self.sbdPrivKeyData.getSize()==0)
       flags.setBit(4, self.sbdPublicKey33.getSize()==0)
       flags.setBit(5, self.sbdChaincode.getSize()==0)
+      flags.setBit(6, isRootRoot)
 
 
       # We are not committed to fixed-width wallet entries.  Might as well
@@ -513,11 +524,16 @@ class ArmoryKeyPair(WalletEntry):
       emptyPriv         = flags.getBit(3)
       emptyPub          = flags.getBit(4)
       emptyChain        = flags.getBit(5)
+      isRootRoot        = flags.getBit(6)
 
       privk = NULLSBD() if emptyPriv  else SecureBinaryData(privk)
       pubk  = NULLSBD() if emptyPub   else SecureBinaryData(pubk)
       chain = NULLSBD() if emptyChain else SecureBinaryData(chain)
 
+      if isRootRoot:
+         akpParScrAddr = None
+         akpRootScrAddr = None
+         childIndex = None
 
       self.initializeAKP( isWatchOnly,
                           privCryptInfo,
@@ -545,11 +561,11 @@ class ArmoryKeyPair(WalletEntry):
          return PRIV_KEY_AVAIL.NextUnlock
       elif self.sbdPrivKeyData.getSize() > 0:
          if self.privCryptInfo.useEncryption():
-            return PRIV_KEY_AVAIL.Available
-         else:
             return PRIV_KEY_AVAIL.NeedDecrypt
+         else:
+            return PRIV_KEY_AVAIL.Available
       else:
-         raise ShouldNotGetHereError('AKP that is not WO, but no key info?')
+         return PRIV_KEY_AVAIL.Uninit
 
 
    #############################################################################
@@ -649,30 +665,30 @@ class ArmoryKeyPair(WalletEntry):
          return
 
 
-      if ekeyRef is None:
-         if self.masterEkeyRef is None:
-            raise KeyDataError('No ekey data available for encryption')
-         ekeyRef = self.masterEkeyRef
+      if cryptInfo.useEncryption():
+         if ekeyRef is None:
+            if self.masterEkeyRef is None:
+               raise KeyDataError('No ekey data available for encryption')
+            ekeyRef = self.masterEkeyRef
          
-   
-      if ekeyRef.isLocked():
-         raise EncryptionError('Ekey needs to be unlocked to set new priv key')
+         if ekeyRef.isLocked():
+            raise EncryptionError('Ekey needs to be unlocked to set new priv key')
 
 
-      if cryptInfo.keySource == ekeyRef.ekeyID:
-         # If we had no masterEkey before and it was supplied as an arg, set it
-         self.masterEkeyRef = ekeyRef
-      else:
-         raise EncryptionError('New ACI data does not match avail EKeys')
+         if cryptInfo.keySource == ekeyRef.ekeyID:
+            # If we had no masterEkey before and it was supplied as an arg, set it
+            self.masterEkeyRef = ekeyRef
+         else:
+            raise EncryptionError('New ACI data does not match avail EKeys')
 
 
-      if cryptInfo.hasStoredIV():
-         # This method copies the ACI exactly, which should (under all
-         # forseeable conditions) use "PUBKEY20" as the ivSource.  This 
-         # means that the IV to be used to encrypt this key will be 
-         # different than other keys (good).  However, if for some reason
-         # we have a storedIV, then it will be reused (bad).
-         raise EncryptionError('New priv key crypto inheriting non-pubkey IV')
+         if cryptInfo.hasStoredIV():
+            # This method copies the ACI exactly, which should (under all
+            # forseeable conditions) use "PUBKEY20" as the ivSource.  This 
+            # means that the IV to be used to encrypt this key will be 
+            # different than other keys (good).  However, if for some reason
+            # we have a storedIV, then it will be reused (bad).
+            raise EncryptionError('New priv key crypto inheriting non-pubkey IV')
 
 
       self.privCryptInfo = cryptInfo.copy()
@@ -846,14 +862,28 @@ class ArmoryKeyPair(WalletEntry):
 
    #############################################################################
    def peekNextUnusedChild(self):
-      return self.spawnChild(self.lowestUnusedChild, fsync=False)
+      if self.lowestUnusedChild > self.highestCalcChild:
+         childAddr = self.spawnChild(self.lowestUnusedChild, fsync=False)
+      else:
+         if not self.lowestUnusedChild in self.akpChildByIndex:
+            raise ChildDeriveError('Somehow child is missing from map')
+         childAddr = self.akpChildByIndex[self.lowestUnusedChild]
+
+      return childAddr
 
    #############################################################################
-   def getNextUnusedChild(self):
+   def getNextUnusedChild(self, currBlk=0):
+      """
+      Use the "currBlk" arg to set the born date for the child, since this func
+      is agnostic and doesn't talk to the BDM.
+      """
       if self.lowestUnusedChild > self.highestCalcChild:
-         childAddr = self.spawnChild(self.lowestUnusedChild, fsync=markUsed)
+         childAddr = self.spawnChild(self.lowestUnusedChild, fsync=True)
       else:
          childAddr = self.akpChildByIndex[self.lowestUnusedChild]
+
+      childAddr.keyBornTime = RightNow()
+      childAddr.keyBornBlock = currBlk
 
       if fsync:
          childAddr.isUsed = True
@@ -862,6 +892,8 @@ class ArmoryKeyPair(WalletEntry):
          self.wltFileRef.fsyncUpdates()
          self.fillKeyPoolRecurse()
       
+      return childAddr
+
 
    #############################################################################
    def wipePrivateData(self, fsync=False):
@@ -884,6 +916,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
    #############################################################################
    def __init__(self):
       # Extra data that needs to be encrypted
+      super(ArmorySeededKeyPair, self).__init__()
       self.seedCryptInfo  = ArmoryCryptInfo(None)
       self.seedNumBytes   = 0
       self.sbdSeedData    = SecureBinaryData(0)
@@ -964,9 +997,9 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
                                                    self.bip32seed_plain)
       
       self.binPrivKey32_Plain = fullExtendedRoot.getPriv()
-      self.binPubKey33or65    = fullExtendedRoot.getPub()
+      self.sbdPublicKey33    = fullExtendedRoot.getPub()
       self.binAddr160         = fullExtendedRoot.getHash160().toBinStr()
-      self.binChaincode       = fullExtendedRoot.getChain()
+      self.sbdChaincode       = fullExtendedRoot.getChain()
       
 
       # We have a 20-byte seed, but will need to be padded for 16-byte
@@ -1061,7 +1094,7 @@ class Armory135KeyPair(ArmoryKeyPair):
                               
 
    #############################################################################
-   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True):
+   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, skipIDCompute=False):
       """
       We require some fairly complicated logic here, due to the fact that a
       user with a full, private-key-bearing wallet, may try to generate a new
@@ -1201,7 +1234,7 @@ class Armory135KeyPair(ArmoryKeyPair):
 
    #############################################################################
    def recomputeUniqueIDBin(self):
-      childAKP = self.spawnChild(0, privSpawnReqd=False, fsync=False)
+      childAKP = self.spawnChild(0, privSpawnReqd=False, fsync=False, skipIDCompute=True)
       child160 = hash160(childAKP.getSerializedPubKey())
       self.uniqueIDBin = (ADDRBYTE + child160[:5])[::-1]
 
@@ -1324,9 +1357,9 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       self.setNewPlainPrivKey(sbdPriv, self.privCryptInfo)
 
       # Make sure the public key is properly set
-      self.binPubKey33  = CryptoECDSA().ComputePublicKey(sbdPriv)
-      if self.binPubKey33.getSize()==65:
-         self.binPubKey33 = CryptoECDSA().CompressPoint(self.binPubKey33)
+      self.sbdPublicKey33  = CryptoECDSA().ComputePublicKey(sbdPriv)
+      if self.sbdPublicKey33.getSize()==65:
+         self.sbdPublicKey33 = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
 
       # EDIT:  Since this is recoverable from the priv&chain fields, don't save
       """
@@ -1391,29 +1424,35 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
    #############################################################################
    def recomputeScript(self):
-      pkHash160 = hash160(self.akpObject.getSerializedPubKey())
-      return hash160_to_p2pkhash_script(pkHash160)
+      pkHash160 = hash160(self.getSerializedPubKey())
+      self.rawScript = hash160_to_p2pkhash_script(pkHash160)
 
 
 
    #############################################################################
    def recomputeUniqueIDBin(self):
       # Compute the highest possible non-hardened child
-      childAKP  = self.spawnChild(0x7fffffff, privSpawnReqd=False, fsync=False)
+      childAKP  = self.spawnChild(0x7fffffff, privSpawnReqd=False, fsync=False, skipIDCompute=True)
       child256  = hash256(childAKP.getScrAddr())
       firstByte = binary_to_int(child256[0])
       newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
-      return int_to_binary(newFirst) + child256[1:6]
+      self.uniqueIDBin = int_to_binary(newFirst) + child256[1:6]
 
 
 
    #############################################################################
-   def spawnChild(self, childID, privSpawnReqd=False, fsync=True):
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, skipIDCompute=False):
       """
       Derive a child extended key from this one. 
+
+      NOTE:  Var skipIDCompute is required to prevent undesired recursion. 
+             By default, this function will spawn the child and compute its
+             ID, but the ID is based on spawning child 0x7fffffff, which is
+             actually a recursive spawnChild call.  So the spawnChild call
+             in the recomputeUniqueIDBin() function sets skipIDCompute=True
       """
 
-      childAddr = self.getChildClass()(childID)
+      childAddr = self.getChildClass(childID)()
       childAddr.copyFromAKP(self)
 
       startedLocked = False
@@ -1437,21 +1476,28 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
 
       # Call the C++ code that implements BIP32/HDW calculations
-      extChild = HDWalletCrypto().ChildKeyDeriv(self.getCppExtendedKey(), childID)
+      extChild = Cpp.HDWalletCrypto().childKeyDeriv(self.getCppExtendedKey(), childID)
 
       # This sets the priv key (if non-empty)
       childAddr.setNewPlainPrivKey(extChild.getPrivateKey(), self.privCryptInfo)
       childAddr.masterEkeyRef = self.masterEkeyRef
       childAddr.privKeyNextUnlock = nextUnlockFlag
-      childAddr.binPubKey33  = extChild.getPublicKey().copy()
-      childAddr.binChaincode = extChild.getChaincode().copy()
+      childAddr.sbdPublicKey33  = extChild.getPublicKey().copy()
+      childAddr.sbdChaincode = extChild.getChaincode().copy()
 
-      if not childAddr.binPubKey33.getSize()==33:
+      if not childAddr.sbdPublicKey33.getSize()==33:
          LOGERROR('Pubkey did not come out of HDW code compressed')
 
       childAddr.childIndex = childID
       childAddr.akpChildByIndex   = {}
       childAddr.akpChildByScrAddr = {}
+
+      childAddr.recomputeScript()
+      childAddr.recomputeScrAddr()
+      if not skipIDCompute:
+         childAddr.recomputeUniqueIDBin()
+         childAddr.recomputeUniqueIDB58()
+
 
       if fsync:
          self.fsync()
@@ -1534,8 +1580,8 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
       cppExtKey = HDWalletCrypto().ConvertSeedToMasterKey(sbdPlainSeed)
       self.setNewPlainPrivKey(cppExtKey.getPrivateKey(), self.privCryptInfo)
-      self.binPubKey33      = cppExtKey.getPublicKey().copy()
-      self.binChaincode     = cppExtKey.getChaincode().copy()
+      self.sbdPublicKey33   = cppExtKey.getPublicKey().copy()
+      self.sbdChaincode     = cppExtKey.getChaincode().copy()
 
 
       self.seedNumBytes = sbdPlainSeed.getSize()
@@ -1609,6 +1655,7 @@ class ArmoryImportedKeyPair(ArmoryKeyPair):
 ################################################################################
 class ArmoryImportedRoot(ArmorySeededKeyPair):
    def __init__(self):
+      super(ArmoryImportedRoot, self).__init__()
       self.isFakeRoot = True
 
 
@@ -1861,6 +1908,7 @@ class MultisigMetaData(WalletEntry):
    FILECODE = "MULTMETA"
 
    def __init__(self):
+      super(MultisigMetaData, self).__init__()
       self.multisigRootID = None
       self.preferredSibID = None
 
@@ -1929,7 +1977,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
          pkList.append(ch.getSerializedPubKey())
 
 
-      childMBEK = self.getChildClass()(childID)
+      childMBEK = self.getChildClass(childID)()
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
 
 
@@ -2117,7 +2165,7 @@ class MBEK_StdChainExt(MultisigABEK):
    FILECODE = 'MEK32CEX'
    #############################################################################
    def __init__(self):
-      super(ABEK_StdLeaf, self).__init__()
+      super(MBEK_StdLeaf, self).__init__()
       self.maxChildren = UINT32_MAX
 
    #############################################################################
@@ -2138,7 +2186,7 @@ class MBEK_StdChainInt(MultisigABEK):
    FILECODE = 'MEK32CIN'
    #############################################################################
    def __init__(self):
-      super(ABEK_StdLeaf, self).__init__()
+      super(MBEK_StdLeaf, self).__init__()
       self.maxChildren = UINT32_MAX
 
 
@@ -2161,7 +2209,7 @@ class MBEK_StdLeaf(MultisigABEK):
    FILECODE = 'MEK32LEF'
    #############################################################################
    def __init__(self):
-      super(ABEK_StdLeaf, self).__init__()
+      super(MBEK_StdLeaf, self).__init__()
       self.maxChildren = 0
 
    #############################################################################
@@ -2234,32 +2282,6 @@ class ABEK_Generic(ArmoryBip32ExtendedKey):
 
 
 
-#############################################################################
-'''
-# Fun experiment to make arbitrarily-configurable trees, but totally unnecessary
-def makeABEKGenericClass(depth=3):
-   if depth==1:
-      class ABEK_GenericLeaf(ArmoryBip32ExtendedKey):
-         def __init__(self): 
-            super(ABEK_Generic, self).__init__()
-         def getChildClass(self, index): 
-            raise ChildDeriveError('Leaf!')
-         def isTreeLeaf(self): 
-            return True
-   
-      return ABEK_GenericLeaf
-     
-   else:
-      #############################################################################
-      class ABEK_Generic(ArmoryBip32ExtendedKey):
-         def __init__(self):
-            super(ABEK_Generic, self).__init__()
-            self.maxChildren = UINT32_MAX
-         def getChildClass(self, index): 
-            return makeABEKGenericClass(depth-1)
-
-      return ABEK_Generic
-'''
 
 
 
