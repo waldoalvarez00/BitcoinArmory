@@ -23,11 +23,12 @@ DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Seed']    = 0  # no keypool
 DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Purpose'] = 0  # no keypool
 DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Bitcoin'] = 2  # Look two wallets ahead
 
-DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed'] = 2  # Look two wallets ahead
-DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']    = 2
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']  = 500
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']  = 10
-DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']      = 0  # leaf node
+DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Look two wallets ahead
+DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Look two wallets ahead
+DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']     = 2
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 500
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 10
+DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']       = 0  # leaf node
 
 DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 30
 DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100
@@ -180,7 +181,7 @@ class ArmoryKeyPair(WalletEntry):
 
       keysToGen = self.numKeysNeededToFillPool()
       for i in range(keysToGen):
-         newAkp = self.spawnChild(self.nextChildToCalc)
+         newAkp = self.spawnChild(self.getNextChildToCalcIndex())
          self.addChildRef(newAkp)  # this increments nextChildToCalc
 
       # Now recurse to each child
@@ -758,6 +759,9 @@ class ArmoryKeyPair(WalletEntry):
       #if self.privCryptInfo.noEncryption():
          #return self.sbdPrivKeyData.copy()
 
+      if self.privKeyNextUnlock:
+         self.resolveNextUnlockFlag()
+
       try:
          privPlain = NULLSBD()
          aciDecryptAgs = self.getPrivCryptArgs(self.privCryptInfo)
@@ -933,7 +937,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
 
    #############################################################################
-   def initializeFromSeed(self, sbdPlainSeed):
+   def initializeFromSeed(self, sbdPlainSeed, fsync=True):
       raise NotImplementedError('"%s" needs to implement initializeFromSeed()' % \
                                                              self.getName())
 
@@ -957,7 +961,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       try:
          aciDecryptAgs = self.getPrivCryptArgs(self.seedCryptInfo)
          return self.seedCryptInfo.decrypt( \
-                  self.sbdPrivKeyData, **aciDecryptAgs)
+                  self.sbdSeedData, **aciDecryptAgs)
       except:
          LOGEXCEPT('Failed to decrypt master seed')
          return NULLSBD()
@@ -1346,7 +1350,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    #############################################################################
    @EkeyMustBeUnlocked
    @VerifyArgTypes(sbdPlainSeed=SecureBinaryData)
-   def initializeFromSeed(self, sbdPlainSeed): #, verifyWltID=None, verifyPub=None):
+   def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True):
       """
       We must already have a master encryption key created, and a reference to
       it set in this object (so that the EkeyMustBeUnlocked decorator passes)
@@ -1371,6 +1375,11 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       if self.sbdPublicKey33.getSize()==65:
          self.sbdPublicKey33 = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
 
+      # Do verification of pubkey, if requested
+      if verifyPub:
+         if not self.sbdPublicKey33 == CryptoECDSA().CompressPoint(verifyPub):
+            raise KeyDataError('Public key from seed does not match expected')
+
       # EDIT:  Since this is recoverable from the priv&chain fields, don't save
       """
       # Now store the seed data along with the everything else
@@ -1392,7 +1401,10 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       self.recomputeUniqueIDB58()
       self.recomputeScript()
       self.recomputeScrAddr()
-      self.fillKeyPoolRecurse()
+
+      
+      if fillPool:
+         self.fillKeyPoolRecurse()
          
    
    #############################################################################
@@ -1585,22 +1597,27 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
    #############################################################################
    @EkeyMustBeUnlocked
    @VerifyArgTypes(sbdPlainSeed=SecureBinaryData)
-   def initializeFromSeed(self, sbdPlainSeed): #, verifyWltID=None, verifyPub=None):
+   def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True):
       """
       We must already have a master encryption key created, and a reference to
       it set in this object (so the EkeyMustBeUnlocked decorator returns True)
       """
 
-      cppExtKey = HDWalletCrypto().ConvertSeedToMasterKey(sbdPlainSeed)
+      cppExtKey = Cpp.HDWalletCrypto().ConvertSeedToMasterKey(sbdPlainSeed)
       self.setNewPlainPrivKey(cppExtKey.getPrivateKey(), self.privCryptInfo)
       self.sbdPublicKey33   = cppExtKey.getPublicKey().copy()
       self.sbdChaincode     = cppExtKey.getChaincode().copy()
 
+      if verifyPub:
+         if not self.sbdPublicKey33 == CryptoECDSA().CompressPoint(verifyPub):
+            raise KeyDataError('Public key from seed does not match expected')
+         
 
       self.seedNumBytes = sbdPlainSeed.getSize()
       self.seedCryptInfo = self.privCryptInfo.copy()
       # Normally PUBKEY20 is IV for priv, but need different new IV for the seed
       self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
+      self.seedNumBytes = sbdPlainSeed.getSize()
       self.sbdSeedData = self.seedCryptInfo.encrypt(sbdPlainSeed, 
                                                      ekeyObj=self.masterEkeyRef)
 
@@ -1616,17 +1633,22 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       self.recomputeUniqueIDB58()
       self.recomputeScript()
       self.recomputeScrAddr()
-      self.fillKeyPoolRecurse()
+
+      if fillPool:
+         self.fillKeyPoolRecurse()
 
 
    #############################################################################
    @EkeyMustBeUnlocked
-   def createNewSeed(self, seedSize, extraEntropy):
+   def createNewSeed(self, seedSize, extraEntropy, fillPool=True):
       """
       This calls initializeFromSeed(), which requires you already set the 
       masterEkeyRef object and have it unlocked before calling this function.
       This guarantees that we know how encrypt the new seed.
       """
+
+      if seedSize < 16 and not USE_TESTNET:
+         raise KeyDataError('Seed size is not large enough to be considered secure!')
 
       # Uses Crypto++ PRNG -- which is suitable for cryptographic purposes.
       # 16 bytes is generally considered enough, though we add 4 extra for 
@@ -1637,7 +1659,7 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
          raise KeyDataError('Must provide extra entropy for seed generation')
 
       newSeed = SecureBinaryData().GenerateRandom(seedSize, extraEntropy)
-      self.initializeFromSeed(newSeed)
+      self.initializeFromSeed(newSeed, fillPool=fillPool)
       newSeed.destroy()
       
       
@@ -1708,7 +1730,7 @@ class ABEK_BIP44Purpose(ArmoryBip32ExtendedKey):
    def getChildClass(self, index):
       idx,hard = SplitChildIndex(index)
       expectedIdx = 1 if USE_TESTNET else 0
-      if index==expectedIdx and hard:
+      if index==expectedIdx and hard==self.HARDCHILD:
          return ABEK_BIP44Bitcoin
 
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -1727,7 +1749,7 @@ class ABEK_BIP44Bitcoin(ArmoryBip32ExtendedKey):
 
    def getChildClass(self, index):
       idx,hard = SplitChildIndex(index)
-      if hard:
+      if hard==self.HARDCHILD:
          return ABEK_StdWallet
 
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -1746,11 +1768,18 @@ class ABEK_StdBip32Seed(ArmoryBip32Seed):
    #####
    def getChildClass(self, index):
       idx,hard = SplitChildIndex(index)
-      if hard:
+      if hard==self.HARDCHILD:
          return ABEK_StdWallet
 
       raise ChildDeriveError('Invalid child %s for %s' % \
                               (ChildIndexToStr(index), self.getName()))
+
+
+#############################################################################
+class ABEK_SoftBip32Seed(ABEK_StdBip32Seed):
+   FILECODE = 'SFT32ROT'
+   TREELEAF  = False
+   HARDCHILD = False
 
 
 #############################################################################
@@ -1865,7 +1894,7 @@ class ABEK_StdChainInt(ArmoryBip32ExtendedKey):
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
-      if not ishard:
+      if ishard==self.HARDCHILD:
          return ABEK_StdLeaf
       
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -1887,7 +1916,7 @@ class ABEK_StdChainExt(ArmoryBip32ExtendedKey):
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
-      if not ishard:
+      if ishard==self.HARDCHILD:
          return ABEK_StdLeaf
       
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -2168,7 +2197,7 @@ class MBEK_StdWallet(MultisigABEK):
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
-      if cnum>=self.maxChildren or ishard:
+      if cnum>=self.maxChildren or not ishard==self.HARDCHILD:
          raise ChildDeriveError('Invalid child %s for %s' % \
                               (ChildIndexToStr(index), self.getName()))
 
@@ -2198,7 +2227,7 @@ class MBEK_StdChainExt(MultisigABEK):
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
-      if not ishard:
+      if ishard==self.HARDCHILD:
          return MBEK_StdLeaf
 
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -2223,7 +2252,7 @@ class MBEK_StdChainInt(MultisigABEK):
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
-      if not ishard:
+      if ishard==self.HARDCHILD:
          return MBEK_StdLeaf
 
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -2290,7 +2319,7 @@ class MBEK_StdBip32Root(MultisigABEK):
    def getChildClass(self, index):
       "Unlike ABEK_StdBip32Seed, we use non-hardened derivations"
       idx,hard = SplitChildIndex(index)
-      if not hard:
+      if hard==self.HARDCHILD:
          return MBEK_StdWallet
 
       raise ChildDeriveError('Invalid child %s for %s' % \
