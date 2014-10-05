@@ -41,7 +41,7 @@ DEFAULT_CHILDPOOLSIZE['ARMORY135_SEED']    = 1000  # old Armory wallets
 # A key type with no constraints on child generation, mainly for testing
 DEFAULT_CHILDPOOLSIZE['ABEK_Generic'] = 5
 
-
+#                        0          1             2             3             4
 PRIV_KEY_AVAIL = enum('Uninit', 'WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
 
 
@@ -568,10 +568,12 @@ class ArmoryKeyPair(WalletEntry):
       elif self.privKeyNextUnlock:
          return PRIV_KEY_AVAIL.NextUnlock
       elif self.sbdPrivKeyData.getSize() > 0:
-         if self.privCryptInfo.useEncryption():
-            return PRIV_KEY_AVAIL.NeedDecrypt
-         else:
+         if self.privCryptInfo.noEncryption():
             return PRIV_KEY_AVAIL.Available
+         elif self.masterEkeyRef and not self.masterEkeyRef.isLocked():
+            return PRIV_KEY_AVAIL.Available
+         else:
+            return PRIV_KEY_AVAIL.NeedDecrypt
       else:
          return PRIV_KEY_AVAIL.Uninit
 
@@ -648,8 +650,9 @@ class ArmoryKeyPair(WalletEntry):
       if cryptInfoObj.noEncryption():
          return mapOut
 
-      if cryptInfoObj.getEncryptIVSrc[0] == CRYPT_IV_SRC.PUBKEY20:
-         mapOut['ivData'] = self.sbdPublicKey33.getHash256()[:16]
+      if cryptInfoObj.getEncryptIVSrc()[0] == CRYPT_IV_SRC.PUBKEY20:
+         mapOut['ivData'] = hash256(self.sbdPublicKey33.toBinStr())[:16]
+         mapOut['ivData'] = SecureBinaryData(mapOut['ivData'])
       else:
          # If the IV is stored we don't need to pass it through, it
          # will grab it from itself in cryptInfoObj.decrypt/encrypt 
@@ -1207,12 +1210,12 @@ class Armory135KeyPair(ArmoryKeyPair):
 
 
          # This sets the priv key (if non-empty)
+         childAddr.sbdPublicKey33 = CryptoECDSA().CompressPoint(pubKey65)
+         childAddr.sbdChaincode   = self.sbdChaincode.copy()
+         # See ABEK spawnChild for comment about key data order
          childAddr.setNewPlainPrivKey(privPlain, self.privCryptInfo)
          childAddr.masterEkeyRef = self.masterEkeyRef
          childAddr.privKeyNextUnlock = nextUnlockFlag
-         childAddr.sbdPublicKey33 = CryptoECDSA().CompressPoint(pubKey65)
-         childAddr.sbdChaincode   = self.sbdChaincode.copy()
-         childAddr.scrAddrStr     = childAddr.generateScrAddr()
 
 
          childAddr.chainIndex = self.chainIndex + 1
@@ -1491,7 +1494,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
          if pavail==PRIV_KEY_AVAIL.WatchOnly:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
          elif pavail==PRIV_KEY_AVAIL.NeedDecrypt:
-            raise KeyDataError('Requires priv key, no way to decrypt it')
+            raise WalletLockError('Requires priv key, no way to decrypt it')
          elif pavail==PRIV_KEY_AVAIL.NextUnlock:
             self.resolveNextUnlockFlag(fsync)
 
@@ -1503,12 +1506,18 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       # Call the C++ code that implements BIP32/HDW calculations
       extChild = Cpp.HDWalletCrypto().childKeyDeriv(self.getCppExtendedKey(), childID)
 
+      childAddr.sbdPublicKey33  = extChild.getPublicKey().copy()
+      childAddr.sbdChaincode = extChild.getChaincode().copy()
+
       # This sets the priv key (if non-empty)
+      # NOTE: this call must come after setting the public key, as it uses the 
+      #       public key to compute the IV to encrypt new priv.  Because this 
+      #       is fragile, we should consider making setNewPlainPrivKey() a 
+      #       method that sets the pubkey and chaincode, too, to make sure this
+      #       is done correctly
       childAddr.setNewPlainPrivKey(extChild.getPrivateKey(), self.privCryptInfo)
       childAddr.masterEkeyRef = self.masterEkeyRef
       childAddr.privKeyNextUnlock = nextUnlockFlag
-      childAddr.sbdPublicKey33  = extChild.getPublicKey().copy()
-      childAddr.sbdChaincode = extChild.getChaincode().copy()
 
       if not childAddr.sbdPublicKey33.getSize()==33:
          LOGERROR('Pubkey did not come out of HDW code compressed')

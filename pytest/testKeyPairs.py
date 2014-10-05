@@ -544,6 +544,12 @@ class AKP_NoCrypt_Tests(unittest.TestCase):
                               childIndex=None,
                               useCompressPub=True,
                               isUsed=True)
+
+         # Test privKeyAvail methods
+         if testWatchOnly:
+            self.assertEqual(echain.getPrivKeyAvailability(), PRIV_KEY_AVAIL.WatchOnly)
+         else:
+            self.assertEqual(echain.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
       
          echain.wltFileRef = mockwlt
          echain.setChildPoolSize(5)
@@ -566,6 +572,7 @@ class AKP_NoCrypt_Tests(unittest.TestCase):
          self.assertEqual(echain.lowestUnusedChild,  0)
          self.assertEqual(echain.nextChildToCalc,    5)
          self.assertEqual(echain.childPoolSize,      5)
+
 
 
    #############################################################################
@@ -699,13 +706,20 @@ class AKP_NoCrypt_Tests(unittest.TestCase):
 
    
    #############################################################################
+   # Haven't written these yet
+   @unittest.skipIf(skipFlagExists(), '')
    def testABEK_serialize(self):
+      pass
       
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testABEK_serRoundTrip(self):
+      pass
          
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testABEK_serRoundTripWalletEntry(self):
+      pass
 
 
 ################################################################################
@@ -719,6 +733,8 @@ class AKP_Encrypted_Tests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
+      self.mockwlt  = MockWalletFile()
+
       self.password = SecureBinaryData('hello')
       master32 = SecureBinaryData('\x3e'*32)
       randomiv = SecureBinaryData('\x7d'*8)
@@ -736,7 +752,7 @@ class AKP_Encrypted_Tests(unittest.TestCase):
                      self.password, preGenKey=master32, preGenIV8=randomiv)
 
       # This will be attached to each ABEK object, to define its encryption
-      self.privACI = ArmoryCryptInfo(self.kdf.getKdfID(), 'AE256CBC', 
+      self.privACI = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 
                                  self.ekey.ekeyID, 'PUBKEY20')
 
       
@@ -758,10 +774,23 @@ class AKP_Encrypted_Tests(unittest.TestCase):
       rawScr  = hash160_to_p2pkhash_script(a160)
       scrAddr = SCRADDR_P2PKH_BYTE + a160
 
+      # First some prep for encryption/decryption, and verify outputs
+      self.ekey.unlock(self.password)
+      iv = SecureBinaryData(hash256(sbdPubk.toBinStr())[:16])
+      privCrypt = self.privACI.encrypt(sbdPriv,   ekeyObj=self.ekey, ivData=iv)
+      decrypted = self.privACI.decrypt(privCrypt, ekeyObj=self.ekey, ivData=iv)
+      self.assertEqual(sbdPriv, decrypted)
+      self.ekey.lock()
+
+      #print 'OrigPriv: ', sbdPriv.toHexStr()
+      #print 'CryptPriv:', privCrypt.toHexStr()
+      #print 'Decrypted:', decrypted.toHexStr()
+
+
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
-                         privCryptInfo=self.privACI
-                         sbdPrivKeyData= ????,
+                         privCryptInfo=self.privACI,
+                         sbdPrivKeyData=privCrypt,
                          sbdPublicKey33=sbdPubk,
                          sbdChaincode=sbdChain,
                          privKeyNextUnlock=False,
@@ -776,7 +805,14 @@ class AKP_Encrypted_Tests(unittest.TestCase):
       abek.masterEkeyRef = self.ekey
 
 
+      # Need to test the privkey available func
+      self.ekey.lock()
+      self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NeedDecrypt)
       self.ekey.unlock(self.password)
+      self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
+      self.ekey.lock()
+      self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NeedDecrypt)
+
 
       # Recompute unique ID directly for comparison
       childAbek  = abek.spawnChild(0x7fffffff, fsync=False, forIDCompute=True)
@@ -786,10 +822,14 @@ class AKP_Encrypted_Tests(unittest.TestCase):
       uidBin = int_to_binary(newFirst) + child256[1:6]
       uidB58 = binary_to_base58(uidBin)
 
-                           
-      self.assertEqual(abek.isWatchOnly, False)
-      self.assertEqual(abek.sbdPrivKeyData, sbdPriv)
+      self.ekey.lock()
+      self.assertRaises(WalletLockError, abek.getPlainPrivKeyCopy)
+      self.ekey.unlock(self.password)
+      self.assertEqual(abek.sbdPrivKeyData, privCrypt)
       self.assertEqual(abek.getPlainPrivKeyCopy(), sbdPriv)
+      self.ekey.lock()
+
+      self.assertEqual(abek.isWatchOnly, False)
       self.assertEqual(abek.sbdPublicKey33, sbdPubk)
       self.assertEqual(abek.sbdChaincode, sbdChain)
       self.assertEqual(abek.useCompressPub, True)
@@ -811,45 +851,67 @@ class AKP_Encrypted_Tests(unittest.TestCase):
       self.assertEqual(abek.lowestUnusedChild, 0)
       self.assertEqual(abek.nextChildToCalc,   0)
       self.assertEqual(abek.akpParentRef, None)
-      self.assertEqual(abek.masterEkeyRef, None)
+      self.assertEqual(abek.privCryptInfo.serialize(), self.privACI.serialize())
 
       self.assertEqual(abek.TREELEAF, False)
       self.assertEqual(abek.getName(), 'ABEK_Generic')
-      self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
 
-      self.assertEqual(abek.getPlainPrivKeyCopy(), sbdPriv)
+
 
    #############################################################################
    def testSpawnABEK(self):
+      # Start with this key pair
       sbdPriv  = SecureBinaryData(BIP32TestVectors[1]['seedKey'].toBinStr()[1:])
       sbdPubk  = BIP32TestVectors[1]['seedCompPubKey']
       sbdChain = BIP32TestVectors[1]['seedCC']
       nextIdx  = BIP32TestVectors[1]['nextChild']
-
       parA160    = hash160(sbdPubk.toBinStr())
       parScript  = hash160_to_p2pkhash_script(parA160)
       parScrAddr = SCRADDR_P2PKH_BYTE + parA160
 
+      # Derive this keypair
       nextPriv  = SecureBinaryData(BIP32TestVectors[2]['seedKey'].toBinStr()[1:])
       nextPubk  = BIP32TestVectors[2]['seedCompPubKey']
       nextChain = BIP32TestVectors[2]['seedCC']
-
       chA160    = hash160(nextPubk.toBinStr())
       chScript  = hash160_to_p2pkhash_script(chA160)
       chScrAddr = SCRADDR_P2PKH_BYTE + chA160
 
 
+      # First some prep for encryption/decryption, and verify RT encrypt/decrypt
+      self.ekey.unlock(self.password)
+      iv1 = SecureBinaryData(hash256(sbdPubk.toBinStr())[:16])
+      iv2 = SecureBinaryData(hash256(nextPubk.toBinStr())[:16])
+
+      privCrypt1 = self.privACI.encrypt(sbdPriv,    ekeyObj=self.ekey, ivData=iv1)
+      privCrypt2 = self.privACI.encrypt(nextPriv,   ekeyObj=self.ekey, ivData=iv2)
+
+      decrypted1 = self.privACI.decrypt(privCrypt1, ekeyObj=self.ekey, ivData=iv1)
+      decrypted2 = self.privACI.decrypt(privCrypt2, ekeyObj=self.ekey, ivData=iv2)
+
+      self.assertEqual(sbdPriv, decrypted1)
+      self.assertEqual(nextPriv, decrypted2)
+      self.ekey.lock()
+
+
+
       abek = ABEK_Generic()
       abek.isWatchOnly = False
-      abek.sbdPrivKeyData = sbdPriv.copy()
+      abek.privCryptInfo  = self.privACI
+      abek.sbdPrivKeyData = privCrypt1
       abek.sbdPublicKey33 = sbdPubk.copy()
       abek.sbdChaincode   = sbdChain.copy()
       abek.useCompressPub = True
+      abek.masterEkeyRef = self.ekey
       abek.privKeyNextUnlock = False
+      abek.wltFileRef = self.mockwlt
 
-      childAbek = abek.spawnChild(nextIdx, fsync=False)
+      self.ekey.unlock(self.password)
+      childAbek = abek.spawnChild(nextIdx, fsync=False, privSpawnReqd=True)
 
-      self.assertEqual(childAbek.sbdPrivKeyData, nextPriv)
+      self.assertEqual(childAbek.sbdPrivKeyData, privCrypt2)
+      self.assertEqual(childAbek.getPlainPrivKeyCopy(), nextPriv)
+
       self.assertEqual(childAbek.sbdPublicKey33, nextPubk)
       self.assertEqual(childAbek.sbdChaincode,   nextChain)
       self.assertEqual(childAbek.useCompressPub, True)
@@ -862,12 +924,9 @@ class AKP_Encrypted_Tests(unittest.TestCase):
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
       self.assertEqual(childAbek.rawScript, chScript)
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
-      #self.assertEqual(childAbek.akpChildByIndex, {})
-      #self.assertEqual(childAbek.akpChildByScrAddr, {})
       self.assertEqual(childAbek.lowestUnusedChild, 0)
       self.assertEqual(childAbek.nextChildToCalc,   0)
       self.assertEqual(childAbek.akpParentRef, None)
-      self.assertEqual(childAbek.masterEkeyRef, None)
       
       # Check the uniqueID, by spawning another child
       subCh = childAbek.spawnChild(0x7fffffff, fsync=False, forIDCompute=True)
@@ -880,7 +939,11 @@ class AKP_Encrypted_Tests(unittest.TestCase):
       self.assertEqual(childAbek.uniqueIDB58, uidB58)
 
 
+      self.ekey.lock()
+      self.assertRaises(WalletLockError, abek.spawnChild, nextIdx, privSpawnReqd=True)
 
+
+   '''  Enabling these tests one by one as I upgrade them to work with crypt
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
    def testSpawnABEK_WO(self):
@@ -1193,6 +1256,7 @@ class AKP_Encrypted_Tests(unittest.TestCase):
 
       for seedsz in [16, 20, 256]:
          abekSeed.createNewSeed(seedsz, entropy, fillPool=False)
+   '''
 
 if __name__ == "__main__":
    unittest.main()
