@@ -165,7 +165,7 @@ class UtilityFuncTests(unittest.TestCase):
       self.assertRaises(ValueError, SplitChildIndex, 2**32)
       self.assertRaises(ValueError, SplitChildIndex, -1)
 
-      TOPBIT = 0x80000000
+      TOPBIT = HARDBIT
       self.assertEqual(SplitChildIndex(0),          [0, False])
       self.assertEqual(SplitChildIndex(1),          [1, False])
       self.assertEqual(SplitChildIndex(128),        [128, False])
@@ -173,12 +173,12 @@ class UtilityFuncTests(unittest.TestCase):
       self.assertEqual(SplitChildIndex(1+TOPBIT),   [1, True])
       self.assertEqual(SplitChildIndex(2**32-1),    [2**31-1, True])
       self.assertEqual(SplitChildIndex(0x7fffffff), [0x7fffffff, False])
-      self.assertEqual(SplitChildIndex(0x80000000), [0, True])
+      self.assertEqual(SplitChildIndex(HARDBIT), [0, True])
 
 
    #############################################################################
    def testCreateChildIndex(self):
-      TOPBIT = 0x80000000
+      TOPBIT = HARDBIT
       self.assertEqual(CreateChildIndex(0, False),          0)
       self.assertEqual(CreateChildIndex(1, False),          1)
       self.assertEqual(CreateChildIndex(128, False),        128)
@@ -186,11 +186,11 @@ class UtilityFuncTests(unittest.TestCase):
       self.assertEqual(CreateChildIndex(1, True),           1+TOPBIT)
       self.assertEqual(CreateChildIndex(2**31-1, True),     2**32-1)
       self.assertEqual(CreateChildIndex(0x7fffffff, False), 0x7fffffff)
-      self.assertEqual(CreateChildIndex(0, True),           0x80000000)
+      self.assertEqual(CreateChildIndex(0, True),           HARDBIT)
 
    #############################################################################
    def testChildIdxToStr(self):
-      TOPBIT = 0x80000000
+      TOPBIT = HARDBIT
       self.assertEqual(ChildIndexToStr(0), "0")
       self.assertEqual(ChildIndexToStr(1), "1")
       self.assertEqual(ChildIndexToStr(128), "128")
@@ -198,7 +198,7 @@ class UtilityFuncTests(unittest.TestCase):
       self.assertEqual(ChildIndexToStr(1+TOPBIT), "1'")
       self.assertEqual(ChildIndexToStr(2**32-1), "2147483647'")
       self.assertEqual(ChildIndexToStr(0x7fffffff), "2147483647")
-      self.assertEqual(ChildIndexToStr(0x80000000), "0'")
+      self.assertEqual(ChildIndexToStr(HARDBIT), "0'")
 
 
 
@@ -244,7 +244,7 @@ class TestHDWalletLogic(unittest.TestCase):
          self.assertEqual(compEK.getPublicKey(), nextEKdata['seedCompPubKey'])
          self.assertEqual(compEK.getChaincode(), nextEKdata['seedCC'])
 
-         if currEKdata['nextChild'] & 0x80000000 == 0:
+         if currEKdata['nextChild'] & HARDBIT == 0:
             # Now test the same thing from the just the public key
             currEK = Cpp.ExtendedKey(currEKdata['seedCompPubKey'], currEKdata['seedCC'])
             compEK = Cpp.HDWalletCrypto().childKeyDeriv(currEK, currEKdata['nextChild'])
@@ -256,7 +256,7 @@ class TestHDWalletLogic(unittest.TestCase):
 
 
 ################################################################################
-class AKPTests(unittest.TestCase):
+class AKP_NoCrypt_Tests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
@@ -293,11 +293,11 @@ class AKPTests(unittest.TestCase):
       self.assertEqual(abek.akpChildByIndex, {})
       self.assertEqual(abek.akpChildByScrAddr, {})
       self.assertEqual(abek.lowestUnusedChild, 0)
-      self.assertEqual(abek.highestCalcChild, 0)
+      self.assertEqual(abek.nextChildToCalc,   0)
       self.assertEqual(abek.akpParentRef, None)
       self.assertEqual(abek.masterEkeyRef, None)
 
-      self.assertEqual(abek.isTreeLeaf(), False)
+      self.assertEqual(abek.TREELEAF, False)
       self.assertEqual(abek.getName(), 'ABEK_Generic')
       self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Uninit)
 
@@ -339,6 +339,7 @@ class AKPTests(unittest.TestCase):
       chScript  = hash160_to_p2pkhash_script(chA160)
       chScrAddr = SCRADDR_P2PKH_BYTE + chA160
 
+
       abek = ABEK_Generic()
       abek.isWatchOnly = False
       abek.sbdPrivKeyData = sbdPriv.copy()
@@ -350,7 +351,7 @@ class AKPTests(unittest.TestCase):
       childAbek = abek.spawnChild(nextIdx, fsync=False)
 
       self.assertEqual(childAbek.sbdPrivKeyData, nextPriv)
-      self.assertEqual(childAbek.sbdPublicKey33.toHexStr(), nextPubk.toHexStr())
+      self.assertEqual(childAbek.sbdPublicKey33, nextPubk)
       self.assertEqual(childAbek.sbdChaincode,   nextChain)
       self.assertEqual(childAbek.useCompressPub, True)
       self.assertEqual(childAbek.isUsed, False)
@@ -362,18 +363,85 @@ class AKPTests(unittest.TestCase):
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
       self.assertEqual(childAbek.rawScript, chScript)
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
-      #self.assertEqual(childAbek.uniqueIDBin, None)
-      #self.assertEqual(childAbek.uniqueIDB58, None)
       #self.assertEqual(childAbek.akpChildByIndex, {})
       #self.assertEqual(childAbek.akpChildByScrAddr, {})
       self.assertEqual(childAbek.lowestUnusedChild, 0)
-      self.assertEqual(childAbek.highestCalcChild, 0)
+      self.assertEqual(childAbek.nextChildToCalc,   0)
       self.assertEqual(childAbek.akpParentRef, None)
       self.assertEqual(childAbek.masterEkeyRef, None)
       
+      # Check the uniqueID, by spawning another child
+      subCh = childAbek.spawnChild(0x7fffffff, fsync=False, forIDCompute=True)
+      ch256  = hash256(subCh.getScrAddr())
+      firstByte = binary_to_int(ch256[0])
+      newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
+      uidBin = int_to_binary(newFirst) + ch256[1:6]
+      uidB58 = binary_to_base58(uidBin)
+      self.assertEqual(childAbek.uniqueIDBin, uidBin)
+      self.assertEqual(childAbek.uniqueIDB58, uidB58)
+
+
+
+   #############################################################################
+   @unittest.skip('Skipping test that currently fails due to C++ failure...?')
+   def testSpawnABEK_WO(self):
+      #This test appears to demonstrate a problem with pubkey-based spawnChild
+      #Disabled for now...
+
+      sbdPriv  = SecureBinaryData(BIP32TestVectors[1]['seedKey'].toBinStr()[1:])
+      sbdPubk  = BIP32TestVectors[1]['seedCompPubKey']
+      sbdChain = BIP32TestVectors[1]['seedCC']
+      nextIdx  = BIP32TestVectors[1]['nextChild']
+
+      parA160    = hash160(sbdPubk.toBinStr())
+      parScript  = hash160_to_p2pkhash_script(parA160)
+      parScrAddr = SCRADDR_P2PKH_BYTE + parA160
+
+      nextPriv  = SecureBinaryData(BIP32TestVectors[2]['seedKey'].toBinStr()[1:])
+      nextPubk  = BIP32TestVectors[2]['seedCompPubKey']
+      nextChain = BIP32TestVectors[2]['seedCC']
+
+      chA160    = hash160(nextPubk.toBinStr())
+      chScript  = hash160_to_p2pkhash_script(chA160)
+      chScrAddr = SCRADDR_P2PKH_BYTE + chA160
+
+
+      abek = ABEK_Generic()
+      abek.isWatchOnly = True
+      abek.sbdPrivKeyData = NULLSBD()
+      abek.sbdPublicKey33 = sbdPubk.copy()
+      abek.sbdChaincode   = sbdChain.copy()
+      abek.useCompressPub = True
+
+      childAbek = abek.spawnChild(nextIdx, fsync=False)
+
+      self.assertEqual(childAbek.sbdPrivKeyData, NULLSBD())
+      self.assertEqual(childAbek.sbdPublicKey33, nextPubk)
+      self.assertEqual(childAbek.sbdChaincode,   nextChain)
+      self.assertEqual(childAbek.useCompressPub, True)
+      self.assertEqual(childAbek.isUsed, False)
+      self.assertEqual(childAbek.privKeyNextUnlock, False)
+      self.assertEqual(childAbek.akpParScrAddr, None)
+      self.assertEqual(childAbek.akpRootScrAddr, None)
+      self.assertEqual(childAbek.childIndex, nextIdx)
+      self.assertEqual(childAbek.childPoolSize, 5)
+      self.assertEqual(childAbek.maxChildren, UINT32_MAX)
+      self.assertEqual(childAbek.rawScript, chScript)
+      self.assertEqual(childAbek.scrAddrStr, chScrAddr)
+      #self.assertEqual(childAbek.akpChildByIndex, {})
+      #self.assertEqual(childAbek.akpChildByScrAddr, {})
+      self.assertEqual(childAbek.lowestUnusedChild, 0)
+      self.assertEqual(childAbek.nextChildToCalc,   0)
+      self.assertEqual(childAbek.akpParentRef, None)
+      self.assertEqual(childAbek.masterEkeyRef, None)
+
+
       # Test setting the child ref, which is normally done for you if fsync=True
       abek.addChildRef(childAbek)
       self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
+
+
+      
 
 
 
@@ -382,12 +450,7 @@ class AKPTests(unittest.TestCase):
       #leaf = makeABEKGenericClass()
       abek = ABEK_Generic()
 
-      '''
-      #'seedKey': SecureBinaryData(hex_to_binary("00e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")),
-      #'seedCC': SecureBinaryData(hex_to_binary("873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508")),
-      #'seedPubKey': SecureBinaryData(hex_to_binary("0439a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c23cbe7ded0e7ce6a594896b8f62888fdbc5c8821305e2ea42bf01e37300116281")),
-      #'seedCompPubKey': SecureBinaryData(hex_to_binary("0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2")),
-      sbdPriv  = BIP32TestVectors[0]['seedKey']
+      sbdPriv  = SecureBinaryData(BIP32TestVectors[0]['seedKey'].toBinStr()[1:])
       sbdPubk  = BIP32TestVectors[0]['seedCompPubKey']
       sbdChain = BIP32TestVectors[0]['seedCC']
 
@@ -395,23 +458,9 @@ class AKPTests(unittest.TestCase):
       rawScr  = hash160_to_p2pkhash_script(a160)
       scrAddr = SCRADDR_P2PKH_BYTE + a160
 
-      #
-      #childAbek  = abek.spawnChild(0x7fffffff, fsync=False)
-      #child256  = hash256(childAbek.getScrAddr())
-      #firstByte = binary_to_int(child256[0])
-      #newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
-      #uidBin = int_to_binary(newFirst) + child256[1:6]
-      #uidB58 = binary_to_base58(uidBin)
-
-
-      # No encryption on this ABEK
-      aci = ArmoryCryptInfo(None)
-
-      parScrAddr = None
-
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
-                         privCryptInfo=aci,
+                         privCryptInfo=ArmoryCryptInfo(None),
                          sbdPrivKeyData=sbdPriv,
                          sbdPublicKey33=sbdPubk,
                          sbdChaincode=sbdChain,
@@ -423,6 +472,15 @@ class AKPTests(unittest.TestCase):
                          isUsed=True,
                          keyBornTime=t,
                          keyBornBlock=t)
+
+      # Recompute unique ID directly for comparison
+      childAbek  = abek.spawnChild(0x7fffffff, fsync=False, forIDCompute=True)
+      child256  = hash256(childAbek.getScrAddr())
+      firstByte = binary_to_int(child256[0])
+      newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
+      uidBin = int_to_binary(newFirst) + child256[1:6]
+      uidB58 = binary_to_base58(uidBin)
+
                            
       self.assertEqual(abek.isWatchOnly, False)
       self.assertEqual(abek.sbdPrivKeyData, sbdPriv)
@@ -440,26 +498,122 @@ class AKPTests(unittest.TestCase):
       self.assertEqual(abek.maxChildren, UINT32_MAX)
       self.assertEqual(abek.rawScript, rawScr)
       self.assertEqual(abek.scrAddrStr, scrAddr)
-      #self.assertEqual(abek.uniqueIDBin, uidBin)
-      #self.assertEqual(abek.uniqueIDB58, uidB58)
+      self.assertEqual(abek.uniqueIDBin, uidBin)
+      self.assertEqual(abek.uniqueIDB58, uidB58)
       self.assertEqual(abek.akpChildByIndex, {})
       self.assertEqual(abek.akpChildByScrAddr, {})
       self.assertEqual(abek.lowestUnusedChild, 0)
-      self.assertEqual(abek.highestCalcChild, 0)
+      self.assertEqual(abek.nextChildToCalc,   0)
       self.assertEqual(abek.akpParentRef, None)
       self.assertEqual(abek.masterEkeyRef, None)
 
-      self.assertEqual(abek.isTreeLeaf(), False)
+      self.assertEqual(abek.TREELEAF, False)
       self.assertEqual(abek.getName(), 'ABEK_Generic')
-      #print abek.getPrivKeyAvailability()
-      #print abek.isWatchOnly
-      #print pprintHex(binary_to_hex(abek.privCryptInfo.serialize()))
-      #print 'use:', abek.privCryptInfo.useEncryption()
-      #print 'no: ', abek.privCryptInfo.noEncryption()
       self.assertEqual(abek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
-      '''
+
+      self.assertEqual(abek.getPlainPrivKeyCopy(), sbdPriv)
+
+   #############################################################################
+   def testKeyPool_D1(self):
+      mockwlt = MockWalletFile()
+      echain = ABEK_StdChainExt()
+      sbdPriv  = SecureBinaryData(BIP32TestVectors[0]['seedKey'].toBinStr()[1:])
+      sbdPubk  = BIP32TestVectors[0]['seedCompPubKey']
+      sbdChain = BIP32TestVectors[0]['seedCC']
+
+      echain.initializeAKP(isWatchOnly=False,
+                           privCryptInfo=ArmoryCryptInfo(None),
+                           sbdPrivKeyData=sbdPriv,
+                           sbdPublicKey33=sbdPubk,
+                           sbdChaincode=sbdChain,
+                           privKeyNextUnlock=False,
+                           akpParScrAddr=None,
+                           akpRootScrAddr=None,
+                           childIndex=None,
+                           useCompressPub=True,
+                           isUsed=True)
+      
+      echain.wltFileRef = mockwlt
+      echain.setChildPoolSize(5)
+
+      
+      self.assertEqual(echain.isWatchOnly,    False)
+      self.assertEqual(echain.sbdPrivKeyData, sbdPriv)
+      self.assertEqual(echain.sbdPublicKey33, sbdPubk)
+      self.assertEqual(echain.sbdChaincode,   sbdChain)
+
+      self.assertEqual(echain.lowestUnusedChild,   0)
+      self.assertEqual(echain.nextChildToCalc,     0)
+      self.assertEqual(echain.childPoolSize,       5)
+
+      echain.fillKeyPoolRecurse()
+
+      self.assertEqual(echain.lowestUnusedChild,  0)
+      self.assertEqual(echain.nextChildToCalc,    5)
+      self.assertEqual(echain.childPoolSize,      5)
 
 
+   #############################################################################
+   def testKeyPool_D2(self):
+      mockwlt  = MockWalletFile()
+      awlt   = ABEK_StdWallet()
+
+      self.assertRaises(ChildDeriveError, awlt.getChildClass, 2)
+      self.assertRaises(ChildDeriveError, awlt.getChildClass, HARDBIT)
+      self.assertRaises(ChildDeriveError, awlt.getChildClass, 2+HARDBIT)
+
+      sbdPriv  = SecureBinaryData(BIP32TestVectors[0]['seedKey'].toBinStr()[1:])
+      sbdPubk  = BIP32TestVectors[0]['seedCompPubKey']
+      sbdChain = BIP32TestVectors[0]['seedCC']
+
+      awlt.initializeAKP(  isWatchOnly=False,
+                           privCryptInfo=ArmoryCryptInfo(None),
+                           sbdPrivKeyData=sbdPriv,
+                           sbdPublicKey33=sbdPubk,
+                           sbdChaincode=sbdChain,
+                           privKeyNextUnlock=False,
+                           akpParScrAddr=None,
+                           akpRootScrAddr=None,
+                           childIndex=None,
+                           useCompressPub=True,
+                           isUsed=True)
+      
+
+      awlt.wltFileRef = mockwlt
+      
+      self.assertEqual(awlt.isWatchOnly,    False)
+      self.assertEqual(awlt.sbdPrivKeyData, sbdPriv)
+      self.assertEqual(awlt.sbdPublicKey33, sbdPubk)
+      self.assertEqual(awlt.sbdChaincode,   sbdChain)
+
+      self.assertEqual(awlt.lowestUnusedChild, 0)
+      self.assertEqual(awlt.nextChildToCalc,   0)
+
+      awlt.fillKeyPoolRecurse()
+
+      self.assertEqual(awlt.lowestUnusedChild,  0)
+      self.assertEqual(awlt.nextChildToCalc,    2)
+      self.assertEqual(len(awlt.akpChildByIndex), 2)
+      self.assertEqual(awlt.akpChildByIndex[0].__class__, ABEK_StdChainExt)
+      self.assertEqual(awlt.akpChildByIndex[1].__class__, ABEK_StdChainInt)
+      self.assertEqual(awlt.akpChildByIndex[0].childPoolSize, 
+                                    DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt'])
+      self.assertEqual(awlt.akpChildByIndex[1].childPoolSize, 
+                                    DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt'])
+
+
+
+
+################################################################################
+class AKP_Encrypted_Tests(unittest.TestCase):
+
+   #############################################################################
+   def setUp(self):
+      pass
+      
+   #############################################################################
+   def tearDown(self):
+      pass
 
 if __name__ == "__main__":
    unittest.main()

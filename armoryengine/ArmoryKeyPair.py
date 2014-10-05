@@ -10,6 +10,8 @@ from ArmoryEncryption import *
 from WalletEntry import *
 
 
+HARDBIT = 0x80000000
+
 
 # AKP  ~ ArmoryKeyPair
 # ABEK ~ ArmoryBip32ExtendedKey
@@ -47,7 +49,7 @@ def SplitChildIndex(cIdx):
    if not 0 <= cIdx < 2**32:
       raise ValueError('Child indices must be less than 2^32')
    childNum   = int(cIdx & 0x7fffffff)
-   isHardened = (cIdx & 0x80000000) > 0
+   isHardened = (cIdx & HARDBIT) > 0
    return [childNum, isHardened]
 
 #####
@@ -55,7 +57,7 @@ def CreateChildIndex(childNum, isHardened):
    if not childNum < 1<<31:
       raise ValueError('Child number must be less than 2^31')
 
-   topBit = 0x80000000 if isHardened else 0
+   topBit = HARDBIT if isHardened else 0
    return childNum | topBit   
 
 #####
@@ -133,10 +135,10 @@ class ArmoryKeyPair(WalletEntry):
       self.uniqueIDB58     = None   # wallet ID used in filename
 
       # A bunch of references that will be set after all WalletEntries read
-      self.akpChildByIndex   = {}
-      self.akpChildByScrAddr = {}
-      self.lowestUnusedChild = 0
-      self.highestCalcChild  = 0
+      self.akpChildByIndex    = {}
+      self.akpChildByScrAddr  = {}
+      self.lowestUnusedChild  = 0
+      self.nextChildToCalc = 0   #  "P1" ~ plus 1, using top-exclude ranges
       self.akpParentRef    = None
       self.masterEkeyRef   = None
 
@@ -152,27 +154,34 @@ class ArmoryKeyPair(WalletEntry):
    def numKeysNeededToFillPool(self):
       # This is used to help us fill they keypool for a given node.  It respects
       # the childPoolSize member var, but never exceeds the maxChildren member
-      if self.highestCalcChild >= self.maxChildren:
+      if self.nextChildToCalc >= self.maxChildren:
          return 0
       else:
-         currPoolSz = self.highestCalcChild - self.lowestUnusedChild + 1
+         currPoolSz = self.nextChildToCalc - self.lowestUnusedChild 
          if currPoolSz >= self.childPoolSize:
             return 0
          else:
-            topChild = min(self.highestCalcChild + self.childPoolSize, 
+            topChild = min(self.nextChildToCalc + self.childPoolSize, 
                                                             self.maxChildren)
-            return topChild - self.highestCalcChild
+            return topChild - self.nextChildToCalc
+
+
+
+   #############################################################################
+   def getNextChildToCalcIndex(self):
+      topbit = HARDBIT if self.HARDCHILD else 0
+      return self.nextChildToCalc | topbit
 
 
    #############################################################################
    def fillKeyPoolRecurse(self):
-      if self.isTreeLeaf():
+      if self.TREELEAF:
          return
 
       keysToGen = self.numKeysNeededToFillPool()
       for i in range(keysToGen):
-         newAkp = self.spawnChild(self.highestCalcChild + 1)
-         self.addChildRef(newAkp)  # this increments highestCalcChild
+         newAkp = self.spawnChild(self.nextChildToCalc)
+         self.addChildRef(newAkp)  # this increments nextChildToCalc
 
       # Now recurse to each child
       for scrAddr,childAKP in self.akpChildByScrAddr.iteritems():
@@ -226,18 +235,15 @@ class ArmoryKeyPair(WalletEntry):
       childAKP.akpParentRef  = self
       childAKP.akpParScrAddr = self.getScrAddr()
 
-      self.highestCalcChild = max(self.highestCalcChild, childAKP.childIndex)
+      childP1 = childAKP.childIndex + 1
+      self.nextChildToCalc = max(self.nextChildToCalc, childP1)
       if childAKP.isUsed:
-         self.lowestUnusedChild = max(self.lowestUnusedChild, childAKP.childIndex+1)
+         self.lowestUnusedChild = max(self.lowestUnusedChild, childP1)
 
 
    #############################################################################
    def getName(self):
       return self.__class__.__name__
-
-   #############################################################################
-   def isTreeLeaf(self):
-      return False
 
 
    #############################################################################
@@ -310,13 +316,14 @@ class ArmoryKeyPair(WalletEntry):
       self.akpChildByIndex   = other.akpChildByIndex.copy()
       self.akpChildByScrAddr = other.akpChildByScrAddr.copy()
       self.lowestUnusedChild = other.lowestUnusedChild
-      self.highestCalcChild  = other.highestCalcChild
+      self.nextChildToCalc  = other.nextChildToCalc
       self.akpParentRef    = other.akpParentRef
       self.masterEkeyRef   = other.masterEkeyRef
 
       self.scrAddrStr      = other.scrAddrStr
       self.rawScript       = other.rawScript
 
+      self.wltFileRef       = other.wltFileRef
 
 
    #############################################################################
@@ -847,7 +854,7 @@ class ArmoryKeyPair(WalletEntry):
    #############################################################################
    def advanceLowestUnused(self, ct=1):
       topIndex = self.lowestUnusedChild + ct
-      topIndex = min(topIndex, self.highestCalcChild)
+      topIndex = min(topIndex, self.nextChildToCalc)
       topIndex = max(topIndex, 0)
 
       self.lowestUnusedChild = topIndex
@@ -862,7 +869,7 @@ class ArmoryKeyPair(WalletEntry):
 
    #############################################################################
    def peekNextUnusedChild(self):
-      if self.lowestUnusedChild > self.highestCalcChild:
+      if self.lowestUnusedChild >= self.nextChildToCalc:
          childAddr = self.spawnChild(self.lowestUnusedChild, fsync=False)
       else:
          if not self.lowestUnusedChild in self.akpChildByIndex:
@@ -877,7 +884,7 @@ class ArmoryKeyPair(WalletEntry):
       Use the "currBlk" arg to set the born date for the child, since this func
       is agnostic and doesn't talk to the BDM.
       """
-      if self.lowestUnusedChild > self.highestCalcChild:
+      if self.lowestUnusedChild >= self.nextChildToCalc:
          childAddr = self.spawnChild(self.lowestUnusedChild, fsync=True)
       else:
          childAddr = self.akpChildByIndex[self.lowestUnusedChild]
@@ -1094,7 +1101,7 @@ class Armory135KeyPair(ArmoryKeyPair):
                               
 
    #############################################################################
-   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, skipIDCompute=False):
+   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, forIDCompute=False):
       """
       We require some fairly complicated logic here, due to the fact that a
       user with a full, private-key-bearing wallet, may try to generate a new
@@ -1234,7 +1241,7 @@ class Armory135KeyPair(ArmoryKeyPair):
 
    #############################################################################
    def recomputeUniqueIDBin(self):
-      childAKP = self.spawnChild(0, privSpawnReqd=False, fsync=False, skipIDCompute=True)
+      childAKP = self.spawnChild(0, privSpawnReqd=False, fsync=False, forIDCompute=True)
       child160 = hash160(childAKP.getSerializedPubKey())
       self.uniqueIDBin = (ADDRBYTE + child160[:5])[::-1]
 
@@ -1291,18 +1298,21 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    #############################################################################
    def fillKeyPoolRecurse(self):
       # For 135 wallets, not actually recursive
-      currPool = self.highestCalcChild - self.lowestUnusedChild + 1
+      currPool = self.nextChildToCalc - self.lowestUnusedChild
       toGen = max(0, self.childPoolSize - currPool)
       LOGINFO('Filling keypool:  topCalc=%d, lowUnuse=%d, pool=%s, toGen=%s' % \
-         (self.highestCalcChild, self.lowestUnusedChild, self.childPoolSize, toGen))
+         (self.nextChildToCalc, self.lowestUnusedChild, self.childPoolSize, toGen))
 
-      ch = self.getChildByIndex(self.highestCalcChild)
+      ch = self.getChildByIndex(self.nextChildToCalc-1)
       for i in range(toGen):
          ch = ch.spawnChild(0, privSpawnReqd=False, fsync=True)
        
 
    #############################################################################
    def getChildByIndex(self, index, spawnIfNeeded=False, fsync=True):
+      if index==-1:
+         return self
+
       ch = self.akp135IndexMap.get(index)
       if ch is None:
          raise ChildDeriveError('Cannot get chain index not yet spawned')
@@ -1431,36 +1441,39 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
    #############################################################################
    def recomputeUniqueIDBin(self):
-      # Compute the highest possible non-hardened child
-      childAKP  = self.spawnChild(0x7fffffff, privSpawnReqd=False, fsync=False, skipIDCompute=True)
-      child256  = hash256(childAKP.getScrAddr())
-      firstByte = binary_to_int(child256[0])
-      newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
-      self.uniqueIDBin = int_to_binary(newFirst) + child256[1:6]
+      self.uniqueIDBin = ''
+      if not self.TREELEAF:
+         # Compute the highest possible non-hardened child
+         childAKP  = self.spawnChild(0x7fffffff, fsync=False, forIDCompute=True)
+         child256  = hash256(childAKP.getScrAddr())
+         firstByte = binary_to_int(child256[0])
+         newFirst  = firstByte ^ binary_to_int(ADDRBYTE)
+         self.uniqueIDBin = int_to_binary(newFirst) + child256[1:6]
 
 
 
    #############################################################################
-   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, skipIDCompute=False):
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False):
       """
       Derive a child extended key from this one. 
 
-      NOTE:  Var skipIDCompute is required to prevent undesired recursion. 
-             By default, this function will spawn the child and compute its
-             ID, but the ID is based on spawning child 0x7fffffff, which is
-             actually a recursive spawnChild call.  So the spawnChild call
-             in the recomputeUniqueIDBin() function sets skipIDCompute=True
+      NOTE:  Var forIDCompute does two things:
+                (1) Skips recursively computing the ID of the child
+                (2) Allows children outside of the getChildClass() limitations
       """
 
-      childAddr = self.getChildClass(childID)()
-      childAddr.copyFromAKP(self)
+      if forIDCompute:
+         childAddr = ABEK_Generic()
+      else:
+         childAddr = self.getChildClass(childID)()
 
-      startedLocked = False
+      childAddr.copyFromAKP(self)
+      childAddr.isUsed = False
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
       pavail = self.getPrivKeyAvailability()
-      privSpawnReqd = privSpawnReqd or (childID & 0x80000000 > 0)
+      privSpawnReqd = privSpawnReqd or (childID & HARDBIT > 0)
       nextUnlockFlag = False
       if privSpawnReqd:
          if pavail==PRIV_KEY_AVAIL.WatchOnly:
@@ -1494,7 +1507,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
       childAddr.recomputeScript()
       childAddr.recomputeScrAddr()
-      if not skipIDCompute:
+      if not forIDCompute:
          childAddr.recomputeUniqueIDBin()
          childAddr.recomputeUniqueIDB58()
 
@@ -1666,6 +1679,9 @@ class ArmoryImportedRoot(ArmorySeededKeyPair):
 #############################################################################
 class ABEK_BIP44Seed(ArmoryBip32Seed):
    FILECODE = 'BIP44ROT'
+   TREELEAF  = False
+   HARDCHILD = True
+
    def __init__(self):
       super(ABEK_BIP44Seed, self).__init__()
 
@@ -1683,6 +1699,8 @@ class ABEK_BIP44Seed(ArmoryBip32Seed):
 #############################################################################
 class ABEK_BIP44Purpose(ArmoryBip32ExtendedKey):
    FILECODE = 'BIP44PUR'
+   TREELEAF  = False
+   HARDCHILD = True
 
    def __init__(self):
       super(ABEK_BIP44Purpose, self).__init__()
@@ -1700,6 +1718,9 @@ class ABEK_BIP44Purpose(ArmoryBip32ExtendedKey):
 #############################################################################
 class ABEK_BIP44Bitcoin(ArmoryBip32ExtendedKey):
    FILECODE = 'BIP44BTC'
+   TREELEAF  = False
+   HARDCHILD = True
+
    def __init__(self):
       super(ABEK_BIP44Bitcoin, self).__init__()
       self.maxChildren = UINT32_MAX
@@ -1716,6 +1737,9 @@ class ABEK_BIP44Bitcoin(ArmoryBip32ExtendedKey):
 #############################################################################
 class ABEK_StdBip32Seed(ArmoryBip32Seed):
    FILECODE = 'BIP32ROT'
+   TREELEAF  = False
+   HARDCHILD = True
+
    def __init__(self):
       super(ABEK_StdBip32Seed, self).__init__()
 
@@ -1731,8 +1755,11 @@ class ABEK_StdBip32Seed(ArmoryBip32Seed):
 
 #############################################################################
 class ABEK_StdWallet(ArmoryBip32ExtendedKey):
-   FILECODE = 'STD32WLT'
-
+   FILECODE  = 'STD32WLT'
+   TREELEAF  = False
+   HARDCHILD = False
+   
+      
    def __init__(self):
       super(ABEK_StdWallet, self).__init__()
 
@@ -1778,17 +1805,13 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
       self.userRemoved = False
 
 
-   #############################################################################
-   def isTreeLeaf(self):
-      return False
-      
 
    #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
-      if not ishard and cnum==0:
+      if ishard==self.HARDCHILD and cnum==0:
          return ABEK_StdChainExt
-      elif not ishard and cnum==1:
+      elif ishard==self.HARDCHILD and cnum==1:
          return ABEK_StdChainInt
       
       raise ChildDeriveError('Invalid child %s for %s' % \
@@ -1831,15 +1854,13 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
 #############################################################################
 class ABEK_StdChainInt(ArmoryBip32ExtendedKey):
    FILECODE = 'STD32CIN'
+   TREELEAF  = False
+   HARDCHILD = False
 
    #############################################################################
    def __init__(self):
       super(ABEK_StdChainInt, self).__init__()
       self.maxChildren = UINT32_MAX
-
-   #############################################################################
-   def isTreeLeaf(self):
-      return False
 
    #############################################################################
    def getChildClass(self, index):
@@ -1854,15 +1875,14 @@ class ABEK_StdChainInt(ArmoryBip32ExtendedKey):
 #############################################################################
 class ABEK_StdChainExt(ArmoryBip32ExtendedKey):
    FILECODE = 'STD32CEX'
+   TREELEAF  = False
+   HARDCHILD = False
 
    #############################################################################
    def __init__(self):
       super(ABEK_StdChainExt, self).__init__()
       self.maxChildren = UINT32_MAX
 
-   #############################################################################
-   def isTreeLeaf(self):
-      return False
 
    #############################################################################
    def getChildClass(self, index):
@@ -1876,15 +1896,13 @@ class ABEK_StdChainExt(ArmoryBip32ExtendedKey):
 #############################################################################
 class ABEK_StdLeaf(ArmoryBip32ExtendedKey):
    FILECODE = 'STD32LEF'
+   TREELEAF  = True
+   HARDCHILD = False
 
    #############################################################################
    def __init__(self):
       super(ABEK_StdLeaf, self).__init__()
       self.maxChildren = 0
-
-   #############################################################################
-   def isTreeLeaf(self):
-      return True
 
    #############################################################################
    def getChildClass(self, index):
@@ -1962,7 +1980,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
          
 
    #############################################################################
-   def spawnChild(self, childID, privSpawnReqd=False, fsync=True):
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False):
       if privSpawnReqd:
          raise MultisigError('Priv spawning does not make sense w/ multisig!')
 
@@ -1977,15 +1995,20 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
          pkList.append(ch.getSerializedPubKey())
 
 
-      childMBEK = self.getChildClass(childID)()
+      if forIDCompute():
+         childMBEK = MBEK_Generic()
+      else:
+         childMBEK = self.getChildClass(childID)()
+
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
 
 
       # This actually sets the values in place 
-      childMBEK.recomputeUniqueIDBin()
-      childMBEK.recomputeUniqueIDB58()
       childMBEK.recomputeScript()
       childMBEK.recomputeScrAddr()
+      if not forIDCompute:
+         childMBEK.recomputeUniqueIDBin()
+         childMBEK.recomputeUniqueIDB58()
 
 
    #############################################################################
@@ -2118,8 +2141,9 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 
 ################################################################################
 class MBEK_StdWallet(MultisigABEK):
-
    FILECODE = 'MEK32WLT'
+   TREELEAF  = False
+   HARDCHILD = False
 
    #############################################################################
    def __init__(self, M=None, N=None, siblingList=None):
@@ -2142,10 +2166,6 @@ class MBEK_StdWallet(MultisigABEK):
          self.addSiblingID(sib)
 
    #############################################################################
-   def isTreeLeaf(self):
-      return False
-
-   #############################################################################
    def getChildClass(self, index):
       cnum,ishard = SplitChildIndex(index)
       if cnum>=self.maxChildren or ishard:
@@ -2163,6 +2183,9 @@ class MBEK_StdWallet(MultisigABEK):
 ################################################################################
 class MBEK_StdChainExt(MultisigABEK):
    FILECODE = 'MEK32CEX'
+   TREELEAF  = False
+   HARDCHILD = False
+
    #############################################################################
    def __init__(self):
       super(MBEK_StdLeaf, self).__init__()
@@ -2184,6 +2207,9 @@ class MBEK_StdChainExt(MultisigABEK):
 ################################################################################
 class MBEK_StdChainInt(MultisigABEK):
    FILECODE = 'MEK32CIN'
+   TREELEAF  = False
+   HARDCHILD = False
+
    #############################################################################
    def __init__(self):
       super(MBEK_StdLeaf, self).__init__()
@@ -2207,6 +2233,9 @@ class MBEK_StdChainInt(MultisigABEK):
 ################################################################################
 class MBEK_StdLeaf(MultisigABEK):
    FILECODE = 'MEK32LEF'
+   TREELEAF  = True
+   HARDCHILD = False
+
    #############################################################################
    def __init__(self):
       super(MBEK_StdLeaf, self).__init__()
@@ -2217,10 +2246,6 @@ class MBEK_StdLeaf(MultisigABEK):
       return ABEK_StdLeaf
 
    #############################################################################
-   def isTreeLeaf(self): 
-      return True
-
-   #############################################################################
    def getChildClass(self, index):
       raise ChildDeriveError('Cannot derive child from leaf')
 
@@ -2228,9 +2253,10 @@ class MBEK_StdLeaf(MultisigABEK):
 
 ################################################################################
 class MBEK_StdBip32Root(MultisigABEK):
-
-
    FILECODE = 'MULWLTMS' # MULti WaLleT MultiSig
+   TREELEAF  = False
+   HARDCHILD = False  # see comment below
+
 
    #############################################################################
    def __init__(self, M=None, N=None, siblingList=None, labels=None):
@@ -2272,14 +2298,32 @@ class MBEK_StdBip32Root(MultisigABEK):
 
 
 #############################################################################
+# ?BEK_Generic classes are for the occasional times that we just need a 
+# generic BIP32 node for various calculations and don't want arbitrary
+# limitations on child spawning (mostly during testing)
 class ABEK_Generic(ArmoryBip32ExtendedKey):
+   TREELEAF  = False
+   HARDCHILD = False
+
    def __init__(self):
       super(ABEK_Generic, self).__init__()
       self.maxChildren = UINT32_MAX
 
    def getChildClass(self, index): 
+      # No restrictions on spawn class (non-hardened is default, though)
       return ABEK_Generic
 
+#############################################################################
+class MBEK_Generic(MultisigABEK):
+   TREELEAF  = False
+   HARDCHILD = False
+
+   def __init__(self):
+      super(MBEK_Generic, self).__init__()
+      self.maxChildren = UINT32_MAX
+
+   def getChildClass(self, index): 
+      return ABEK_Generic
 
 
 
