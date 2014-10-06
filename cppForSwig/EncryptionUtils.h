@@ -435,13 +435,13 @@ public:
                                 BinaryData const & B);
 
    bool ECMultiplyPoint(BinaryData const & A, 
-                              BinaryData const & Bx,
+                        BinaryData const & Bx,
                         BinaryData const & By,
                         BinaryData& multResult);
 
    bool ECAddPoints(BinaryData const & Ax, 
-                          BinaryData const & Ay,
-                          BinaryData const & Bx,
+                    BinaryData const & Ay,
+                    BinaryData const & Bx,
                     BinaryData const & By,
                     BinaryData& addResult);
 
@@ -571,7 +571,8 @@ public:
 
    // Derive a child key from an incoming key (pub or pri).
    ExtendedKey childKeyDeriv(ExtendedKey const & extPar,
-                             uint32_t childNum);
+                             uint32_t childNum,
+                             SecureBinaryData* multiplierOut=NULL); 
 
    // Use a seed to create a master key.
    ExtendedKey ConvertSeedToMasterKey(SecureBinaryData const & seed);

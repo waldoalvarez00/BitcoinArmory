@@ -16,10 +16,12 @@ except:
 
 
 ################################################################################
-NULLSTR   = lambda numBytes=0: '\x00'*numBytes
-NULLSBD   = lambda numBytes=0: SecureBinaryData(numBytes)
 NULLKDF   = "IDENTITY"
 NULLCRYPT = "IDENTITY"
+
+NULLSTR       = lambda numBytes=0: '\x00'*numBytes
+NULLSBD       = lambda numBytes=0: SecureBinaryData(numBytes)
+NULLCRYPTINFO = lambda:  ArmoryCryptInfo(None)
 
 CRYPT_KEY_SRC = enum('PASSWORD', 'MULTIPWD', 'PARCHAIN', 'RAWKEY32', 'EKEY_OBJ')
 CRYPT_IV_SRC  = enum('STOREDIV', 'PUBKEY20')

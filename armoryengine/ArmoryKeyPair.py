@@ -963,8 +963,9 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
       try:
          aciDecryptAgs = self.getPrivCryptArgs(self.seedCryptInfo)
-         return self.seedCryptInfo.decrypt( \
-                  self.sbdSeedData, **aciDecryptAgs)
+         paddedSeed = self.seedCryptInfo.decrypt(self.sbdSeedData, 
+                                                         **aciDecryptAgs)
+         return SecureBinaryData(paddedSeed.toBinStr()[:self.seedNumBytes])
       except:
          LOGEXCEPT('Failed to decrypt master seed')
          return NULLSBD()
@@ -1370,13 +1371,13 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
          sbdPriv           = sbdPlainSeed.toBinStr()
          self.sbdChaincode = DeriveChaincodeFromRootKey_135(sbdPriv)
 
-      # Set new priv key with encryption
-      self.setNewPlainPrivKey(sbdPriv, self.privCryptInfo)
-
       # Make sure the public key is properly set
       self.sbdPublicKey33  = CryptoECDSA().ComputePublicKey(sbdPriv)
       if self.sbdPublicKey33.getSize()==65:
          self.sbdPublicKey33 = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
+
+      # Set new priv key with encryption (must be set after pub key)
+      self.setNewPlainPrivKey(sbdPriv, self.privCryptInfo)
 
       # Do verification of pubkey, if requested
       if verifyPub:
@@ -1594,6 +1595,45 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
          bp.put(UINT32, i)
       return bp.getBinaryString() 
       
+   #############################################################################
+   def getSpawnMultiplierForChild(self, childID):
+      cnum,hard = SplitChildIndex(childID)
+      if hard:
+         raise ChildDeriveError('Cannot get multiplier for hardened children')
+
+      sbdMult = NULLSBD()
+      extPubKey = Cpp.ExtendedKey(self.sbdPublicKey33, self.sbdChaincode)
+      extChild = Cpp.HDWalletCrypto().childKeyDeriv(extPubKey, childID, sbdMult)
+
+      if sbdMult.getSize() == 0:
+         raise KeyDataError('Multiplier was not set in childKeyDeriv call')
+
+      return sbdMult.toBinStr()
+
+      
+   #############################################################################
+   def getMultiplierList(self, fromBaseScrAddr=None):
+      currAKP = self.akpParentRef
+      if currAKP is None:
+         raise ChildDeriveError('Cannot get multiplier list without a parent')
+         
+
+      multipliersToCalc = [[currAKP, self.childIndex]]
+      while not currAKP==fromBaseScrAddr:
+         currAKP = currAKP.akpParentRef
+         if currAKP is None:
+            break
+         multipliersToCalc.append([currAKP, currAKP.childIndex])
+         if currAKP.getScrAddr() == fromBaseScrAddr:
+            break
+
+      topScrAddr = multipliersToCalc[-1][0].getScrAddr() 
+
+      multList = []
+      for akp,idx in multipliersToCalc[::-1]:
+         multList.append(akp.getSpawnMultiplierForChild(idx))
+
+      return topScrAddr, multList
 
 
 ################################################################################
@@ -1613,9 +1653,9 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       """
 
       cppExtKey = Cpp.HDWalletCrypto().ConvertSeedToMasterKey(sbdPlainSeed)
-      self.setNewPlainPrivKey(cppExtKey.getPrivateKey(), self.privCryptInfo)
       self.sbdPublicKey33   = cppExtKey.getPublicKey().copy()
       self.sbdChaincode     = cppExtKey.getChaincode().copy()
+      self.setNewPlainPrivKey(cppExtKey.getPrivateKey(), self.privCryptInfo)
 
       if verifyPub:
          if not self.sbdPublicKey33 == CryptoECDSA().CompressPoint(verifyPub):
@@ -1625,10 +1665,11 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       self.seedNumBytes = sbdPlainSeed.getSize()
       self.seedCryptInfo = self.privCryptInfo.copy()
       # Normally PUBKEY20 is IV for priv, but need different new IV for the seed
-      self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
+      self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8).toBinStr()
       self.seedNumBytes = sbdPlainSeed.getSize()
-      self.sbdSeedData = self.seedCryptInfo.encrypt(sbdPlainSeed, 
-                                                     ekeyObj=self.masterEkeyRef)
+      paddedSize = roundUpMod(self.seedNumBytes, self.seedCryptInfo.getBlockSize())
+      paddedSeed = SecureBinaryData(sbdPlainSeed.toBinStr().ljust(paddedSize, '\x00'))
+      self.sbdSeedData = self.seedCryptInfo.encrypt(paddedSeed, ekeyObj=self.masterEkeyRef)
 
 
       self.isWatchOnly     = False

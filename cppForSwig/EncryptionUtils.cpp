@@ -1302,10 +1302,14 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
 
    // This allows us to initialize a public extended key
    if(key[0] == 0x02 || key[0] == 0x03)
+   {
       pubKey_ = key.copy();
+      version_ = PUBVER;
+   }
+   else
+      version_ = PRVVER;
 
    updatePubKey();
-   version_ = PRVVER;
    parentFP_ = SecureBinaryData::CreateFromHex("00000000");
    validKey_ = true;
 }
@@ -1579,7 +1583,8 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 // child for whatever key data is there.
 //
 ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
-                                          uint32_t childNum)
+                                          uint32_t childNum,
+                                          SecureBinaryData* multiplierOut)
 {
    // Can't compute a child with no parent!
    assert(extPar.isInitialized());
@@ -1627,6 +1632,10 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       ecOrder.Decode(CURVE_ORDER_BE.getPtr(), CURVE_ORDER_BE.getSize(),
                      UNSIGNED);
       intLeft.Decode(leftHMAC.getPtr(), leftHMAC.getSize(), UNSIGNED);
+
+      if(multiplierOut != NULL && !isHardened(childNum))
+         multiplierOut->copyFrom(leftHMAC);
+
       if(intLeft >= ecOrder) 
       {
          LOGERR << "Somehow derived priv key is greater than EC order";
