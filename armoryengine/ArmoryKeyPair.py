@@ -26,16 +26,17 @@ DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Bitcoin'] = 2  # Look two wallets ahead
 DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Look two wallets ahead
 DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Look two wallets ahead
 DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']     = 2
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 500
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 10
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 5
 DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']       = 0  # leaf node
 
-DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 30
-DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100
+DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 5
+DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 50
 DEFAULT_CHILDPOOLSIZE['MBEK_StdChainInt']  = 10
 DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 
-DEFAULT_CHILDPOOLSIZE['ARMORY135_SEED']    = 1000  # old Armory wallets
+DEFAULT_CHILDPOOLSIZE['Armory135Root']     = 1000  # old Armory wallets
+DEFAULT_CHILDPOOLSIZE['Armory135KeyPair']  = 1     # old Armory wallets
 
 
 # A key type with no constraints on child generation, mainly for testing
@@ -122,7 +123,6 @@ class ArmoryKeyPair(WalletEntry):
       self.keyBornBlock    = 0
       self.privKeyNextUnlock = False
       self.akpParScrAddr   = None
-      self.akpRootScrAddr  = None
       self.childIndex      = None
 
       # Used for the recursive fill-keypool call
@@ -311,7 +311,6 @@ class ArmoryKeyPair(WalletEntry):
       self.privKeyNextUnlock = other.privKeyNextUnlock
 
       self.akpParScrAddr   = other.akpParScrAddr
-      self.akpRootScrAddr  = other.akpRootScrAddr
       self.childIndex      = other.childIndex
 
       self.akpChildByIndex   = other.akpChildByIndex.copy()
@@ -385,7 +384,6 @@ class ArmoryKeyPair(WalletEntry):
                            sbdChaincode,
                            privKeyNextUnlock,
                            akpParScrAddr,
-                           akpRootScrAddr,
                            childIndex,
                            useCompressPub,
                            isUsed,
@@ -401,7 +399,6 @@ class ArmoryKeyPair(WalletEntry):
       self.sbdChaincode    = SecureBinaryData(sbdChaincode)
       self.privKeyNextUnlock = privKeyNextUnlock
       self.akpParScrAddr   = akpParScrAddr
-      self.akpRootScrAddr  = akpRootScrAddr
       self.childIndex      = childIndex
       self.useCompressPub  = useCompressPub
       self.isUsed          = isUsed
@@ -428,11 +425,9 @@ class ArmoryKeyPair(WalletEntry):
          pubKey = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
 
       parentID = self.akpParScrAddr
-      rootID   = self.akpRootScrAddr
       isRootRoot = False
       if parentID is None:
          parentID = ''
-         rootID = ''
          childIndex = UINT32_MAX
          isRootRoot = True
 
@@ -460,7 +455,6 @@ class ArmoryKeyPair(WalletEntry):
       bp.put(VAR_STR,       pubKey)
       bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
       bp.put(VAR_STR,       parentID)
-      bp.put(VAR_STR,       rootID)
       bp.put(UINT32,        self.childIndex)
       
       # Add Reed-Solomon error correction 
@@ -513,7 +507,6 @@ class ArmoryKeyPair(WalletEntry):
       pubk              = akpUnpack.get(VAR_STR)
       chain             = akpUnpack.get(VAR_STR)
       parentID          = akpUnpack.get(VAR_STR)
-      rootID            = akpUnpack.get(VAR_STR)
       childIndex        = akpUnpack.get(UINT32)
 
 
@@ -540,7 +533,6 @@ class ArmoryKeyPair(WalletEntry):
 
       if isRootRoot:
          akpParScrAddr = None
-         akpRootScrAddr = None
          childIndex = None
 
       self.initializeAKP( isWatchOnly,
@@ -550,7 +542,6 @@ class ArmoryKeyPair(WalletEntry):
                           sbdChaincode,
                           privKeyNextUnlock,
                           akpParScrAddr,
-                          akpRootScrAddr,
                           childIndex,
                           useCompressPub,
                           isUsed,
@@ -898,13 +889,16 @@ class ArmoryKeyPair(WalletEntry):
 
       childAddr.keyBornTime = RightNow()
       childAddr.keyBornBlock = currBlk
+      childAddr.isUsed = True
 
-      if fsync:
-         childAddr.isUsed = True
-         self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
-         self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
-         self.wltFileRef.fsyncUpdates()
-         self.fillKeyPoolRecurse()
+      # This is mostly redundant, but makes sure that lowestUnused and nextCalc
+      # are updated properly
+      self.addChildRef(childAddr)
+
+      self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
+      self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
+      self.wltFileRef.fsyncUpdates()
+      self.fillKeyPoolRecurse()
       
       return childAddr
 
@@ -917,6 +911,35 @@ class ArmoryKeyPair(WalletEntry):
       self.isWatchOnly = True
        
       
+
+   #############################################################################
+   def getParentList(self, fromBaseScrAddr=None):
+      """
+      If the BIP32 tree looks like:  
+         SeedRoot --> Wallet --> Chain --> Address(this)
+      Then this will return:
+         [[SeedRootRef, a], [WalletRef, b], [ChainRef, c]]
+      Where a,b,c are the child indices
+      """
+      currIndex = self.childIndex
+      parentAKP = self.akpParentRef
+      if parentAKP is None:
+         return []
+         
+      foundBase = False
+      revParentList = []
+      while parentAKP is not None:
+         revParentList.append([parentAKP, currIndex])
+         if parentAKP.getScrAddr() == fromBaseScrAddr:
+            foundBase = True
+            break
+         currIndex = parentAKP.childIndex
+         parentAKP = parentAKP.akpParentRef
+
+      if fromBaseScrAddr and not foundBase:
+         raise ChildDeriveError('Requested up to base par, but not found!')
+
+      return revParentList[::-1]
 
 
 #############################################################################
@@ -1071,10 +1094,14 @@ class Armory135KeyPair(ArmoryKeyPair):
       is otherwise written for BIP32 works as expected for Armory 1.35 AKPs
       (with a few tweaks, such as not holding the entire derive path)
 
-      Note, it would technically be correct & rigorous to have every AKP135
-      object hold it's full derive path, but instead we "compress" it by only
-      storing the chainIndex and [0] for the path.  Storing [0]*chainIndex 
-      would create O(N^2) storage which would cripple us using huge wallets.
+      CHILD_Index is what is used by Bip32 keys, but always 0 here (as above)
+      CHAIN_Index is the old Armory wlt concept, and only tracked by the root
+
+      For Armory135KeyPair objects, we let the base class still manage the 
+      children and parent references (though there will only ever be one
+      child, and it has childIndex=0), and we add logic to have the root track
+      all children, recursively (in the akp135IndexMap & akp135ScrAddrMap)
+
       """
       super(Armory135KeyPair, self).__init__(*args, **kwargs)
 
@@ -1082,7 +1109,6 @@ class Armory135KeyPair(ArmoryKeyPair):
       self.chainIndex = None
       self.childIndex = 0  # always 0 for Armory 135 keys
       self.akpRootRef = None
-      self.childPoolSize = 0
       self.maxChildren = 1
 
 
@@ -1100,11 +1126,11 @@ class Armory135KeyPair(ArmoryKeyPair):
       super(Armory135KeyPair, self).addChildRef(childAKP)
 
       # For Armory135 addrs, we also store the child in akpRootRef
-      self.akpRootRef.akpChildByIndex[self.chainIndex] = childAKP
-      self.akpRootRef.akpChildByScrAddr[childAKP.getScrAddr()] = childAKP
+      self.akpRootRef.akp135IndexMap[childAKP.chainIndex] = childAKP
+      self.akpRootRef.akp135ScrAddrMap[childAKP.getScrAddr()] = childAKP
       if childAKP.isUsed:
          self.akpRootRef.lowestUnusedChild = \
-                 max(self.akpRootRef.lowestUnusedChild, childAKP.chainIndex+1)
+            max(self.akpRootRef.lowestUnusedChild, childAKP.chainIndex+1)
 
                               
 
@@ -1139,6 +1165,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          
 
       # If we are not watch-only but only deriving a pub key, need to set flag
+      nextUnlockFlag = False
       if pavail in [PRIV_KEY_AVAIL.NeedDecrypt, PRIV_KEY_AVAIL.NextUnlock]:
          nextUnlockFlag = True
 
@@ -1175,7 +1202,8 @@ class Armory135KeyPair(ArmoryKeyPair):
          if sbdNewKey1.toBinStr() == sbdNewKey2.toBinStr():
             sbdNewKey2.destroy()
             with open(MULT_LOG_FILE,'a') as f:
-               f.write('%s chain (pkh, mult): %s,%s\n' % (extendType, logMult1.toHexStr()))
+               f.write('%s chain (pkh, mult): %s,%s\n' % (extendType, 
+                  pubKey65.getHash160().toHexStr(), logMult1.toHexStr()))
          else:
             LOGCRIT('Chaining failed!  Computed keys are different!')
             LOGCRIT('Recomputing chained key 3 times; bail if they do not match')
@@ -1204,7 +1232,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          # Assign the above calcs based on the type of calculation
          if extendType=='Private':
             privPlain = sbdNewKey1.copy()
-            pubKey65  = CryptoECDSA().ComputePublicKey(sbdNewPriv)
+            pubKey65  = CryptoECDSA().ComputePublicKey(privPlain)
          else:
             privPlain = NULLSBD()
             pubKey65  = sbdNewKey1.copy()
@@ -1223,11 +1251,13 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.childIndex = 0
          childAddr.akpChildByIndex   = {}
          childAddr.akpChildByScrAddr = {}
+         childAddr.akpRootRef = self.akpRootRef
 
-         childAddr.recomputeUniqueIDBin()
-         childAddr.recomputeUniqueIDB58()
          childAddr.recomputeScript()
          childAddr.recomputeScrAddr()
+         if not forIDCompute:
+            childAddr.recomputeUniqueIDBin()
+            childAddr.recomputeUniqueIDB58()
 
          if fsync:
             self.fsync()
@@ -1268,23 +1298,20 @@ class Armory135KeyPair(ArmoryKeyPair):
       return bp.getBinaryString()
 
    #############################################################################
-   #@staticmethod
-   #def readAddrLocatorString(self, locStr):
-      #bu = makeBinaryUnpacker(locStr)
-      #akpType     = bu.get(BINARY_CHUNK, 4)
-      #locType     = bu.get(VAR_STR)
-      #rootScrAddr = bu.get(VAR_STR)
-      #chainIndex  = bu.get(UINT32)
-      
-      
-
-
+   def peekNextUnusedChild(self):
+      raise NotImplementedError('Method not appropriate on A135 keypair objs')
+   def getNextUnusedChild(self, currBlk=0):
+      raise NotImplementedError('Method not appropriate on A135 keypair objs')
+   def getNextChangeAddress(self, *args, **kwargs):
+      raise NotImplementedError('Method not appropriate on A135 keypair objs')
+   def getNextReceivingAddress(self, *args, **kwargs):
+      raise NotImplementedError('Method not appropriate on A135 keypair objs')
 
 
 ################################################################################
 class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    #############################################################################
-   def __init__(self, *args, **kwargs):
+   def __init__(self):
       """
       We treat Armory 1.35 keys like a strange BIP32 tree.  If the root is "m"
       and this key's chainIndex is 8, we treat it like:
@@ -1295,13 +1322,14 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       is otherwise written for BIP32 works as expected for Armory 1.35 AKPs
       (with a few tweaks, such as not holding the entire derive path)
       """
-      super(Armory135Root, self).__init__(*args, **kwargs)
+      Armory135KeyPair.__init__(self)
+      ArmorySeededKeyPair.__init__(self)
 
       self.chainIndex       = -1
       self.akp135IndexMap   = {}
       self.akp135ScrAddrMap = {}
-      self.childPoolSize = DEFAULT_CHILDPOOLSIZE['ARMORY135_SEED']
-      self.isFakeRoot    = False  
+      self.akpRootRef       = self
+
 
    #############################################################################
    def fillKeyPoolRecurse(self):
@@ -1365,10 +1393,10 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       wallets from them. 
       """
       if sbdPlainSeed.getSize() == 64:
-         sbdPriv           = sbdPlainSeed.toBinStr()[:32 ]
-         self.sbdChaincode = sbdPlainSeed.toBinStr()[ 32:]
+         sbdPriv           = SecureBinaryData(sbdPlainSeed.toBinStr()[:32 ])
+         self.sbdChaincode = SecureBinaryData(sbdPlainSeed.toBinStr()[ 32:])
       elif sbdPlainSeed.getSize() == 32:
-         sbdPriv           = sbdPlainSeed.toBinStr()
+         sbdPriv           = sbdPlainSeed.copy()
          self.sbdChaincode = DeriveChaincodeFromRootKey_135(sbdPriv)
 
       # Make sure the public key is properly set
@@ -1406,10 +1434,48 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       self.recomputeScript()
       self.recomputeScrAddr()
 
-      
       if fillPool:
          self.fillKeyPoolRecurse()
          
+
+
+   #############################################################################
+   def peekNextUnusedChild(self):
+      if self.lowestUnusedChild >= self.nextChildToCalc:
+         return self.akp135IndexMap[self.lowestUnusedChild-1].spawnChild(fsync=False)
+      else:
+         return self.akp135IndexMap[self.lowestUnusedChild]
+
+   #############################################################################
+   def getNextUnusedChild(self, currBlk=0):
+
+      if self.lowestUnusedChild >= self.nextChildToCalc:
+         childAddr = self.akp135IndexMap[self.lowestUnusedChild-1].spawnChild()
+      else:
+         childAddr = self.akp135IndexMap[self.lowestUnusedChild]
+
+      childAddr.keyBornTime = RightNow()
+      childAddr.keyBornBlock = currBlk
+      childAddr.isUsed = True
+
+      # This is mostly redundant, but makes sure that lowestUnused and nextCalc
+      # are updated properly
+      self.addChildRef(childAddr)
+
+      self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
+      self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
+      self.wltFileRef.fsyncUpdates()
+      self.fillKeyPoolRecurse()
+      
+      return childAddr
+
+
+   #############################################################################
+   # In 135 wallets, there is no difference between change and receiving.
+   def getNextChangeAddress(self, *args, **kwargs):
+      return getNextUnusedChild(*args, **kwargs)
+   def getNextReceivingAddress(self, *args, **kwargs):
+      return getNextUnusedChild(*args, **kwargs)
    
    #############################################################################
    def createNewSeed(self, seedSize, extraEntropy):
@@ -1613,27 +1679,14 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       
    #############################################################################
    def getMultiplierList(self, fromBaseScrAddr=None):
-      currAKP = self.akpParentRef
-      if currAKP is None:
-         raise ChildDeriveError('Cannot get multiplier list without a parent')
-         
+      parentList = self.getParentList(fromBaseScrAddr)
+      if len(parentList) == 0:
+         return '',[]
+      else:
+         topScrAddr = parentList[0].getScrAddr()
+         multList = [akp.getSpawnMultiplierForChild(i) for akp,i in parentList]
+         return topScrAddr, multList
 
-      multipliersToCalc = [[currAKP, self.childIndex]]
-      while not currAKP==fromBaseScrAddr:
-         currAKP = currAKP.akpParentRef
-         if currAKP is None:
-            break
-         multipliersToCalc.append([currAKP, currAKP.childIndex])
-         if currAKP.getScrAddr() == fromBaseScrAddr:
-            break
-
-      topScrAddr = multipliersToCalc[-1][0].getScrAddr() 
-
-      multList = []
-      for akp,idx in multipliersToCalc[::-1]:
-         multList.append(akp.getSpawnMultiplierForChild(idx))
-
-      return topScrAddr, multList
 
 
 ################################################################################

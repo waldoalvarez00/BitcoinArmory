@@ -3511,7 +3511,7 @@ def DeriveChaincodeFromRootKey_135(sbdPrivKey):
    # process with an independent crypto library.   The end result is that
    # we must keep the buggy implementation with us for as long as we keep
    # supporting Armory 1.35 wallets.
-   return SecureBinaryData( HMAC256_buggy( sbdPrivKey.getHash256(), \
+   return SecureBinaryData( HMAC256_buggy( hash256(sbdPrivKey.toBinStr()), \
                                      'Derive Chaincode from Root Key') )
 
 
