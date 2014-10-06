@@ -113,7 +113,7 @@ class ArmoryKeyPair(WalletEntry):
 
       # Stuff mainly
       self.isWatchOnly     = False
-      self.privCryptInfo   = ArmoryCryptInfo(None)
+      self.privCryptInfo   = NULLCRYPTINFO()
       self.sbdPrivKeyData  = NULLSBD()
       self.sbdPublicKey33  = NULLSBD()
       self.sbdChaincode    = NULLSBD()
@@ -906,9 +906,12 @@ class ArmoryKeyPair(WalletEntry):
    #############################################################################
    def wipePrivateData(self, fsync=False):
       self.sbdPrivKeyData.destroy() 
-      self.privCryptInfo = ArmoryCryptInfo(None)
+      self.privCryptInfo = NULLCRYPTINFO()
       self.masterEkeyRef = None
       self.isWatchOnly = True
+
+      if fsync:
+         self.fsyncUpdates()
        
       
 
@@ -942,6 +945,44 @@ class ArmoryKeyPair(WalletEntry):
       return revParentList[::-1]
 
 
+   #############################################################################
+   def pprintVerbose(self):
+      def returnScrAddr(obj):
+         try:
+            return binary_to_hex(obj.getScrAddr())
+         except:
+            ''
+
+      print 'Showing info for:', returnScrAddr(self)
+      print '   ChildIndex:', self.childIndex
+      print '   ParentSA:  ', returnScrAddr(self.akpParentRef)
+      try:
+         print '   RootSA:  ',   returnScrAddr(self.akpRootRef)
+         print '   ChainIndex:', self.chainIndex
+      except:
+         pass
+
+      print '   AKP Children:  #', len(self.akpChildByIndex)
+      for idx,ch in self.akpChildByIndex.iteritems():
+         print '      %04d    :'%idx, returnScrAddr(ch)
+
+      for sa,ch in self.akpChildByScrAddr.iteritems():
+         print '      %s      :'%returnScrAddr(ch), ch.childIndex
+
+      try:
+         print '   Root Children:  #', len(self.root135ChainMap)
+         for idx,ch in self.root135ChainMap.iteritems():
+            print '      %04d    :'%idx, returnScrAddr(ch)
+
+         for sa,ch in self.root135ScrAddrMap.iteritems():
+            print '      %s      :'%returnScrAddr(ch), ch.chainIndex
+      except:
+         pass
+
+
+
+
+
 #############################################################################
 class ArmorySeededKeyPair(ArmoryKeyPair):
    """
@@ -954,7 +995,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
    def __init__(self):
       # Extra data that needs to be encrypted
       super(ArmorySeededKeyPair, self).__init__()
-      self.seedCryptInfo  = ArmoryCryptInfo(None)
+      self.seedCryptInfo  = NULLCRYPTINFO()
       self.seedNumBytes   = 0
       self.sbdSeedData    = SecureBinaryData(0)
 
@@ -993,6 +1034,14 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
          LOGEXCEPT('Failed to decrypt master seed')
          return NULLSBD()
 
+
+   #############################################################################
+   def wipePrivateData(self, fsync=False):
+      self.sbdSeedData.destroy() 
+      self.seedCryptInfo = NULLCRYPTINFO()
+      super(ArmorySeededKeyPair, self).wipePrivateData(fsync)
+
+      
 
 
    #############################################################################
@@ -1049,7 +1098,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       # If no crypt info was designated, used default from this wallet file
       if cryptInfo is None:
          LOGINFO('No encryption requested, setting NULL encrypt objects')
-         self.seedCryptInfo = ArmoryCryptInfo(None)
+         self.seedCryptInfo = NULLCRYPTINFO()
          self.bip32seed_encr = SecureBinaryData()
          self.binPrivKey32_Encr  = SecureBinaryData()
       else
@@ -1100,7 +1149,7 @@ class Armory135KeyPair(ArmoryKeyPair):
       For Armory135KeyPair objects, we let the base class still manage the 
       children and parent references (though there will only ever be one
       child, and it has childIndex=0), and we add logic to have the root track
-      all children, recursively (in the akp135IndexMap & akp135ScrAddrMap)
+      all children, recursively (in the root135ChainMap & root135ScrAddrMap)
 
       """
       super(Armory135KeyPair, self).__init__(*args, **kwargs)
@@ -1114,6 +1163,9 @@ class Armory135KeyPair(ArmoryKeyPair):
 
    
 
+   #############################################################################
+   def getChildClass(self):
+      return Armory135KeyPair
       
 
    #############################################################################
@@ -1126,11 +1178,12 @@ class Armory135KeyPair(ArmoryKeyPair):
       super(Armory135KeyPair, self).addChildRef(childAKP)
 
       # For Armory135 addrs, we also store the child in akpRootRef
-      self.akpRootRef.akp135IndexMap[childAKP.chainIndex] = childAKP
-      self.akpRootRef.akp135ScrAddrMap[childAKP.getScrAddr()] = childAKP
+      rt = self.akpRootRef
+      rt.root135ChainMap[childAKP.chainIndex] = childAKP
+      rt.root135ScrAddrMap[childAKP.getScrAddr()] = childAKP
+      rt.rootNextToCalc = max(childAKP.chainIndex+1, rt.rootNextToCalc)
       if childAKP.isUsed:
-         self.akpRootRef.lowestUnusedChild = \
-            max(self.akpRootRef.lowestUnusedChild, childAKP.chainIndex+1)
+         rt.rootLowestUnused = max(rt.rootLowestUnused, childAKP.chainIndex+1)
 
                               
 
@@ -1226,8 +1279,9 @@ class Armory135KeyPair(ArmoryKeyPair):
 
          # Create a new object of the same class as this one, then copy 
          # all members and change a few
-         childAddr = self.__class__()
+         childAddr = self.getChildClass()()
          childAddr.copyFromAKP(self)
+         childAddr.isUsed = False
    
          # Assign the above calcs based on the type of calculation
          if extendType=='Private':
@@ -1241,7 +1295,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          # This sets the priv key (if non-empty)
          childAddr.sbdPublicKey33 = CryptoECDSA().CompressPoint(pubKey65)
          childAddr.sbdChaincode   = self.sbdChaincode.copy()
-         # See ABEK spawnChild for comment about key data order
+         # See ABEK spawnChild for comment about key setting order
          childAddr.setNewPlainPrivKey(privPlain, self.privCryptInfo)
          childAddr.masterEkeyRef = self.masterEkeyRef
          childAddr.privKeyNextUnlock = nextUnlockFlag
@@ -1253,15 +1307,15 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.akpChildByScrAddr = {}
          childAddr.akpRootRef = self.akpRootRef
 
-         childAddr.recomputeScript()
+         # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
          childAddr.recomputeScrAddr()
          if not forIDCompute:
-            childAddr.recomputeUniqueIDBin()
             childAddr.recomputeUniqueIDB58()
 
          if fsync:
-            self.fsync()
             self.addChildRef(childAddr)
+            self.fsync()
+            childAddr.fsync()
 
          return childAddr
 
@@ -1326,20 +1380,26 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       ArmorySeededKeyPair.__init__(self)
 
       self.chainIndex       = -1
-      self.akp135IndexMap   = {}
-      self.akp135ScrAddrMap = {}
+      self.root135ChainMap   = {}
+      self.root135ScrAddrMap = {}
+      self.rootLowestUnused  = 0
+      self.rootNextToCalc    = 0
       self.akpRootRef       = self
 
 
    #############################################################################
+   def getChildClass(self):
+      return Armory135KeyPair
+
+   #############################################################################
    def fillKeyPoolRecurse(self):
       # For 135 wallets, not actually recursive
-      currPool = self.nextChildToCalc - self.lowestUnusedChild
+      currPool = self.rootNextToCalc - self.rootLowestUnused
       toGen = max(0, self.childPoolSize - currPool)
       LOGINFO('Filling keypool:  topCalc=%d, lowUnuse=%d, pool=%s, toGen=%s' % \
-         (self.nextChildToCalc, self.lowestUnusedChild, self.childPoolSize, toGen))
+         (self.rootNextToCalc, self.rootLowestUnused, self.childPoolSize, toGen))
 
-      ch = self.getChildByIndex(self.nextChildToCalc-1)
+      ch = self.getChildByIndex(self.rootNextToCalc-1)
       for i in range(toGen):
          ch = ch.spawnChild(0, privSpawnReqd=False, fsync=True)
        
@@ -1349,7 +1409,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       if index==-1:
          return self
 
-      ch = self.akp135IndexMap.get(index)
+      ch = self.root135ChainMap.get(index)
       if ch is None:
          raise ChildDeriveError('Cannot get chain index not yet spawned')
       return ch
@@ -1357,7 +1417,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
 
    #############################################################################
    def getChildByScrAddr(self, scrAddr):
-      ch = self.akp135ScrAddrMap.get(scrAddr)
+      ch = self.root135ScrAddrMap.get(scrAddr)
       if ch is None:
          raise ChildDeriveError('Cannot find scrAddr in Armory135 root')
       return ch
@@ -1441,26 +1501,30 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
 
    #############################################################################
    def peekNextUnusedChild(self):
-      if self.lowestUnusedChild >= self.nextChildToCalc:
-         return self.akp135IndexMap[self.lowestUnusedChild-1].spawnChild(fsync=False)
+      if self.rootLowestUnused == 0:
+         return self.spawnChild(fsync=False)
+      elif self.rootLowestUnused >= self.rootNextToCalc:
+         return self.root135ChainMap[self.rootLowestUnused-1].spawnChild(fsync=False)
       else:
-         return self.akp135IndexMap[self.lowestUnusedChild]
+         return self.root135ChainMap[self.rootLowestUnused]
+
 
    #############################################################################
    def getNextUnusedChild(self, currBlk=0):
 
-      if self.lowestUnusedChild >= self.nextChildToCalc:
-         childAddr = self.akp135IndexMap[self.lowestUnusedChild-1].spawnChild()
+      if self.rootLowestUnused == 0:
+         childAddr = self.spawnChild()
+      elif self.rootLowestUnused >= self.rootNextToCalc:
+         childAddr = self.root135ChainMap[self.rootLowestUnused-1].spawnChild()
       else:
-         childAddr = self.akp135IndexMap[self.lowestUnusedChild]
+         childAddr = self.root135ChainMap[self.rootLowestUnused]
 
       childAddr.keyBornTime = RightNow()
       childAddr.keyBornBlock = currBlk
       childAddr.isUsed = True
+      childAddr.akpParentRef.addChildRef(childAddr)
+      self.rootLowestUnused += 1
 
-      # This is mostly redundant, but makes sure that lowestUnused and nextCalc
-      # are updated properly
-      self.addChildRef(childAddr)
 
       self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
       self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
@@ -1593,16 +1657,16 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.akpChildByIndex   = {}
       childAddr.akpChildByScrAddr = {}
 
-      childAddr.recomputeScript()
+      # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
       childAddr.recomputeScrAddr()
       if not forIDCompute:
-         childAddr.recomputeUniqueIDBin()
          childAddr.recomputeUniqueIDB58()
 
 
       if fsync:
-         self.fsync()
          self.addChildRef(childAddr)
+         childAddr.fsync()
+         self.fsync()
 
       return childAddr
 
@@ -2134,12 +2198,9 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
 
-
-      # This actually sets the values in place 
-      childMBEK.recomputeScript()
+      # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
       childMBEK.recomputeScrAddr()
       if not forIDCompute:
-         childMBEK.recomputeUniqueIDBin()
          childMBEK.recomputeUniqueIDB58()
 
 

@@ -826,10 +826,6 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       self.assertEqual(sbdPriv, decrypted)
       self.ekey.lock()
 
-      #print 'OrigPriv: ', sbdPriv.toHexStr()
-      #print 'CryptPriv:', privCrypt.toHexStr()
-      #print 'Decrypted:', decrypted.toHexStr()
-
 
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
@@ -1355,10 +1351,20 @@ class A135_NoCrypt_Tests(unittest.TestCase):
          'PubKeyX': 'bbc9cd69dd6977b08d7916c0da81208df0b8a491b0897ca482bd42df47102d6b',
          'PubKeyY': 'f0318b3298ba93831df82b7ce51da5e0e8647a3ecd994f600a84834b424ed2b8' }
 
+      # For reference, here's the first 6 ScrAddrs
+      # ROOT: 00ef2ba030696d99d945fea3990e4213c62d042ddd
+      # 0: 001a61c02c74328db5122fa9c1d4917f05de86a8c2
+      # 1: 008e3bd0ad4a85b3fd3d4998397e8da93635aab664
+      # 2: 0071254bf82804253fbafaf49b45fe7f85eba0d3d5
+      # 3: 00ee068cf6c7b6fc77326cba37d621aebe834a5257
+      # 4: 00a7bd0654e2bebf43acfab6b75a4619e70464cce8
+      # 5: 008a78852b767f5b5dc8567dbfa53214e914430789
+
       for idx,imap in self.keyList.iteritems():
          imap['PrivKey']   = SecureBinaryData(parsePrivateKeyData(imap['PrivB58'])[0])
          imap['PubKey']    = SecureBinaryData(hex_to_binary('04' + imap['PubKeyX'] + imap['PubKeyY']))
          imap['Chaincode'] = self.chaincode.copy()
+         imap['ScrAddr']   = SCRADDR_P2PKH_BYTE + hash160(imap['PubKey'].toBinStr())
       
    #############################################################################
    def tearDown(self):
@@ -1433,61 +1439,247 @@ class A135_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(a135rt.getPlainSeedCopy().toHexStr(), seed.toHexStr())
       self.assertEqual(a135rt.getUniqueIDB58(), self.rootID)
 
+      self.assertEqual(a135rt.rootLowestUnused, 0)
+      self.assertEqual(a135rt.rootNextToCalc,   0)
+
+   #############################################################################
+   def testSpawnA135(self):
+
+      for WO in [False, True]:
+         a135 = Armory135KeyPair()
+         mockwlt = MockWalletFile()
+
+         seed = SecureBinaryData(self.binSeed)
+         a135rt = Armory135Root()
+         a135rt.privCryptInfo = NULLCRYPTINFO()
+         a135rt.childPoolSize = 3
+         a135rt.wltFileRef = mockwlt
+         a135rt.initializeFromSeed(seed, fillPool=False)
+
+         if WO:
+            a135rt.wipePrivateData()
+
+
+         a135 = a135rt.spawnChild()
+         self.assertEqual(a135rt.rootLowestUnused, 0)
+         self.assertEqual(a135rt.rootNextToCalc,   1)
+
+         prevScrAddr = a135rt.getScrAddr()
+         rootScrAddr = a135rt.getScrAddr()
+
+         kidx = 0
+         while kidx+1 in self.keyList:
+   
+            pub65 = self.keyList[kidx]['PubKey']
+            a160  = hash160(pub65.toBinStr())
+   
+            expectPriv   = self.keyList[kidx]['PrivKey'].copy()
+            expectPub    = CryptoECDSA().CompressPoint(pub65)
+            expectChain  = self.chaincode.copy()
+            expectScript = hash160_to_p2pkhash_script(a160)
+            expectScrAddr= script_to_scrAddr(expectScript)
+            self.assertEqual(expectScrAddr, self.keyList[kidx]['ScrAddr'])
+
+            if not WO:
+               self.assertEqual(a135.sbdPrivKeyData, expectPriv)
+               self.assertEqual(a135.getPlainPrivKeyCopy(), expectPriv)
+            else:
+               self.assertEqual(a135.sbdPrivKeyData, NULLSBD())
+   
+            self.assertEqual(a135.isWatchOnly, WO)
+            self.assertEqual(a135.sbdPublicKey33, expectPub)
+            self.assertEqual(a135.sbdChaincode,   expectChain)
+            self.assertEqual(a135.useCompressPub, False)
+            self.assertEqual(a135.isUsed, False)
+            self.assertEqual(a135.privKeyNextUnlock, False)
+            self.assertEqual(a135.akpParScrAddr, prevScrAddr)
+            self.assertEqual(a135.childIndex, 0)
+            self.assertEqual(a135.childPoolSize, 1)
+            self.assertEqual(a135.maxChildren, 1)
+            self.assertEqual(a135.rawScript,  expectScript)
+            self.assertEqual(a135.scrAddrStr, expectScrAddr)
+            self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
+            self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
+            self.assertEqual(a135.lowestUnusedChild, 0)
+            self.assertEqual(a135.nextChildToCalc,   0)
+         
+            kidx += 1
+            prevScrAddr = expectScrAddr
+            a135 = a135.spawnChild()
+         
+   
+         scrAddrToIndex = {}
+         for idx,a135 in a135rt.root135ChainMap.iteritems():
+            scrAddrToIndex[a135.getScrAddr()] = idx
+            self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
+            if idx>0:
+               self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
+               self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
+               self.assertEqual(len(a135.akpParentRef.akpChildByIndex), 1)
+               self.assertEqual(len(a135.akpParentRef.akpChildByScrAddr), 1)
+   
+         for scrAddr,a135 in a135rt.root135ScrAddrMap.iteritems():
+            self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
+
+
+   #############################################################################
+   def test135KeyPool(self):
+      for WO in [False, True]:
+         mockwlt = MockWalletFile()
+         seed = SecureBinaryData(self.binSeed)
+         a135rt = Armory135Root()
+         a135rt.privCryptInfo = NULLCRYPTINFO()
+         a135rt.childPoolSize = 5
+         a135rt.wltFileRef = mockwlt
+         a135rt.initializeFromSeed(seed, fillPool=False)
+
+
+         self.assertEqual(len(a135rt.akpChildByIndex),   0)
+         self.assertEqual(len(a135rt.akpChildByScrAddr), 0)
+         self.assertEqual(len(a135rt.root135ChainMap),   0)
+         self.assertEqual(len(a135rt.root135ScrAddrMap), 0)
+         self.assertEqual(a135rt.rootLowestUnused,       0)
+         self.assertEqual(a135rt.rootNextToCalc,         0)
+
+         if WO:
+            a135rt.wipePrivateData()
+
+
+         a135rt.fillKeyPoolRecurse()
+
+         self.assertEqual(len(a135rt.akpChildByIndex),   1)
+         self.assertEqual(len(a135rt.akpChildByScrAddr), 1)
+         self.assertEqual(len(a135rt.root135ChainMap),   5)
+         self.assertEqual(len(a135rt.root135ScrAddrMap), 5)
+         self.assertEqual(a135rt.rootLowestUnused,       0)
+         self.assertEqual(a135rt.rootNextToCalc,         5)
+
+
+         parScrAddr = a135rt.getScrAddr()
+         for i,ch in a135rt.root135ChainMap.iteritems():
+            kdata = self.keyList[i]
+            pub65 = kdata['PubKey']
+            a160  = hash160(pub65.toBinStr())
+            expectPriv   = kdata['PrivKey'].copy()
+            expectPub    = CryptoECDSA().CompressPoint(pub65)
+            expectChain  = self.chaincode.copy()
+            expectScript = hash160_to_p2pkhash_script(a160)
+            expectScrAddr= script_to_scrAddr(expectScript)
+
+            self.assertEqual(expectScrAddr, kdata['ScrAddr'])
+
+            self.assertEqual(ch.isWatchOnly, WO)
+            self.assertEqual(ch.sbdPublicKey33, expectPub)
+            self.assertEqual(ch.sbdChaincode,   expectChain)
+            self.assertEqual(ch.useCompressPub, False)
+            self.assertEqual(ch.isUsed, False)
+            self.assertEqual(ch.privKeyNextUnlock, False)
+            self.assertEqual(ch.akpParScrAddr, parScrAddr)
+            self.assertEqual(ch.childIndex, 0)
+            self.assertEqual(ch.chainIndex, i)
+            self.assertEqual(ch.childPoolSize, 1)
+            self.assertEqual(ch.maxChildren, 1)
+            self.assertEqual(ch.rawScript,  expectScript)
+            self.assertEqual(ch.scrAddrStr, expectScrAddr)
+            self.assertEqual(ch.lowestUnusedChild, 0)
+            self.assertEqual(ch.nextChildToCalc,   1 if i<4 else 0)
+
+            parScrAddr = expectScrAddr
+
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testSpawnA135(self):
-      a135 = Armory135KeyPair()
-      mockwlt = MockWalletFile()
+   def testGetNextUnused(self):
+      for WO in [False, True]:
+         mockwlt = MockWalletFile()
+         seed = SecureBinaryData(self.binSeed)
+         a135rt = Armory135Root()
+         a135rt.privCryptInfo = NULLCRYPTINFO()
+         a135rt.childPoolSize = 3
+         a135rt.wltFileRef = mockwlt
+         a135rt.initializeFromSeed(seed, fillPool=False)
 
-      seed = SecureBinaryData(self.binSeed)
-      a135rt = Armory135Root()
-      a135rt.privCryptInfo = NULLCRYPTINFO()
-      a135rt.childPoolSize = 3
-      a135rt.wltFileRef = mockwlt
-      a135rt.initializeFromSeed(seed, fillPool=False)
+         self.assertEqual(a135rt.rootLowestUnused, 0)
+         self.assertEqual(a135rt.rootNextToCalc, 0)
 
+         if WO:
+            a135rt.wipePrivateData()
 
-      kidx = 0
-      a135 = a135rt.spawnChild()
-      prevScrAddr = a135rt.getScrAddr()
-      rootScrAddr = a135rt.getScrAddr()
-      while kidx+1 in self.keyList:
+         kidx = 0
+         prevScrAddr = a135rt.getScrAddr()
+         rootScrAddr = a135rt.getScrAddr()
 
-         pub65 = self.keyList[kidx]['PubKey']
-         a160  = hash160(pub65.toBinStr())
+         # Peek at the next addr, confirm root didn't change
+         testChild = a135rt.peekNextUnusedChild()
+         self.assertEqual(len(a135rt.root135ChainMap), 0)
+         self.assertEqual(a135rt.rootLowestUnused, 0)
+         self.assertEqual(a135rt.rootNextToCalc, 0)
+         self.assertEqual(testChild.getScrAddr(), self.keyList[0]['ScrAddr'])
+         
 
-         expectPriv   = self.keyList[kidx]['PrivKey'].copy()
-         expectPub    = CryptoECDSA().CompressPoint(pub65)
-         expectChain  = self.chaincode.copy()
-         expectScript = hash160_to_p2pkhash_script(a160)
-         expectScrAddr= script_to_scrAddr(expectScript)
+         a135rt.pprintVerbose()
 
-         self.assertEqual(a135.isWatchOnly, False)
-         self.assertEqual(a135.sbdPrivKeyData, expectPriv)
-         self.assertEqual(a135.sbdPublicKey33, expectPub)
-         self.assertEqual(a135.sbdChaincode,   expectChain)
-         self.assertEqual(a135.useCompressPub, False)
-         self.assertEqual(a135.isUsed, False)
-         self.assertEqual(a135.privKeyNextUnlock, False)
-         self.assertEqual(a135.akpParScrAddr, prevScrAddr)
-         self.assertEqual(a135.childIndex, 0)
-         self.assertEqual(a135.childPoolSize, 1)
-         self.assertEqual(a135.maxChildren, 1)
-         self.assertEqual(a135.rawScript,  expectScript)
-         self.assertEqual(a135.scrAddrStr, expectScrAddr)
-         self.assertEqual(a135.akpParentRef.akpChildByIndex[kidx].getScrAddr(), expectScrAddr)
-         #self.assertEqual(a135.akpChildByIndex, {})
-         #self.assertEqual(a135.akpChildByScrAddr, {})
-         self.assertEqual(a135.lowestUnusedChild, 0)
-         self.assertEqual(a135.nextChildToCalc,   0)
+         while kidx+1 in self.keyList:
+   
+            # This calls fillKeyPoolRecurse, so the keypool is always +3
+            a135 = a135rt.getNextUnusedChild()
+            a135rt.pprintVerbose()
+            self.assertEqual(len(a135rt.root135ChainMap), 4)
+            self.assertEqual(a135rt.rootLowestUnused, kidx+1)
+            self.assertEqual(a135rt.rootNextToCalc, kidx+4)
+
+            pub65 = self.keyList[kidx]['PubKey']
+            a160  = hash160(pub65.toBinStr())
+   
+            expectPriv   = self.keyList[kidx]['PrivKey'].copy()
+            expectPub    = CryptoECDSA().CompressPoint(pub65)
+            expectChain  = self.chaincode.copy()
+            expectScript = hash160_to_p2pkhash_script(a160)
+            expectScrAddr= script_to_scrAddr(expectScript)
+            self.assertEqual(expectScrAddr, self.keyList[kidx]['ScrAddr'])
+
+            if not WO:
+               self.assertEqual(a135.sbdPrivKeyData, expectPriv)
+               self.assertEqual(a135.getPlainPrivKeyCopy(), expectPriv)
+            else:
+               self.assertEqual(a135.sbdPrivKeyData, NULLSBD())
+   
+            self.assertEqual(a135.isWatchOnly, WO)
+            self.assertEqual(a135.sbdPublicKey33, expectPub)
+            self.assertEqual(a135.sbdChaincode,   expectChain)
+            self.assertEqual(a135.useCompressPub, False)
+            self.assertEqual(a135.isUsed, True)
+            self.assertEqual(a135.privKeyNextUnlock, False)
+            self.assertEqual(a135.akpParScrAddr, prevScrAddr)
+            self.assertEqual(a135.childIndex, 0)
+            self.assertEqual(a135.childPoolSize, 1)
+            self.assertEqual(a135.maxChildren, 1)
+            self.assertEqual(a135.rawScript,  expectScript)
+            self.assertEqual(a135.scrAddrStr, expectScrAddr)
+            self.assertEqual(a135.lowestUnusedChild, 1)
+            self.assertEqual(a135.nextChildToCalc,   1)
+
+            self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
+            self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
+
+         
+            kidx += 1
+            prevScrAddr = expectScrAddr
+         
+   
+         scrAddrToIndex = {}
+         for idx,a135 in a135rt.root135ChainMap.iteritems():
+            scrAddrToIndex[a135.getScrAddr()] = idx
+            self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
+            if idx>0:
+               self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
+               self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
+               self.assertEqual(len(a135.akpParentRef.akpChildByIndex), 1)
+               self.assertEqual(len(a135.akpParentRef.akpChildByScrAddr), 1)
+   
+         for scrAddr,a135 in a135rt.root135ScrAddrMap.iteritems():
+            self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
       
-         kidx += 1
-         prevScrAddr = expectScrAddr
-         a135 = a135.spawnChild()
-      
-
-
 
 
 if __name__ == "__main__":
