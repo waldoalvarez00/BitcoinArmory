@@ -1213,7 +1213,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          if pavail==PRIV_KEY_AVAIL.WatchOnly:
             raise KeyDataError('Requires priv key, but this is a WO ext key')
          elif pavail==PRIV_KEY_AVAIL.NeedDecrypt:
-            raise KeyDataError('Requires priv key, no way to decrypt it')
+            raise WalletLockError('Requires priv key, no way to decrypt it')
          elif pavail==PRIV_KEY_AVAIL.NextUnlock:
             self.resolveNextUnlockFlag(fsync)
          
