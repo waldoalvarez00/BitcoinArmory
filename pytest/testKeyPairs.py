@@ -1544,6 +1544,16 @@ class A135_NoCrypt_Tests(unittest.TestCase):
          if WO:
             a135rt.wipePrivateData()
 
+         # Peek at the next addr, confirm root didn't change
+         testChild = a135rt.peekNextUnusedChild()
+         self.assertEqual(len(a135rt.akpChildByIndex),   0)
+         self.assertEqual(len(a135rt.akpChildByScrAddr), 0)
+         self.assertEqual(len(a135rt.root135ChainMap),   0)
+         self.assertEqual(len(a135rt.root135ScrAddrMap), 0)
+         self.assertEqual(a135rt.rootLowestUnused,       0)
+         self.assertEqual(a135rt.rootNextToCalc,         0)
+         self.assertEqual(testChild.getScrAddr(), self.keyList[0]['ScrAddr'])
+         
 
          a135rt.fillKeyPoolRecurse()
 
@@ -1567,6 +1577,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             expectScrAddr= script_to_scrAddr(expectScript)
 
             self.assertEqual(expectScrAddr, kdata['ScrAddr'])
+            self.assertEqual(expectScrAddr, kdata['ScrAddr'])
 
             self.assertEqual(ch.isWatchOnly, WO)
             self.assertEqual(ch.sbdPublicKey33, expectPub)
@@ -1584,23 +1595,53 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             self.assertEqual(ch.lowestUnusedChild, 0)
             self.assertEqual(ch.nextChildToCalc,   1 if i<4 else 0)
 
+            
+            if i>0:
+               # These checks look redundant, but are making sure all the refs
+               # are set properly between root, parent, child
+               par = a135rt.root135ChainMap[i-1]
+               self.assertEqual(par.akpChildByIndex[0].getScrAddr(), expectScrAddr)
+               self.assertEqual(ch.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
+               self.assertEqual(a135rt.root135ChainMap[i].getScrAddr(), expectScrAddr)
+               self.assertEqual(ch.akpRootRef.root135ChainMap[i].getScrAddr(), expectScrAddr)
+               self.assertTrue(expectScrAddr in par.akpChildByScrAddr)
+               self.assertTrue(expectScrAddr in a135rt.root135ScrAddrMap)
+
             parScrAddr = expectScrAddr
 
 
+
+         
+         a135rt.rootLowestUnused += 2
+         a135rt.fillKeyPoolRecurse()
+
+         self.assertEqual(len(a135rt.akpChildByIndex),   1)
+         self.assertEqual(len(a135rt.akpChildByScrAddr), 1)
+         self.assertEqual(len(a135rt.root135ChainMap),   7)
+         self.assertEqual(len(a135rt.root135ScrAddrMap), 7)
+         self.assertEqual(a135rt.rootLowestUnused,       2)
+         self.assertEqual(a135rt.rootNextToCalc,         7)
+
+
+
    #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
    def testGetNextUnused(self):
       for WO in [False, True]:
+         POOLSZ = 5
          mockwlt = MockWalletFile()
          seed = SecureBinaryData(self.binSeed)
          a135rt = Armory135Root()
          a135rt.privCryptInfo = NULLCRYPTINFO()
-         a135rt.childPoolSize = 3
+         a135rt.childPoolSize = POOLSZ
          a135rt.wltFileRef = mockwlt
          a135rt.initializeFromSeed(seed, fillPool=False)
 
-         self.assertEqual(a135rt.rootLowestUnused, 0)
-         self.assertEqual(a135rt.rootNextToCalc, 0)
+         self.assertEqual(len(a135rt.akpChildByIndex),   0)
+         self.assertEqual(len(a135rt.akpChildByScrAddr), 0)
+         self.assertEqual(len(a135rt.root135ChainMap),   0)
+         self.assertEqual(len(a135rt.root135ScrAddrMap), 0)
+         self.assertEqual(a135rt.rootLowestUnused,       0)
+         self.assertEqual(a135rt.rootNextToCalc,         0)
 
          if WO:
             a135rt.wipePrivateData()
@@ -1609,24 +1650,18 @@ class A135_NoCrypt_Tests(unittest.TestCase):
          prevScrAddr = a135rt.getScrAddr()
          rootScrAddr = a135rt.getScrAddr()
 
-         # Peek at the next addr, confirm root didn't change
-         testChild = a135rt.peekNextUnusedChild()
-         self.assertEqual(len(a135rt.root135ChainMap), 0)
-         self.assertEqual(a135rt.rootLowestUnused, 0)
-         self.assertEqual(a135rt.rootNextToCalc, 0)
-         self.assertEqual(testChild.getScrAddr(), self.keyList[0]['ScrAddr'])
-         
-
-         a135rt.pprintVerbose()
+         #a135rt.pprintVerbose()
 
          while kidx+1 in self.keyList:
+            #print '---Testing k =', kidx
    
             # This calls fillKeyPoolRecurse, so the keypool is always +3
             a135 = a135rt.getNextUnusedChild()
-            a135rt.pprintVerbose()
-            self.assertEqual(len(a135rt.root135ChainMap), 4)
+            #a135rt.pprintVerbose()
+            self.assertEqual(len(a135rt.root135ChainMap), kidx+POOLSZ+1)
+            self.assertEqual(len(a135rt.root135ScrAddrMap), kidx+POOLSZ+1)
             self.assertEqual(a135rt.rootLowestUnused, kidx+1)
-            self.assertEqual(a135rt.rootNextToCalc, kidx+4)
+            self.assertEqual(a135rt.rootNextToCalc, kidx+POOLSZ+1)
 
             pub65 = self.keyList[kidx]['PubKey']
             a160  = hash160(pub65.toBinStr())
@@ -1656,7 +1691,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             self.assertEqual(a135.maxChildren, 1)
             self.assertEqual(a135.rawScript,  expectScript)
             self.assertEqual(a135.scrAddrStr, expectScrAddr)
-            self.assertEqual(a135.lowestUnusedChild, 1)
+            self.assertEqual(a135.lowestUnusedChild, 0)
             self.assertEqual(a135.nextChildToCalc,   1)
 
             self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
@@ -1669,9 +1704,10 @@ class A135_NoCrypt_Tests(unittest.TestCase):
    
          scrAddrToIndex = {}
          for idx,a135 in a135rt.root135ChainMap.iteritems():
+            #print 'Testing,  %d:%s' % (idx,binary_to_hex(a135.getScrAddr()))
             scrAddrToIndex[a135.getScrAddr()] = idx
             self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
-            if idx>0:
+            if 0<idx<len(self.keyList):
                self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
                self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
                self.assertEqual(len(a135.akpParentRef.akpChildByIndex), 1)

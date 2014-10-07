@@ -946,38 +946,32 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   def pprintVerbose(self):
+   def pprintVerbose(self, indent=''):
       def returnScrAddr(obj):
          try:
             return binary_to_hex(obj.getScrAddr())
          except:
             ''
-
-      print 'Showing info for:', returnScrAddr(self)
-      print '   ChildIndex:', self.childIndex
-      print '   ParentSA:  ', returnScrAddr(self.akpParentRef)
       try:
-         print '   RootSA:  ',   returnScrAddr(self.akpRootRef)
-         print '   ChainIndex:', self.chainIndex
+         print indent + '   RootSA  :  ', returnScrAddr(self.akpRootRef)
+         print indent + '   ParentSA:  ', returnScrAddr(self.akpParentRef)
+         print indent + '   SelfSA:    ', returnScrAddr(self)
+         print indent + '   ChildIndex:', self.childIndex
+         print indent + '   ChainIdx:  ', self.chainIndex
       except:
-         pass
+         print indent + '   ParentSA:  ', returnScrAddr(self.akpParentRef)
+         print indent + '   SelfSA:    ', returnScrAddr(self)
+         print indent + '   ChildIndex:', self.childIndex
 
-      print '   AKP Children:  #', len(self.akpChildByIndex)
+      print indent + '   MarkedUsed:', '+++' if self.isUsed else '   '
+      print indent + '   LwestUnuse:', self.lowestUnusedChild
+      print indent + '   NxtToCalc: ', self.nextChildToCalc
+      print indent + '   AKP Children:  Num=', len(self.akpChildByIndex)
       for idx,ch in self.akpChildByIndex.iteritems():
-         print '      %04d    :'%idx, returnScrAddr(ch)
+         print indent + '      %04d    :'%idx, returnScrAddr(ch)
 
-      for sa,ch in self.akpChildByScrAddr.iteritems():
-         print '      %s      :'%returnScrAddr(ch), ch.childIndex
+      print '\n'
 
-      try:
-         print '   Root Children:  #', len(self.root135ChainMap)
-         for idx,ch in self.root135ChainMap.iteritems():
-            print '      %04d    :'%idx, returnScrAddr(ch)
-
-         for sa,ch in self.root135ScrAddrMap.iteritems():
-            print '      %s      :'%returnScrAddr(ch), ch.chainIndex
-      except:
-         pass
 
 
 
@@ -1125,6 +1119,13 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
 
 
+################################################################################
+################################################################################
+#
+# Classes for migrating old Armory 1.35 wallets to the wallet2.0 format
+#
+################################################################################
+################################################################################
 
 ################################################################################
 class Armory135KeyPair(ArmoryKeyPair):
@@ -1379,12 +1380,16 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       Armory135KeyPair.__init__(self)
       ArmorySeededKeyPair.__init__(self)
 
-      self.chainIndex       = -1
+      # In Armory135 wallets, we have a parallel set of maps/vars to track
+      # everything at the root.  akpChildBy*, lowestUnused, nextChildToCalc
+      # will all still be tracked by the root and each child, but it will
+      # be pretty boring.
+      self.chainIndex        = -1
       self.root135ChainMap   = {}
       self.root135ScrAddrMap = {}
       self.rootLowestUnused  = 0
       self.rootNextToCalc    = 0
-      self.akpRootRef       = self
+      self.akpRootRef        = self
 
 
    #############################################################################
@@ -1513,9 +1518,9 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    def getNextUnusedChild(self, currBlk=0):
 
       if self.rootLowestUnused == 0:
-         childAddr = self.spawnChild()
+         childAddr = self.spawnChild(fsync=True)
       elif self.rootLowestUnused >= self.rootNextToCalc:
-         childAddr = self.root135ChainMap[self.rootLowestUnused-1].spawnChild()
+         childAddr = self.root135ChainMap[self.rootLowestUnused-1].spawnChild(fsync=True)
       else:
          childAddr = self.root135ChainMap[self.rootLowestUnused]
 
@@ -1523,7 +1528,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       childAddr.keyBornBlock = currBlk
       childAddr.isUsed = True
       childAddr.akpParentRef.addChildRef(childAddr)
-      self.rootLowestUnused += 1
+      #self.rootLowestUnused += 1
 
 
       self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
@@ -1555,8 +1560,46 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       raise NotImplementedError('Encoding not implemented yet')
       
           
+   #############################################################################
+   def pprintVerbose(self, indent=''):
+      def returnScrAddr(obj):
+         try:
+            return binary_to_hex(obj.getScrAddr())
+         except:
+            ''
+
+      print indent + 'Showing info for:', returnScrAddr(self)
+      print indent + '   RootScrAddr', returnScrAddr(self.akpRootRef)
+      print indent + '   ParentScrA:', returnScrAddr(self.akpParentRef)
+      print indent + '   SelfScrAdd:', returnScrAddr(self)
+      print indent + '   ChildIndex:', self.childIndex
+      print indent + '   ChainIndex:', self.chainIndex
+      print indent + '   LwestUnuse:', self.lowestUnusedChild
+      print indent + '   NxtToCalc: ', self.nextChildToCalc
+      print indent + '   RtLowest:  ', self.rootLowestUnused
+      print indent + '   RtNextCa:  ', self.rootNextToCalc
+      print indent + '   AKP Children:  Num=', len(self.akpChildByIndex)
+      for idx,ch in self.akpChildByIndex.iteritems():
+         print indent + '      %d      :'%idx, returnScrAddr(ch)
+
+      #for sa,ch in self.akpChildByScrAddr.iteritems():
+         #print indent + '      %s      :'%returnScrAddr(ch), ch.childIndex
+
+      print indent + '   Root Children:  Num=', len(self.root135ChainMap)
+      for idx,ch in self.root135ChainMap.iteritems():
+         print indent + '      %d:      '%idx
+         ch.pprintVerbose(indent='          ---')
+
+      print '\n'
 
 
+################################################################################
+################################################################################
+#
+# Classes for BIP32 Extended Key objects
+#
+################################################################################
+################################################################################
 
 ################################################################################
 class ArmoryBip32ExtendedKey(ArmoryKeyPair):
