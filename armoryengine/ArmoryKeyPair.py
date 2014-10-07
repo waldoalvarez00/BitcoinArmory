@@ -662,7 +662,7 @@ class ArmoryKeyPair(WalletEntry):
       and correct for the new private key. 
       """
       if sbdPrivData is None or sbdPrivData.getSize()==0:
-         self.sbdPrivData = NULLSBD()
+         self.sbdPrivKeyData = NULLSBD()
          self.privCryptInfo = cryptInfo.copy()
          return
 
@@ -995,6 +995,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
       # This root has no key data.  Mainly for JBOK
       self.isFakeRoot    = False  
+      self.wltLvlParent  = self
 
 
    #############################################################################
@@ -1307,6 +1308,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.akpChildByIndex   = {}
          childAddr.akpChildByScrAddr = {}
          childAddr.akpRootRef = self.akpRootRef
+         childAddr.wltLvlParent = self.wltLvlParent
 
          # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
          childAddr.recomputeScrAddr()
@@ -1699,6 +1701,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.childIndex = childID
       childAddr.akpChildByIndex   = {}
       childAddr.akpChildByScrAddr = {}
+      childAddr.wltLvlParent = self.wltLvlParent
 
       # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
       childAddr.recomputeScrAddr()
@@ -2240,6 +2243,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
          childMBEK = self.getChildClass(childID)()
 
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
+      childMBEK.wltLvlParent = self.wltLvlParent
 
       # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
       childMBEK.recomputeScrAddr()

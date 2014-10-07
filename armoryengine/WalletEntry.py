@@ -145,7 +145,7 @@ class WalletEntry(object):
       self.serPayload = serPayload
       self.defaultPad = defaultPad
 
-      self.wltParentRef = None
+      self.wltLvlParent = None
       self.wltChildRefs = []
       self.outerEkeyRef = None
       #self.wltEntryID = None
@@ -170,7 +170,7 @@ class WalletEntry(object):
       self.serPayload = weOther.serPayload
       self.defaultPad = weOther.defaultPad
 
-      self.wltParentRef = weOther.wltParentRef
+      self.wltLvlParent = weOther.wltLvlParent
       self.wltChildRefs = weOther.wltChildRefs[:]
       self.outerEkeyRef = weOther.outerEkeyRef
       
