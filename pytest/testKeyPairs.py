@@ -2495,10 +2495,11 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
 
 
-   '''
    #############################################################################
    def testGetNextUnused_NextUnlock(self):
-      lkfjdlskjfd
+      """
+      Pretty much same as regular encrypted test, but all keys gen while locked
+      """
       POOLSZ = 3
       mockwlt = MockWalletFile()
       seed = SecureBinaryData(self.binSeed)
@@ -2511,26 +2512,14 @@ class A135_NextUnlock_Tests(unittest.TestCase):
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
 
-      self.assertEqual(len(a135rt.akpChildByIndex),   0)
-      self.assertEqual(len(a135rt.akpChildByScrAddr), 0)
-      self.assertEqual(len(a135rt.root135ChainMap),   0)
-      self.assertEqual(len(a135rt.root135ScrAddrMap), 0)
-      self.assertEqual(a135rt.rootLowestUnused,       0)
-      self.assertEqual(a135rt.rootNextToCalc,         0)
-
-
       kidx = 0
-      prevScrAddr = a135rt.getScrAddr()
       rootScrAddr = a135rt.getScrAddr()
 
-      #a135rt.pprintVerbose()
+      #### Lock before generating any keys
+      self.ekey.lock(self.password)
 
       while kidx+3 in self.keyList:
-         #print '---Testing k =', kidx
-
-         # This calls fillKeyPoolRecurse, so the keypool is always +3
          a135 = a135rt.getNextUnusedChild()
-         #a135rt.pprintVerbose()
          self.assertEqual(len(a135rt.root135ChainMap), kidx+POOLSZ+1)
          self.assertEqual(len(a135rt.root135ScrAddrMap), kidx+POOLSZ+1)
          self.assertEqual(a135rt.rootLowestUnused, kidx+1)
@@ -2538,7 +2527,6 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
          pub65 = self.keyList[kidx]['PubKey']
          a160  = hash160(pub65.toBinStr())
-
          expectPriv   = self.keyList[kidx]['PrivKey'].copy()
          expectCrypt  = self.keyList[kidx]['PrivCrypt'].copy()
          expectPub    = CryptoECDSA().CompressPoint(pub65)
@@ -2547,46 +2535,24 @@ class A135_NextUnlock_Tests(unittest.TestCase):
          expectScrAddr= script_to_scrAddr(expectScript)
          self.assertEqual(expectScrAddr, self.keyList[kidx]['ScrAddr'])
 
-         self.assertEqual(a135.sbdPrivKeyData, expectCrypt)
-         self.assertEqual(a135.getPlainPrivKeyCopy(), expectPriv)
-
+         self.assertEqual(a135.privKeyNextUnlock, True)
+         self.assertEqual(a135.sbdPrivKeyData, NULLSBD())
          self.assertEqual(a135.isWatchOnly, False)
          self.assertEqual(a135.sbdPublicKey33, expectPub)
          self.assertEqual(a135.sbdChaincode,   expectChain)
-         self.assertEqual(a135.useCompressPub, False)
-         self.assertEqual(a135.isUsed, True)
-         self.assertEqual(a135.privKeyNextUnlock, False)
-         self.assertEqual(a135.akpParScrAddr, prevScrAddr)
-         self.assertEqual(a135.childIndex, 0)
-         self.assertEqual(a135.childPoolSize, 1)
-         self.assertEqual(a135.maxChildren, 1)
-         self.assertEqual(a135.rawScript,  expectScript)
-         self.assertEqual(a135.scrAddrStr, expectScrAddr)
-         self.assertEqual(a135.lowestUnusedChild, 0)
-         self.assertEqual(a135.nextChildToCalc,   1)
-
-         self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
-         self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
-
       
          kidx += 1
-         prevScrAddr = expectScrAddr
       
 
-      scrAddrToIndex = {}
-      for idx,a135 in a135rt.root135ChainMap.iteritems():
-         #print 'Testing,  %d:%s' % (idx,binary_to_hex(a135.getScrAddr()))
-         scrAddrToIndex[a135.getScrAddr()] = idx
-         self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
-         if idx>0:
-            self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
-            self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
-            self.assertEqual(len(a135.akpParentRef.akpChildByIndex), 1)
-            self.assertEqual(len(a135.akpParentRef.akpChildByScrAddr), 1)
+      self.assertEqual(a135rt.getChildByIndex(2).sbdPrivKeyData, NULLSBD())
+      self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, NULLSBD())
+      self.ekey.unlock(self.password)
+      self.assertEqual(a135rt.getChildByIndex(2).sbdPrivKeyData, NULLSBD())
+      self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, NULLSBD())
 
-      for scrAddr,a135 in a135rt.root135ScrAddrMap.iteritems():
-         self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
-   '''
+      self.assertEqual(a135rt.getChildByIndex(3).getPlainPrivKeyCopy(), self.keyList[3]['PrivKey'])
+      self.assertEqual(a135rt.getChildByIndex(2).sbdPrivKeyData, self.keyList[2]['PrivCrypt'])
+      self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, self.keyList[3]['PrivCrypt'])
 
 
 
