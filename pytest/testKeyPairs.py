@@ -176,6 +176,73 @@ def skipFlagExists():
       return False
 
 
+
+#############################################################################
+def runSerUnserRoundTripTest(tself, akp):
+   """
+   Can be run with "self" as the first arg from inside a TestCase subclass
+   """
+   # Compare all properties for all classes, this function ignores a call 
+   # properties that don't exist for the input objects
+   def cmpprop(a,b,prop):
+      if hasattr(a, prop) and hasattr(b, prop):
+         tself.assertEqual(getattr(a, prop), getattr(b, prop))
+
+   CLASSAKP = akp.__class__
+   ser1     = akp.serialize()  
+   akpNew   = CLASSAKP().unserialize(ser1)
+   ser2     = akpNew.serialize()
+   akpNew2  = CLASSAKP().unserialize(ser2)
+   
+
+   # Now check that all the properties are identical
+   cmpprop(akpNew, akpNew2, 'isWatchOnly')
+   cmpprop(akpNew, akpNew2, 'isRootRoot')
+   cmpprop(akpNew, akpNew2, 'sbdPrivKeyData')
+   cmpprop(akpNew, akpNew2, 'sbdPublicKey33')
+   cmpprop(akpNew, akpNew2, 'sbdChaincode')
+   cmpprop(akpNew, akpNew2, 'useCompressPub')
+   cmpprop(akpNew, akpNew2, 'isUsed')
+   cmpprop(akpNew, akpNew2, 'keyBornTime')
+   cmpprop(akpNew, akpNew2, 'keyBornBlock')
+   cmpprop(akpNew, akpNew2, 'privKeyNextUnlock')
+   cmpprop(akpNew, akpNew2, 'akpParScrAddr')
+   cmpprop(akpNew, akpNew2, 'childIndex')
+   cmpprop(akpNew, akpNew2, 'maxChildren')
+   cmpprop(akpNew, akpNew2, 'rawScript')
+   cmpprop(akpNew, akpNew2, 'scrAddrStr')
+   cmpprop(akpNew, akpNew2, 'uniqueIDBin')
+   cmpprop(akpNew, akpNew2, 'uniqueIDB58')
+
+   tself.assertEqual( akpNew.privCryptInfo.serialize(),
+                     akpNew2.privCryptInfo.serialize())
+
+   cmpprop(akpNew, akpNew2, 'sbdSeedData')
+   cmpprop(akpNew, akpNew2, 'seedNumBytes')
+   cmpprop(akpNew, akpNew2, 'chainIndex')
+   cmpprop(akpNew, akpNew2, 'root135ScrAddr')
+
+   try:
+      tself.assertEqual( akpNew.seedCryptInfo.serialize(),
+                        akpNew2.seedCryptInfo.serialize())
+   except:
+      pass
+
+
+   # Test that the raw serializations are identical
+   tself.assertEqual(ser1, ser2)
+   
+
+   #tself.assertEqual(akpNew.childPoolSize, akpNew2.childPoolSize)
+   #tself.assertEqual(akpNew.akpChildByIndex, akpNew2.akpChildByIndex)
+   #tself.assertEqual(akpNew.akpChildByScrAddr, akpNew2.akpChildByScrAddr)
+   #tself.assertEqual(akpNew.lowestUnusedChild, akpNew2.lowestUnusedChild)
+   #tself.assertEqual(akpNew.nextChildToCalc, akpNew2.nextChildToCalc)
+   #tself.assertEqual(akpNew.akpParentRef, akpNew2.akpParentRef)
+   #tself.assertEqual(akpNew.masterEkeyRef, akpNew2.masterEkeyRef)
+
+
+
 ################################################################################
 class UtilityFuncTests(unittest.TestCase):
 
@@ -284,8 +351,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       
 
    #############################################################################
-   def testInitABEK(self):
-      #leaf = makeABEKGenericClass()
+   def test_InitABEK(self):
       abek = ABEK_Generic()
          
       self.assertEqual(abek.isWatchOnly, False)
@@ -297,8 +363,8 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(abek.keyBornTime, 0)
       self.assertEqual(abek.keyBornBlock, 0)
       self.assertEqual(abek.privKeyNextUnlock, False)
-      self.assertEqual(abek.akpParScrAddr, '')
-      self.assertEqual(abek.childIndex, UINT32_MAX)
+      self.assertEqual(abek.akpParScrAddr, None)
+      self.assertEqual(abek.childIndex, None)
       self.assertEqual(abek.childPoolSize, 5)
       self.assertEqual(abek.maxChildren, UINT32_MAX)
       self.assertEqual(abek.rawScript, None)
@@ -335,7 +401,10 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(abek.isDisabled,      False)
       self.assertEqual(abek.needFsync,       False)
 
+      self.assertRaises(UninitializedError, abek.serialize)
+
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testSpawnABEK(self):
       sbdPriv  = SecureBinaryData(BIP32TestVectors[1]['seedKey'].toBinStr()[1:])
       sbdPubk  = BIP32TestVectors[1]['seedCompPubKey']
@@ -394,6 +463,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(childAbek.uniqueIDBin, uidBin)
       self.assertEqual(childAbek.uniqueIDB58, uidB58)
 
+      runSerUnserRoundTripTest(self, childAbek)
 
 
    #############################################################################
@@ -461,7 +531,8 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
 
 
    #############################################################################
-   def testInitABEK(self):
+   @unittest.skipIf(skipFlagExists(), '')
+   def test_InitABEK2(self):
       #leaf = makeABEKGenericClass()
       abek = ABEK_Generic()
 
@@ -475,6 +546,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
 
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
+                         isRootRoot=False,
                          privCryptInfo=NULLCRYPTINFO(),
                          sbdPrivKeyData=sbdPriv,
                          sbdPublicKey33=sbdPubk,
@@ -527,7 +599,11 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
 
       self.assertEqual(abek.getPlainPrivKeyCopy(), sbdPriv)
 
+      runSerUnserRoundTripTest(self, abek)
+
+
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testKeyPool_D1(self):
       """
       Doesn't test the accuracy of ABEK calculations, only the keypool sizes
@@ -542,6 +618,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       # Do this both for priv-key-based derivation and WO-based deriv
       for testWatchOnly in [True,False]:
          echain.initializeAKP(isWatchOnly=testWatchOnly,
+                              isRootRoot=False,
                               privCryptInfo=NULLCRYPTINFO(),
                               sbdPrivKeyData=sbdPriv,
                               sbdPublicKey33=sbdPubk,
@@ -601,6 +678,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
 
       for testWatchOnly in [True,False]:
          awlt.initializeAKP(  isWatchOnly=testWatchOnly,
+                              isRootRoot=False,
                               privCryptInfo=NULLCRYPTINFO(),
                               sbdPrivKeyData=sbdPriv,
                               sbdPublicKey33=sbdPubk,
@@ -687,7 +765,11 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
                         SEEDTEST[1]['Seed'], verifyPub=WRONGPUBK)
 
 
+      runSerUnserRoundTripTest(self, abekSeed)
+
+
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testABEK_newSeed(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
@@ -709,8 +791,10 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       for seedsz in [16, 20, 256]:
          abekSeed.createNewSeed(seedsz, entropy, fillPool=False)
 
+      runSerUnserRoundTripTest(self, abekSeed)
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testGetParentList(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
@@ -812,7 +896,8 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       pass
       
    #############################################################################
-   def testSpawnABEK(self):
+   @unittest.skipIf(skipFlagExists(), '')
+   def test_SpawnABEK(self):
       #leaf = makeABEKGenericClass()
       abek = ABEK_Generic()
       
@@ -835,6 +920,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
+                         isRootRoot=False,
                          privCryptInfo=self.privACI,
                          sbdPrivKeyData=privCrypt,
                          sbdPublicKey33=sbdPubk,
@@ -900,9 +986,10 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       self.assertEqual(abek.TREELEAF, False)
       self.assertEqual(abek.getName(), 'ABEK_Generic')
 
-
+      runSerUnserRoundTripTest(self, abek)
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testSpawnABEK(self):
       # Start with this key pair
       sbdPriv  = SecureBinaryData(BIP32TestVectors[1]['seedKey'].toBinStr()[1:])
@@ -1050,10 +1137,12 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       self.assertEqual(childAbek.rawScript, chScript)
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
       
+      runSerUnserRoundTripTest(self, childABek)
 
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testKeyPool_D1(self):
       """
       Doesn't test the accuracy of ABEK calculations, only the keypool sizes
@@ -1079,6 +1168,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
       t = long(RightNow())
       echain.initializeAKP(isWatchOnly=False,
+                           isRootRoot=False,
                            privCryptInfo=self.privACI,
                            sbdPrivKeyData=privCrypt,
                            sbdPublicKey33=sbdPubk,
@@ -1150,17 +1240,18 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
       t = long(RightNow())
       awlt.initializeAKP(isWatchOnly=False,
-                           privCryptInfo=self.privACI,
-                           sbdPrivKeyData=privCrypt,
-                           sbdPublicKey33=sbdPubk,
-                           sbdChaincode=sbdChain,
-                           privKeyNextUnlock=False,
-                           akpParScrAddr=None,
-                           childIndex=None,
-                           useCompressPub=True,
-                           isUsed=True,
-                           keyBornTime=t,
-                           keyBornBlock=t)
+                         isRootRoot=False,
+                         privCryptInfo=self.privACI,
+                         sbdPrivKeyData=privCrypt,
+                         sbdPublicKey33=sbdPubk,
+                         sbdChaincode=sbdChain,
+                         privKeyNextUnlock=False,
+                         akpParScrAddr=None,
+                         childIndex=None,
+                         useCompressPub=True,
+                         isUsed=True,
+                         keyBornTime=t,
+                         keyBornBlock=t)
 
       awlt.masterEkeyRef = self.ekey
       awlt.wltFileRef = mockwlt
@@ -1201,9 +1292,11 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
             self.assertTrue(ch.privCryptInfo.useEncryption())
             self.assertEqual(ch.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
 
+      runSerUnserRoundTripTest(self, awlt)
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testABEK_seedCalc(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
@@ -1264,8 +1357,10 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       self.assertRaises(KeyDataError, abekSeed.initializeFromSeed, 
                         SEEDTEST[1]['Seed'], verifyPub=WRONGPUBK)
 
+      runSerUnserRoundTripTest(self, abekSeed)
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testABEK_newSeed(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
@@ -1294,6 +1389,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       for seedsz in [16, 20, 256]:
          abekSeed.createNewSeed(seedsz, entropy, fillPool=False)
 
+      runSerUnserRoundTripTest(self, abekSeed)
 
 
 
@@ -1378,6 +1474,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
       
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testInitA135(self):
       #leaf = makeABEKGenericClass()
       a135 = Armory135KeyPair()
@@ -1429,7 +1526,11 @@ class A135_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(a135.isDisabled,      False)
       self.assertEqual(a135.needFsync,       False)
 
+      self.assertRaises(UninitializedError, a135.serialize)
+
+
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testInitFromSeed(self):
       seed = SecureBinaryData(self.binSeed)
 
@@ -1447,6 +1548,9 @@ class A135_NoCrypt_Tests(unittest.TestCase):
 
       self.assertEqual(a135rt.rootLowestUnused, 0)
       self.assertEqual(a135rt.rootNextToCalc,   0)
+
+      runSerUnserRoundTripTest(self, a135rt)
+
 
    #############################################################################
    def testSpawnA135(self):
@@ -1500,12 +1604,13 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             self.assertEqual(a135.privKeyNextUnlock, False)
             self.assertEqual(a135.akpParScrAddr, prevScrAddr)
             self.assertEqual(a135.childIndex, 0)
+            self.assertEqual(a135.chainIndex, kidx)
             self.assertEqual(a135.childPoolSize, 1)
             self.assertEqual(a135.maxChildren, 1)
             self.assertEqual(a135.rawScript,  expectScript)
             self.assertEqual(a135.scrAddrStr, expectScrAddr)
             self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
-            self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
+            self.assertEqual(a135.root135Ref.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
             self.assertEqual(a135.lowestUnusedChild, 0)
             self.assertEqual(a135.nextChildToCalc,   0)
          
@@ -1517,7 +1622,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
          scrAddrToIndex = {}
          for idx,a135 in a135rt.root135ChainMap.iteritems():
             scrAddrToIndex[a135.getScrAddr()] = idx
-            self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
+            self.assertEqual(a135.root135Ref.getScrAddr(), rootScrAddr)
             if idx>0:
                self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
                self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
@@ -1526,6 +1631,9 @@ class A135_NoCrypt_Tests(unittest.TestCase):
    
          for scrAddr,a135 in a135rt.root135ScrAddrMap.iteritems():
             self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
+
+         runSerUnserRoundTripTest(self, a135rt)
+         runSerUnserRoundTripTest(self, a135)
 
 
    #############################################################################
@@ -1609,7 +1717,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
                self.assertEqual(par.akpChildByIndex[0].getScrAddr(), expectScrAddr)
                self.assertEqual(ch.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
                self.assertEqual(a135rt.root135ChainMap[i].getScrAddr(), expectScrAddr)
-               self.assertEqual(ch.akpRootRef.root135ChainMap[i].getScrAddr(), expectScrAddr)
+               self.assertEqual(ch.root135Ref.root135ChainMap[i].getScrAddr(), expectScrAddr)
                self.assertTrue(expectScrAddr in par.akpChildByScrAddr)
                self.assertTrue(expectScrAddr in a135rt.root135ScrAddrMap)
 
@@ -1705,7 +1813,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             self.assertEqual(a135.lowestUnusedChild, 0)
             self.assertEqual(a135.nextChildToCalc,   1)
 
-            self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
+            self.assertEqual(a135.root135Ref.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
             self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
 
          
@@ -1717,7 +1825,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
          for idx,a135 in a135rt.root135ChainMap.iteritems():
             #print 'Testing,  %d:%s' % (idx,binary_to_hex(a135.getScrAddr()))
             scrAddrToIndex[a135.getScrAddr()] = idx
-            self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
+            self.assertEqual(a135.root135Ref.getScrAddr(), rootScrAddr)
             if idx>0:
                self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
                self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
@@ -1837,6 +1945,7 @@ class A135_Encrypt_Tests(unittest.TestCase):
       
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testInitFromSeed_Crypt(self):
       seed = SecureBinaryData(self.binSeed)
 
@@ -1860,9 +1969,11 @@ class A135_Encrypt_Tests(unittest.TestCase):
       self.assertEqual(a135rt.rootLowestUnused, 0)
       self.assertEqual(a135rt.rootNextToCalc,   0)
 
+      runSerUnserRoundTripTest(self, a135rt)
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testSpawnA135_Crypt(self):
 
       a135 = Armory135KeyPair()
@@ -1920,7 +2031,7 @@ class A135_Encrypt_Tests(unittest.TestCase):
          self.assertEqual(a135.rawScript,  expectScript)
          self.assertEqual(a135.scrAddrStr, expectScrAddr)
          self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
-         self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
+         self.assertEqual(a135.root135Ref.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
          self.assertEqual(a135.lowestUnusedChild, 0)
          self.assertEqual(a135.nextChildToCalc,   0)
       
@@ -1932,7 +2043,7 @@ class A135_Encrypt_Tests(unittest.TestCase):
       scrAddrToIndex = {}
       for idx,a135 in a135rt.root135ChainMap.iteritems():
          scrAddrToIndex[a135.getScrAddr()] = idx
-         self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
+         self.assertEqual(a135.root135Ref.getScrAddr(), rootScrAddr)
          if idx>0:
             self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
             self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
@@ -1943,7 +2054,12 @@ class A135_Encrypt_Tests(unittest.TestCase):
          self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
 
 
+      runSerUnserRoundTripTest(self, a135rt)
+      runSerUnserRoundTripTest(self, a135)
+
+
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def test135KeyPool_Crypt(self):
       a135 = Armory135KeyPair()
       mockwlt = MockWalletFile()
@@ -2029,9 +2145,12 @@ class A135_Encrypt_Tests(unittest.TestCase):
             self.assertEqual(par.akpChildByIndex[0].getScrAddr(), expectScrAddr)
             self.assertEqual(ch.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
             self.assertEqual(a135rt.root135ChainMap[i].getScrAddr(), expectScrAddr)
-            self.assertEqual(ch.akpRootRef.root135ChainMap[i].getScrAddr(), expectScrAddr)
+            self.assertEqual(ch.root135Ref.root135ChainMap[i].getScrAddr(), expectScrAddr)
             self.assertTrue(expectScrAddr in par.akpChildByScrAddr)
             self.assertTrue(expectScrAddr in a135rt.root135ScrAddrMap)
+
+         
+         runSerUnserRoundTripTest(self, ch)
 
          parScrAddr = expectScrAddr
 
@@ -2048,9 +2167,11 @@ class A135_Encrypt_Tests(unittest.TestCase):
       self.assertEqual(a135rt.rootLowestUnused,       2)
       self.assertEqual(a135rt.rootNextToCalc,         7)
 
+      runSerUnserRoundTripTest(self, a135rt)
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testGetNextUnused_Crypt(self):
       POOLSZ = 3
       mockwlt = MockWalletFile()
@@ -2118,19 +2239,21 @@ class A135_Encrypt_Tests(unittest.TestCase):
          self.assertEqual(a135.lowestUnusedChild, 0)
          self.assertEqual(a135.nextChildToCalc,   1)
 
-         self.assertEqual(a135.akpRootRef.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
+         self.assertEqual(a135.root135Ref.root135ChainMap[kidx].getScrAddr(), expectScrAddr)
          self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), expectScrAddr)
 
       
          kidx += 1
          prevScrAddr = expectScrAddr
+
+         runSerUnserRoundTripTest(self, a135)
       
 
       scrAddrToIndex = {}
       for idx,a135 in a135rt.root135ChainMap.iteritems():
          #print 'Testing,  %d:%s' % (idx,binary_to_hex(a135.getScrAddr()))
          scrAddrToIndex[a135.getScrAddr()] = idx
-         self.assertEqual(a135.akpRootRef.getScrAddr(), rootScrAddr)
+         self.assertEqual(a135.root135Ref.getScrAddr(), rootScrAddr)
          if idx>0:
             self.assertEqual(a135.akpParentRef.getScrAddr(), self.keyList[idx-1]['ScrAddr'])
             self.assertEqual(a135.akpParentRef.akpChildByIndex[0].getScrAddr(), a135.getScrAddr())
@@ -2249,6 +2372,7 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testSpawnA135_ResolveNextUnlock(self):
       """
       This test is going to create an artificial chain of 135 keys, with 
@@ -2297,7 +2421,6 @@ class A135_NextUnlock_Tests(unittest.TestCase):
          a135List.append(a135)
          a135 = a135.spawnChild()
 
-
       # Okay, the above was just setup an verification of the setup
       # Now we delete the encrypted priv key data and try resolving from var points
       def resetTest(keyWipeList):
@@ -2334,6 +2457,7 @@ class A135_NextUnlock_Tests(unittest.TestCase):
             self.assertEqual(a135.sbdPublicKey33, expectPubKey)
             self.assertEqual(a135.sbdChaincode,   expectChain)
             self.assertEqual(a135.privKeyNextUnlock, expectUnlock)
+            runSerUnserRoundTripTest(self, a135)
 
       self.ekey.unlock(self.password)
 
@@ -2360,6 +2484,7 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testSpawnA135_NextUnlock1(self):
       """
       Create a naturally-occurring next-unlock tree, then resolve it
@@ -2410,8 +2535,10 @@ class A135_NextUnlock_Tests(unittest.TestCase):
       self.assertEqual(a135.useCompressPub, False)
       self.assertEqual(a135.isUsed, False)
 
+      runSerUnserRoundTripTest(self, a135)
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testSpawnA135_NextUnlock3(self):
       """
       Create a naturally-occurring next-unlock tree, then resolve it
@@ -2492,10 +2619,11 @@ class A135_NextUnlock_Tests(unittest.TestCase):
          self.assertEqual(a135.sbdPublicKey33, expectPub)
          self.assertEqual(a135.sbdChaincode,   expectChain)
 
-
+         runSerUnserRoundTripTest(self, a135)
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testGetNextUnused_NextUnlock(self):
       """
       Pretty much same as regular encrypted test, but all keys gen while locked
@@ -2517,6 +2645,8 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
       #### Lock before generating any keys
       self.ekey.lock(self.password)
+
+      runSerUnserRoundTripTest(self, a135rt)
 
       while kidx+3 in self.keyList:
          a135 = a135rt.getNextUnusedChild()
@@ -2542,19 +2672,24 @@ class A135_NextUnlock_Tests(unittest.TestCase):
          self.assertEqual(a135.sbdChaincode,   expectChain)
       
          kidx += 1
+         runSerUnserRoundTripTest(self, a135)
       
 
       self.assertEqual(a135rt.getChildByIndex(2).sbdPrivKeyData, NULLSBD())
       self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, NULLSBD())
       self.ekey.unlock(self.password)
+      # Unlocking shouldn't have changed anything yet
       self.assertEqual(a135rt.getChildByIndex(2).sbdPrivKeyData, NULLSBD())
       self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, NULLSBD())
 
+      runSerUnserRoundTripTest(self, a135rt.getChildByIndex(3))
+
+      # The act of requesting the plain priv key, should trigger resolveUnlock
       self.assertEqual(a135rt.getChildByIndex(3).getPlainPrivKeyCopy(), self.keyList[3]['PrivKey'])
       self.assertEqual(a135rt.getChildByIndex(2).sbdPrivKeyData, self.keyList[2]['PrivCrypt'])
       self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, self.keyList[3]['PrivCrypt'])
 
-
+      runSerUnserRoundTripTest(self, a135rt.getChildByIndex(3))
 
 
 if __name__ == "__main__":
