@@ -1414,6 +1414,11 @@ class A135_NoCrypt_Tests(unittest.TestCase):
                        readSixteenEasyBytes(self.rootLine2)[0]
       self.chaincode = DeriveChaincodeFromRootKey_135(SecureBinaryData(self.binSeed))
 
+      # Use for the 1.35a seed tests: same root but non-priv-derived chain
+      self.altChain1 = 'okkn weod aajf skrs jdrj rafa gjtr saho eari'.replace(' ','')
+      self.altChain2 = 'rdeg jaah soea ugas jeot niua jdeg hkou gsih'.replace(' ','')
+      self.binAltChn = readSixteenEasyBytes(self.altChain1)[0] + \
+                       readSixteenEasyBytes(self.altChain2)[0]
 
       self.keyList = {}
 
@@ -1530,8 +1535,7 @@ class A135_NoCrypt_Tests(unittest.TestCase):
 
 
    #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def testInitFromSeed(self):
+   def testInitFromSeed32(self):
       seed = SecureBinaryData(self.binSeed)
 
       a135rt = Armory135Root()
@@ -1543,8 +1547,30 @@ class A135_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(a135rt.privCryptInfo.serialize(), NULLCRYPTINFO().serialize())
       self.assertEqual(a135rt.privKeyNextUnlock, False)
 
-      self.assertEqual(a135rt.getPlainSeedCopy().toHexStr(), seed.toHexStr())
+      self.assertEqual(a135rt.getPlainSeedCopy(), seed)
       self.assertEqual(a135rt.getUniqueIDB58(), self.rootID)
+
+      self.assertEqual(a135rt.rootLowestUnused, 0)
+      self.assertEqual(a135rt.rootNextToCalc,   0)
+
+      runSerUnserRoundTripTest(self, a135rt)
+
+   #############################################################################
+   def testInitFromSeed64(self):
+      seed = SecureBinaryData(self.binSeed + self.binAltChn)
+
+      a135rt = Armory135Root()
+      a135rt.privCryptInfo = NULLCRYPTINFO()
+      a135rt.childPoolSize = 3
+      a135rt.initializeFromSeed(seed, fillPool=False)
+
+      self.assertEqual(a135rt.sbdSeedData.toHexStr(), '') # supposed to be empty
+      self.assertEqual(a135rt.privCryptInfo.serialize(), NULLCRYPTINFO().serialize())
+      self.assertEqual(a135rt.privKeyNextUnlock, False)
+
+      self.assertEqual(a135rt.getPlainSeedCopy().toHexStr(), seed.toHexStr())
+      self.assertEqual(a135rt.sbdChaincode.toBinStr(), self.binAltChn)
+      self.assertEqual(a135rt.getUniqueIDB58(), '2tyiWrmKd') # diff chain->diff id
 
       self.assertEqual(a135rt.rootLowestUnused, 0)
       self.assertEqual(a135rt.rootNextToCalc,   0)
@@ -1862,6 +1888,11 @@ class A135_Encrypt_Tests(unittest.TestCase):
                        readSixteenEasyBytes(self.rootLine2)[0]
       self.chaincode = DeriveChaincodeFromRootKey_135(SecureBinaryData(self.binSeed))
 
+      # Use for the 1.35a seed tests: same root but non-priv-derived chain
+      self.altChain1 = 'okkn weod aajf skrs jdrj rafa gjtr saho eari'.replace(' ','')
+      self.altChain2 = 'rdeg jaah soea ugas jeot niua jdeg hkou gsih'.replace(' ','')
+      self.binAltChn = readSixteenEasyBytes(self.altChain1)[0] + \
+                       readSixteenEasyBytes(self.altChain2)[0]
 
       self.keyList = {}
 
@@ -1945,8 +1976,7 @@ class A135_Encrypt_Tests(unittest.TestCase):
       
 
    #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def testInitFromSeed_Crypt(self):
+   def testInitFromSeed32_Crypt(self):
       seed = SecureBinaryData(self.binSeed)
 
       a135rt = Armory135Root()
@@ -1963,7 +1993,7 @@ class A135_Encrypt_Tests(unittest.TestCase):
       self.assertEqual(a135rt.privCryptInfo.serialize(), self.privACI.serialize())
       self.assertEqual(a135rt.privKeyNextUnlock, False)
 
-      self.assertEqual(a135rt.getPlainSeedCopy().toHexStr(), seed.toHexStr())
+      self.assertEqual(a135rt.getPlainSeedCopy(), seed)
       self.assertEqual(a135rt.getUniqueIDB58(), self.rootID)
 
       self.assertEqual(a135rt.rootLowestUnused, 0)
@@ -1971,6 +2001,32 @@ class A135_Encrypt_Tests(unittest.TestCase):
 
       runSerUnserRoundTripTest(self, a135rt)
 
+   #############################################################################
+   def testInitFromSeed64_Crypt(self):
+      seed = SecureBinaryData(self.binSeed + self.binAltChn)
+
+      a135rt = Armory135Root()
+      a135rt.privCryptInfo = self.privACI
+      a135rt.masterEkeyRef = self.ekey
+      a135rt.childPoolSize = 3
+
+      self.assertRaises(WalletLockError, a135rt.initializeFromSeed, seed, fillPool=False)
+
+      self.ekey.unlock(self.password)
+      a135rt.initializeFromSeed(seed, fillPool=False)
+
+      self.assertEqual(a135rt.sbdSeedData.toHexStr(), '') # supposed to be empty
+      self.assertEqual(a135rt.privCryptInfo.serialize(), self.privACI.serialize())
+      self.assertEqual(a135rt.privKeyNextUnlock, False)
+
+      self.assertEqual(a135rt.getPlainSeedCopy(), seed)
+      self.assertEqual(a135rt.sbdChaincode.toBinStr(), self.binAltChn)
+      self.assertEqual(a135rt.getUniqueIDB58(), '2tyiWrmKd') # diff chain->diff id
+
+      self.assertEqual(a135rt.rootLowestUnused, 0)
+      self.assertEqual(a135rt.rootNextToCalc,   0)
+
+      runSerUnserRoundTripTest(self, a135rt)
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
@@ -2594,7 +2650,7 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
          # Should've spawned public key and marked nextUnlock
          self.assertEqual(a135.privKeyNextUnlock, i>2)
-         self.assertEqual(a135.sbdPrivKeyData.toHexStr(), expectCrypt.toHexStr())
+         self.assertEqual(a135.sbdPrivKeyData, expectCrypt)
          self.assertEqual(a135.sbdPublicKey33, expectPub)
          self.assertEqual(a135.sbdChaincode,   expectChain)
 
@@ -2615,7 +2671,7 @@ class A135_NextUnlock_Tests(unittest.TestCase):
 
          # Should've spawned public key and marked nextUnlock
          self.assertEqual(a135.privKeyNextUnlock, i>4)
-         self.assertEqual(a135.sbdPrivKeyData.toHexStr(), expectCrypt.toHexStr())
+         self.assertEqual(a135.sbdPrivKeyData, expectCrypt)
          self.assertEqual(a135.sbdPublicKey33, expectPub)
          self.assertEqual(a135.sbdChaincode,   expectChain)
 
@@ -2690,6 +2746,149 @@ class A135_NextUnlock_Tests(unittest.TestCase):
       self.assertEqual(a135rt.getChildByIndex(3).sbdPrivKeyData, self.keyList[3]['PrivCrypt'])
 
       runSerUnserRoundTripTest(self, a135rt.getChildByIndex(3))
+
+
+
+################################################################################
+################################################################################
+#
+# Armory Imported KeyPair Tests (No encryption)
+#
+################################################################################
+################################################################################
+class Imported_NoCrypt_Tests(unittest.TestCase):
+
+   #############################################################################
+   def setUp(self):
+      # Will use the same keylist as for Armory135, just assume not related
+
+      self.keyList = {}
+
+      self.keyList[0] = { \
+         'AddrStr': '13QVfpnE7TWAnkGGpHak1Z9cJVQWTZrYqb',
+         'PrivB58': '5JWFgYDRyCqxMcXprSf84RAfPC4p6x2eifXxNwHuqeL137JC11A',
+         'PubKeyX': '1a84426c38a0099975d683365436ee3eedaf2c9589c44635aa3808ede5f87081',
+         'PubKeyY': '6a905e1f3055c0982307951e5e4150349c5c98a644f3da9aeef9c80f103cf2af' }
+      self.keyList[1] = { \
+         'AddrStr': '1Dy4cGbv3KKm4EhQYVKvUJQfy6sgmGR4ii',
+         'PrivB58': '5KMBzjqDE8dXxtvRaY8dGHnMUNyE6uonDwKgeG44XBsngqTYkf9',
+         'PubKeyX': '6c23cc6208a1f6daaa196ba6e763b445555ada6315ebf9465a0b9cb49e813e3a',
+         'PubKeyY': '341eb33ed738b6a1ac6a57526a80af2e6841dcf71f287dbe721dd4486d9cf8c4' }
+      self.keyList[2] = { \
+         'AddrStr': '1BKG36rBdxiYNRQbLCYfPzi6Cf4pW2aRxQ',
+         'PrivB58': '5KhpN6mmdiVcKmZtPjqfC41Af7181Dj4JadyU7dDLVefdPcMbZi',
+         'PubKeyX': 'eb013f8047ad532a8bcc4d4f69a62887ce82afb574d7fb8a326b9bab82d240fa',
+         'PubKeyY': 'a8fdcd604105292cb04c7707da5e42300bc418654f8ffc94e2c83bd5a54e09e2' }
+      self.keyList[3] = { \
+         'AddrStr': '1NhZfoXMLmohuvAh7Ks67JMx6mpcVq2FCa',
+         'PrivB58': '5KaxXWwQgFcp3d5Bqd58xvtBDN8FEPQeRZJDpyxY5LTZ5ALZHE3',
+         'PubKeyX': 'd6e6d3031d5d3de48293d97590f5b697089e8e6b40e919a68e2a07c300c1256b',
+         'PubKeyY': '3d9b428e0ef9f73bd81c9388e1d8702f477138ca444eed57370d0e31ba9bafe5' }
+      self.keyList[4] = { \
+         'AddrStr': '1GHvHhrUBL5mMryscJa9uzDnPXeEpqU7Tn',
+         'PrivB58': '5Jb4u9bpWDv19y6hu6nAE7cDdQoUrJMoyrwGDjPxMKo8oxULSdn',
+         'PubKeyX': 'e40d3923bfffad0cdc6d6a3341c8e669beb1264b86cbfd21229ca8a74cf53ca5',
+         'PubKeyY': '587b7a9b18b648cd421d17d45d05e8fc647f7ea02f61b670a2d4c2012e3b717f' }
+      self.keyList[5] = { \
+         'AddrStr': '1DdAdN2VQXg52YqDssZ4o6XprVgEB4Evpj',
+         'PrivB58': '5JxD9BrDhCgWEKfEUG2FBcAk1D667G97hNREg81M5Qzgi9CAgdD',
+         'PubKeyX': '7e043899f917288db2962819cd78c8328efb6dd172b9cbe1bfaaf8d745fd3e99',
+         'PubKeyY': '746b29150ff3828556595291419d579c824ac2879d83fb3d51d5efea5de4715d' }
+      self.keyList[6] = { \
+         'AddrStr': '1K9QBzxv2jL7ftMkJ9jghr8dJgZ6u6zhHR',
+         'PrivB58': '5K7GHu48sqxnYNhiMNVVoeh8WXnnerrNhL2TWocHngaP8zyUPAr',
+         'PubKeyX': 'bbc9cd69dd6977b08d7916c0da81208df0b8a491b0897ca482bd42df47102d6b',
+         'PubKeyY': 'f0318b3298ba93831df82b7ce51da5e0e8647a3ecd994f600a84834b424ed2b8' }
+
+
+      for idx,imap in self.keyList.iteritems():
+         imap['PrivKey']   = SecureBinaryData(parsePrivateKeyData(imap['PrivB58'])[0])
+         imap['PubKey']    = SecureBinaryData(hex_to_binary('04' + imap['PubKeyX'] + imap['PubKeyY']))
+         imap['Chaincode'] = self.chaincode.copy()
+         imap['ScrAddr']   = SCRADDR_P2PKH_BYTE + hash160(imap['PubKey'].toBinStr())
+      
+   #############################################################################
+   def tearDown(self):
+      pass
+      
+
+   #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
+   def testInitA135(self):
+      #leaf = makeABEKGenericClass()
+      a135 = Armory135KeyPair()
+         
+      self.assertEqual(a135.isWatchOnly, False)
+      self.assertEqual(a135.sbdPrivKeyData, NULLSBD())
+      self.assertEqual(a135.sbdPublicKey33, NULLSBD())
+      self.assertEqual(a135.sbdChaincode, NULLSBD())
+      self.assertEqual(a135.useCompressPub, False)
+      self.assertEqual(a135.isUsed, False)
+      self.assertEqual(a135.keyBornTime, 0)
+      self.assertEqual(a135.keyBornBlock, 0)
+      self.assertEqual(a135.privKeyNextUnlock, False)
+      self.assertEqual(a135.childPoolSize, 1)
+      self.assertEqual(a135.maxChildren, 1)
+      self.assertEqual(a135.rawScript, None)
+      self.assertEqual(a135.scrAddrStr, None)
+      self.assertEqual(a135.uniqueIDBin, None)
+      self.assertEqual(a135.uniqueIDB58, None)
+      self.assertEqual(a135.akpChildByIndex, {})
+      self.assertEqual(a135.akpChildByScrAddr, {})
+      self.assertEqual(a135.lowestUnusedChild, 0)
+      self.assertEqual(a135.nextChildToCalc,   0)
+      self.assertEqual(a135.akpParentRef, None)
+      self.assertEqual(a135.masterEkeyRef, None)
+
+      self.assertEqual(a135.getName(), 'Armory135KeyPair')
+      self.assertEqual(a135.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Uninit)
+
+      self.assertEqual(a135.chainIndex, None)
+      self.assertEqual(a135.childIndex, 0)
+
+      # WalletEntry fields
+      self.assertEqual(a135.wltFileRef, None)
+      self.assertEqual(a135.wltByteLoc, None)
+      self.assertEqual(a135.wltEntrySz, None)
+      self.assertEqual(a135.isRequired, False)
+      self.assertEqual(a135.parEntryID, None)
+      self.assertEqual(a135.outerCrypt.serialize(), NULLCRYPTINFO().serialize())
+      self.assertEqual(a135.serPayload, None)
+      self.assertEqual(a135.defaultPad, 256)
+      self.assertEqual(a135.wltLvlParent, None)
+      self.assertEqual(a135.wltChildRefs, [])
+      self.assertEqual(a135.outerEkeyRef, None)
+      self.assertEqual(a135.isOpaque,        False)
+      self.assertEqual(a135.isUnrecognized,  False)
+      self.assertEqual(a135.isUnrecoverable, False)
+      self.assertEqual(a135.isDeleted,       False)
+      self.assertEqual(a135.isDisabled,      False)
+      self.assertEqual(a135.needFsync,       False)
+
+      self.assertRaises(UninitializedError, a135.serialize)
+
+
+   #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
+   def testInitFromSeed(self):
+      seed = SecureBinaryData(self.binSeed)
+
+      a135rt = Armory135Root()
+      a135rt.privCryptInfo = NULLCRYPTINFO()
+      a135rt.childPoolSize = 3
+      a135rt.initializeFromSeed(seed, fillPool=False)
+
+      self.assertEqual(a135rt.sbdSeedData.toHexStr(), '') # supposed to be empty
+      self.assertEqual(a135rt.privCryptInfo.serialize(), NULLCRYPTINFO().serialize())
+      self.assertEqual(a135rt.privKeyNextUnlock, False)
+
+      self.assertEqual(a135rt.getPlainSeedCopy(), seed)
+      self.assertEqual(a135rt.getUniqueIDB58(), self.rootID)
+
+      self.assertEqual(a135rt.rootLowestUnused, 0)
+      self.assertEqual(a135rt.rootNextToCalc,   0)
+
+      runSerUnserRoundTripTest(self, a135rt)
 
 
 if __name__ == "__main__":

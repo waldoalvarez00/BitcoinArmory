@@ -1450,7 +1450,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       if testChain.toBinStr() == self.sbdChaincode.toBinStr():
          return sbdPriv
       else:
-         return SecureBinaryData(sbdPriv.toBinStr() + testChain.toBinStr())
+         return SecureBinaryData(sbdPriv.toBinStr() + self.sbdChaincode.toBinStr())
 
 
    #############################################################################
