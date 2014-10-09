@@ -7632,18 +7632,18 @@ TEST_F(TestExtendedKey, BuildEK1)
    EXPECT_TRUE(masterKey1.isPrv());
    EXPECT_TRUE(masterKey1.isMaster());
    EXPECT_FALSE(masterKey1.isPub());
-   EXPECT_EQ(retKey1, seedKey1);
-   EXPECT_EQ(retPubKey1, seedPubKey1);
-   EXPECT_EQ(retChaincode1, seedCC1);
-   EXPECT_EQ(testExtSer1, seedExtSerPrv1);
-   EXPECT_EQ(testID1, seedID1);
-   EXPECT_EQ(testFP1, seedFP1);
-   EXPECT_EQ(testParFP1, seedParFP1);
-   EXPECT_EQ(testCompPub1, seedCompPubKey1);
-   EXPECT_EQ(testVer1, verPri);
-   EXPECT_EQ(testDepth1, 0);
-   EXPECT_EQ(testChildNum1, 0);
-   EXPECT_EQ(testString1, seedString1);
+   EXPECT_EQ(seedKey1, retKey1);
+   EXPECT_EQ(seedPubKey1, retPubKey1);
+   EXPECT_EQ(seedCC1, retChaincode1);
+   EXPECT_EQ(seedExtSerPrv1, testExtSer1);
+   EXPECT_EQ(seedID1, testID1);
+   EXPECT_EQ(seedFP1, testFP1);
+   EXPECT_EQ(seedParFP1, testParFP1);
+   EXPECT_EQ(seedCompPubKey1, testCompPub1);
+   EXPECT_EQ(verPri, testVer1);
+   EXPECT_EQ(0, testDepth1);
+   EXPECT_EQ(0, testChildNum1);
+   EXPECT_EQ(seedString1, testString1);
 
    ExtendedKey masterKey2(seedKey2, seedCC2);
    SecureBinaryData retKey2       = masterKey2.getKey();
@@ -7664,18 +7664,18 @@ TEST_F(TestExtendedKey, BuildEK1)
    EXPECT_TRUE(masterKey2.isPrv());
    EXPECT_TRUE(masterKey2.isMaster());
    EXPECT_FALSE(masterKey2.isPub());
-   EXPECT_EQ(retKey2, seedKey2);
-   EXPECT_EQ(retPubKey2, seedPubKey2);
-   EXPECT_EQ(retChaincode2, seedCC2);
-   EXPECT_EQ(testExtSer2, seedExtSerPrv2);
-   EXPECT_EQ(testID2, seedID2);
-   EXPECT_EQ(testFP2, seedFP2);
-   EXPECT_EQ(testParFP2, seedParFP1);
-   EXPECT_EQ(testCompPub2, seedCompPubKey2);
-   EXPECT_EQ(testVer2, verPri);
-   EXPECT_EQ(testDepth2, 0);
-   EXPECT_EQ(testChildNum2, 0);
-   EXPECT_EQ(testString2, seedString2);
+   EXPECT_EQ(seedKey2, retKey2);
+   EXPECT_EQ(seedPubKey2, retPubKey2);
+   EXPECT_EQ(seedCC2, retChaincode2);
+   EXPECT_EQ(seedExtSerPrv2, testExtSer2);
+   EXPECT_EQ(seedID2, testID2);
+   EXPECT_EQ(seedFP2, testFP2);
+   EXPECT_EQ(seedParFP2, testParFP2);
+   EXPECT_EQ(seedCompPubKey2, testCompPub2);
+   EXPECT_EQ(verPri, testVer2);
+   EXPECT_EQ(0, testDepth2);
+   EXPECT_EQ(0, testChildNum2);
+   EXPECT_EQ(seedString2, testString2);
 
    // Can't get a standalone object from the default constructor. Not sure why.
    EXPECT_FALSE(ExtendedKey().isInitialized());
@@ -7740,14 +7740,16 @@ TEST_F(TestHDWalletCryptoSeed, BuildSeed)
    HDWalletCryptoSeed testSeed1  = HDWalletCryptoSeed(seedInput1);
    SecureBinaryData testSeedKey1 = testSeed1.getMasterKey();
    SecureBinaryData testSeedCC1  = testSeed1.getMasterChain();
-   EXPECT_EQ(testSeedKey1, seedKey1);
-   EXPECT_EQ(testSeedCC1, seedCC1);
+   int32_t findRes1 = seedKey1.find(testSeedKey1, 1);
+   EXPECT_NE(findRes1, -1);
+   EXPECT_EQ(seedCC1, testSeedCC1);
 
    HDWalletCryptoSeed testSeed2  = HDWalletCryptoSeed(seedInput2);
    SecureBinaryData testSeedKey2 = testSeed2.getMasterKey();
    SecureBinaryData testSeedCC2  = testSeed2.getMasterChain();
-   EXPECT_EQ(testSeedKey2, seedKey2);
-   EXPECT_EQ(testSeedCC2, seedCC2);
+   int32_t findRes2 = seedKey2.find(testSeedKey2, 1);
+   EXPECT_NE(findRes2, -1);
+   EXPECT_EQ(seedCC2, testSeedCC2);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -7756,12 +7758,12 @@ TEST_F(TestHDWalletCryptoSeed, ConvertSeed)
 {
    ExtendedKey ek;
    ek = HDWalletCrypto().ConvertSeedToMasterKey(seedInput1);
-   EXPECT_EQ(ek.getPrivateKey(), seedKey1.getSliceCopy(1,32));
-   EXPECT_EQ(ek.getChaincode(), seedCC1);
+   EXPECT_EQ(seedKey1.getSliceCopy(1,32), ek.getPrivateKey());
+   EXPECT_EQ(seedCC1, ek.getChaincode());
 
    ek = HDWalletCrypto().ConvertSeedToMasterKey(seedInput2);
-   EXPECT_EQ(ek.getPrivateKey(), seedKey2.getSliceCopy(1,32));
-   EXPECT_EQ(ek.getChaincode(),  seedCC2);
+   EXPECT_EQ(seedKey2.getSliceCopy(1,32), ek.getPrivateKey());
+   EXPECT_EQ(seedCC2, ek.getChaincode());
 }
 
 
@@ -7802,7 +7804,7 @@ protected:
       seedID1_D1         = READHEX("5c1bd648ed23aa5fd50ba52b2457c11e9e80a6a7");
       seedFP1_D1         = READHEX("5c1bd648");
       seedParFP1_D1      = READHEX("3442193e");
-      seedString1_D1     = "M/Prv(2147483648)";
+      seedString1_D1     = "M/0'";
 
       seedKey1_D2        = READHEX("003c6cb8d0f6a264c91ea8b5030fadaa8e538b020f0a387421a12de9319dc93368");
       seedCC1_D2         = READHEX("2a7857631386ba23dacac34180dd1983734e444fdbf774041578e9b6adb37c19");
@@ -7813,7 +7815,7 @@ protected:
       seedID1_D2         = READHEX("bef5a2f9a56a94aab12459f72ad9cf8cf19c7bbe");
       seedFP1_D2         = READHEX("bef5a2f9");
       seedParFP1_D2      = READHEX("5c1bd648");
-      seedString1_D2     = "M/Prv(2147483648)/Pub(1)";
+      seedString1_D2     = "M/0'/1";
 
       seedKey1_D3        = READHEX("00cbce0d719ecf7431d88e6a89fa1483e02e35092af60c042b1df2ff59fa424dca");
       seedCC1_D3         = READHEX("04466b9cc8e161e966409ca52986c584f07e9dc81f735db683c3ff6ec7b1503f");
@@ -7824,7 +7826,7 @@ protected:
       seedID1_D3         = READHEX("ee7ab90cde56a8c0e2bb086ac49748b8db9dce72");
       seedFP1_D3         = READHEX("ee7ab90c");
       seedParFP1_D3      = READHEX("bef5a2f9");
-      seedString1_D3     = "M/Prv(2147483648)/Pub(1)/Prv(2147483650)";
+      seedString1_D3     = "M/0'/1/2'";
 
       seedKey1_D4        = READHEX("000f479245fb19a38a1954c5c7c0ebab2f9bdfd96a17563ef28a6a4b1a2a764ef4");
       seedCC1_D4         = READHEX("cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892ac1275ac822a3edd");
@@ -7835,7 +7837,7 @@ protected:
       seedID1_D4         = READHEX("d880d7d893848509a62d8fb74e32148dac68412f");
       seedFP1_D4         = READHEX("d880d7d8");
       seedParFP1_D4      = READHEX("ee7ab90c");
-      seedString1_D4     = "M/Prv(2147483648)/Pub(1)/Prv(2147483650)/Pub(2)";
+      seedString1_D4     = "M/0'/1/2'/2";
 
       seedKey1_D5        = READHEX("00471b76e389e528d6de6d816857e012c5455051cad6660850e58372a6c3e6e7c8");
       seedCC1_D5         = READHEX("c783e67b921d2beb8f6b389cc646d7263b4145701dadd2161548a8b078e65e9e");
@@ -7846,7 +7848,7 @@ protected:
       seedID1_D5         = READHEX("d69aa102255fed74378278c7812701ea641fdf32");
       seedFP1_D5         = READHEX("d69aa102");
       seedParFP1_D5      = READHEX("d880d7d8");
-      seedString1_D5     = "M/Prv(2147483648)/Pub(1)/Prv(2147483650)/Pub(2)/Pub(1000000000)";
+      seedString1_D5     = "M/0'/1/2'/2/1000000000";
 
       seedKey2           = READHEX("004b03d6fc340455b363f51020ad3ecca4f0850280cf436c70c727923f6db46c3e");
       seedCC2            = READHEX("60499f801b896d83179a4374aeb7822aaeaceaa0db1f85ee3e904c4defbd9689");
@@ -7868,7 +7870,7 @@ protected:
       seedID2_D1         = READHEX("5a61ff8eb7aaca3010db97ebda76121610b78096");
       seedFP2_D1         = READHEX("5a61ff8e");
       seedParFP2_D1      = READHEX("bd16bee5");
-      seedString2_D1     = "M/Pub(0)";
+      seedString2_D1     = "M/0";
 
       seedKey2_D2        = READHEX("00877c779ad9687164e9c2f4f0f4ff0340814392330693ce95a58fe18fd52e6e93");
       seedCC2_D2         = READHEX("be17a268474a6bb9c61e1d720cf6215e2a88c5406c4aee7b38547f585c9a37d9");
@@ -7879,7 +7881,7 @@ protected:
       seedID2_D2         = READHEX("d8ab493736da02f11ed682f88339e720fb0379d1");
       seedFP2_D2         = READHEX("d8ab4937");
       seedParFP2_D2      = READHEX("5a61ff8e");
-      seedString2_D2     = "M/Pub(0)/Prv(4294967295)";
+      seedString2_D2     = "M/0/2147483647'";
 
       seedKey2_D3        = READHEX("00704addf544a06e5ee4bea37098463c23613da32020d604506da8c0518e1da4b7");
       seedCC2_D3         = READHEX("f366f48f1ea9f2d1d3fe958c95ca84ea18e4c4ddb9366c336c927eb246fb38cb");
@@ -7890,7 +7892,7 @@ protected:
       seedID2_D3         = READHEX("78412e3a2296a40de124307b6485bd19833e2e34");
       seedFP2_D3         = READHEX("78412e3a");
       seedParFP2_D3      = READHEX("d8ab4937");
-      seedString2_D3     = "M/Pub(0)/Prv(4294967295)/Pub(1)";
+      seedString2_D3     = "M/0/2147483647'/1";
 
       seedKey2_D4        = READHEX("00f1c7c871a54a804afe328b4c83a1c33b8e5ff48f5087273f04efa83b247d6a2d");
       seedCC2_D4         = READHEX("637807030d55d01f9a0cb3a7839515d796bd07706386a6eddf06cc29a65a0e29");
@@ -7901,7 +7903,7 @@ protected:
       seedID2_D4         = READHEX("31a507b815593dfc51ffc7245ae7e5aee304246e");
       seedFP2_D4         = READHEX("31a507b8");
       seedParFP2_D4      = READHEX("78412e3a");
-      seedString2_D4     = "M/Pub(0)/Prv(4294967295)/Pub(1)/Prv(4294967294)";
+      seedString2_D4     = "M/0/2147483647'/1/2147483646'";
 
       seedKey2_D5        = READHEX("00bb7d39bdb83ecf58f2fd82b6d918341cbef428661ef01ab97c28a4842125ac23");
       seedCC2_D5         = READHEX("9452b549be8cea3ecb7a84bec10dcfd94afe4d129ebfd3b3cb58eedf394ed271");
@@ -7912,7 +7914,7 @@ protected:
       seedID2_D5         = READHEX("26132fdbe7bf89cbc64cf8dafa3f9f88b8666220");
       seedFP2_D5         = READHEX("26132fdb");
       seedParFP2_D5      = READHEX("31a507b8");
-      seedString2_D5     = "M/Pub(0)/Prv(4294967295)/Pub(1)/Prv(4294967294)/Pub(2)";
+      seedString2_D5     = "M/0/2147483647'/1/2147483646'/2";
 
       LOGDISABLESTDOUT();
    }
@@ -8234,18 +8236,18 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       EXPECT_TRUE(childKey1.isPrv());
       EXPECT_FALSE(childKey1.isMaster());
       EXPECT_FALSE(childKey1.isPub());
-      EXPECT_EQ(retKey1, set1PrvKey[s1]);
-      EXPECT_EQ(retPubKey1, set1PubKey[s1]);
-      EXPECT_EQ(retChaincode1, set1CC[s1]);
-      EXPECT_EQ(testExtSer1, set1ExtSerPrv[s1]);
-      EXPECT_EQ(testID1, set1ID[s1]);
-      EXPECT_EQ(testFP1, set1FP[s1]);
-      EXPECT_EQ(testParFP1, set1ParFP[s1]);
-      EXPECT_EQ(testCompPub1, set1CompPubKey[s1]);
-      EXPECT_EQ(testVer1, verPri);
-      EXPECT_EQ(testDepth1, set1Depth[s1]);
-      EXPECT_EQ(testChildNum1, *it1);
-      EXPECT_EQ(testString1, set1String[s1]);
+      EXPECT_EQ(set1PrvKey[s1], retKey1);
+      EXPECT_EQ(set1PubKey[s1], retPubKey1);
+      EXPECT_EQ(set1CC[s1], retChaincode1);
+      EXPECT_EQ(set1ExtSerPrv[s1], testExtSer1);
+      EXPECT_EQ(set1ID[s1], testID1);
+      EXPECT_EQ(set1FP[s1], testFP1);
+      EXPECT_EQ(set1ParFP[s1], testParFP1);
+      EXPECT_EQ(set1CompPubKey[s1], testCompPub1);
+      EXPECT_EQ(verPri, testVer1);
+      EXPECT_EQ(set1Depth[s1], testDepth1);
+      EXPECT_EQ(*it1, testChildNum1);
+      EXPECT_EQ(set1String[s1], testString1);
 
       parentKey1 = childKey1;
       ++s1;
@@ -8275,18 +8277,18 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       EXPECT_TRUE(childKey2.isPrv());
       EXPECT_FALSE(childKey2.isMaster());
       EXPECT_FALSE(childKey2.isPub());
-      EXPECT_EQ(retKey2, set2PrvKey[s2]);
-      EXPECT_EQ(retPubKey2, set2PubKey[s2]);
-      EXPECT_EQ(retChaincode2, set2CC[s2]);
-      EXPECT_EQ(testExtSer2, set2ExtSerPrv[s2]);
-      EXPECT_EQ(testID2, set2ID[s2]);
-      EXPECT_EQ(testFP2, set2FP[s2]);
-      EXPECT_EQ(testParFP2, set2ParFP[s2]);
-      EXPECT_EQ(testCompPub2, set2CompPubKey[s2]);
-      EXPECT_EQ(testVer2, verPri);
-      EXPECT_EQ(testDepth2, set2Depth[s2]);
-      EXPECT_EQ(testChildNum2, *it2);
-      EXPECT_EQ(testString2, set2String[s2]);
+      EXPECT_EQ(set2PrvKey[s2], retKey2);
+      EXPECT_EQ(set2PubKey[s2], retPubKey2);
+      EXPECT_EQ(set2CC[s2], retChaincode2);
+      EXPECT_EQ(set2ExtSerPrv[s2], testExtSer2);
+      EXPECT_EQ(set2ID[s2], testID2);
+      EXPECT_EQ(set2FP[s2], testFP2);
+      EXPECT_EQ(set2ParFP[s2], testParFP2);
+      EXPECT_EQ(set2CompPubKey[s2], testCompPub2);
+      EXPECT_EQ(verPri, testVer2);
+      EXPECT_EQ(set2Depth[s2], testDepth2);
+      EXPECT_EQ(*it2, testChildNum2);
+      EXPECT_EQ(set2String[s2], testString2);
 
       parentKey2 = childKey2;
       ++s2;
