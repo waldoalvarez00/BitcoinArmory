@@ -203,6 +203,7 @@ def runSerUnserRoundTripTest(tself, akp):
    cmpprop(akpNew, akpNew2, 'sbdChaincode')
    cmpprop(akpNew, akpNew2, 'useCompressPub')
    cmpprop(akpNew, akpNew2, 'isUsed')
+   cmpprop(akpNew, akpNew2, 'notForDirectUse')
    cmpprop(akpNew, akpNew2, 'keyBornTime')
    cmpprop(akpNew, akpNew2, 'keyBornBlock')
    cmpprop(akpNew, akpNew2, 'privKeyNextUnlock')
@@ -217,10 +218,14 @@ def runSerUnserRoundTripTest(tself, akp):
    tself.assertEqual( akpNew.privCryptInfo.serialize(),
                      akpNew2.privCryptInfo.serialize())
 
+   cmpprop(akpNew, akpNew2, 'walletName')
    cmpprop(akpNew, akpNew2, 'sbdSeedData')
    cmpprop(akpNew, akpNew2, 'seedNumBytes')
    cmpprop(akpNew, akpNew2, 'chainIndex')
    cmpprop(akpNew, akpNew2, 'root135ScrAddr')
+   cmpprop(akpNew, akpNew2, 'userRemoved')
+   cmpprop(akpNew, akpNew2, 'rootSourceApp')
+   cmpprop(akpNew, akpNew2, 'fakeRootID')
 
    try:
       tself.assertEqual( akpNew.seedCryptInfo.serialize(),
@@ -228,18 +233,29 @@ def runSerUnserRoundTripTest(tself, akp):
    except:
       pass
 
-
    # Test that the raw serializations are identical
    tself.assertEqual(ser1, ser2)
-   
 
-   #tself.assertEqual(akpNew.childPoolSize, akpNew2.childPoolSize)
-   #tself.assertEqual(akpNew.akpChildByIndex, akpNew2.akpChildByIndex)
-   #tself.assertEqual(akpNew.akpChildByScrAddr, akpNew2.akpChildByScrAddr)
-   #tself.assertEqual(akpNew.lowestUnusedChild, akpNew2.lowestUnusedChild)
-   #tself.assertEqual(akpNew.nextChildToCalc, akpNew2.nextChildToCalc)
-   #tself.assertEqual(akpNew.akpParentRef, akpNew2.akpParentRef)
-   #tself.assertEqual(akpNew.masterEkeyRef, akpNew2.masterEkeyRef)
+   # For fun, why not add these encoding tests everywhere we test ser/unser
+   if akpNew.sbdPublicKey33.getSize() > 0:
+      sbdPubk = akpNew2.sbdPublicKey33.copy()
+      if not akpNew.useCompressPub:
+         sbdPubk = CryptoECDSA().UncompressPoint(sbdPubk)
+      tself.assertEqual(akpNew.getSerializedPubKey('hex'), sbdPubk.toHexStr())
+      tself.assertEqual(akpNew.getSerializedPubKey('bin'), sbdPubk.toBinStr())
+
+   if akpNew.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Available:
+      lastByte = '\x01' if akpNew.useCompressPub else ''
+      lastHex  =   '01' if akpNew.useCompressPub else ''
+         
+      sbdPriv = akpNew2.getPlainPrivKeyCopy()
+      sipaPriv = PRIVKEYBYTE + sbdPriv.toBinStr() + lastByte
+      sipaPriv = binary_to_base58(sipaPriv + computeChecksum(sipaPriv))
+      tself.assertEqual(akpNew.getSerializedPrivKey('bin'), sbdPriv.toBinStr()+lastByte)
+      tself.assertEqual(akpNew.getSerializedPrivKey('hex'), sbdPriv.toHexStr()+lastHex)
+      tself.assertEqual(akpNew.getSerializedPrivKey('sipa'), sipaPriv)
+      tself.assertEqual(akpNew.getSerializedPrivKey('sipa'), 
+            encodePrivKeyBase58(sbdPriv.toBinStr(), isCompressed=akpNew.useCompressPub))
 
 
 
@@ -339,11 +355,29 @@ class TestHDWalletLogic(unittest.TestCase):
 ################################################################################
 
 ################################################################################
-class ABEK_NoCrypt_Tests(unittest.TestCase):
+class ABEK_Tests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
-      pass
+      self.mockwlt  = MockWalletFile()
+
+      self.password = SecureBinaryData('hello')
+      master32 = SecureBinaryData('\x3e'*32)
+      randomiv = SecureBinaryData('\x7d'*8)
+
+      # Create a KDF to be used for encryption key password
+      self.kdf = KdfObject('ROMIXOV2', memReqd=32*KILOBYTE,
+                                       numIter=1, 
+                                       salt=SecureBinaryData('\x21'*32))
+
+      # Create the new master encryption key to be used to encrypt priv keys
+      self.ekey = EncryptionKey().createNewMasterKey(self.kdf, 'AE256CBC', 
+                     self.password, preGenKey=master32, preGenIV8=randomiv)
+
+      # This will be attached to each ABEK object, to define its encryption
+      self.privACI = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 
+                                 self.ekey.ekeyID, 'PUBKEY20')
+
       
    #############################################################################
    def tearDown(self):
@@ -465,6 +499,17 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
 
       runSerUnserRoundTripTest(self, childAbek)
 
+      # Test the serialized Pub/Priv methods
+      sipaPriv = PRIVKEYBYTE + sbdPriv.toBinStr() + '\x01'
+      sipaPriv = binary_to_base58(sipaPriv + computeChecksum(sipaPriv))
+      self.assertEqual(abek.getSerializedPrivKey('bin'), sbdPriv.toBinStr()+'\x01')
+      self.assertEqual(abek.getSerializedPrivKey('hex'), sbdPriv.toHexStr()+'01')
+      self.assertEqual(abek.getSerializedPrivKey('sipa'), sipaPriv)
+      self.assertEqual(abek.getSerializedPrivKey('sipa'), 
+            encodePrivKeyBase58(sbdPriv.toBinStr(), isCompressed=True))
+      self.assertEqual(abek.getSerializedPubKey('hex'), sbdPubk.toHexStr())
+      self.assertEqual(abek.getSerializedPubKey('bin'), sbdPubk.toBinStr())
+
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
@@ -526,6 +571,9 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
 
 
+      # Test the serialized Pub/Priv methods
+      self.assertEqual(childAbek.getSerializedPubKey('hex'), sbdPubk.toHexStr())
+      self.assertEqual(childAbek.getSerializedPubKey('bin'), sbdPubk.toBinStr())
       
 
 
@@ -556,6 +604,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
                          childIndex=None,
                          useCompressPub=True,
                          isUsed=True,
+                         notForDirectUse=False,
                          keyBornTime=t,
                          keyBornBlock=t)
 
@@ -600,6 +649,7 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(abek.getPlainPrivKeyCopy(), sbdPriv)
 
       runSerUnserRoundTripTest(self, abek)
+      
 
 
    #############################################################################
@@ -627,7 +677,8 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
                               akpParScrAddr=None,
                               childIndex=None,
                               useCompressPub=True,
-                              isUsed=True)
+                              isUsed=True,
+                              notForDirectUse=False)
 
          # Test privKeyAvail methods
          if testWatchOnly:
@@ -687,7 +738,8 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
                               akpParScrAddr=None,
                               childIndex=None,
                               useCompressPub=True,
-                              isUsed=True)
+                              isUsed=True,
+                              notForDirectUse=False)
       
    
          awlt.wltFileRef = mockwlt
@@ -841,63 +893,17 @@ class ABEK_NoCrypt_Tests(unittest.TestCase):
                self.assertEqual(abekLeaf.getParentList(wsa), expect)
                self.assertRaises(ChildDeriveError, abekLeaf.getParentList, 'abc')
    
-   #############################################################################
-   # Haven't written these yet
+
+
+   ################################################################################
+   ################################################################################
+   #
+   # Armory BIP32 Extended Key tests (WITH ENCRYPTION)
+   #
+   ################################################################################
+   ################################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testABEK_serialize(self):
-      pass
-      
-   #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def testABEK_serRoundTrip(self):
-      pass
-         
-   #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def testABEK_serRoundTripWalletEntry(self):
-      pass
-
-
-################################################################################
-################################################################################
-#
-# Armory BIP32 Extended Key tests (WITH ENCRYPTION)
-#
-################################################################################
-################################################################################
-
-################################################################################
-class ABEK_Encrypted_Tests(unittest.TestCase):
-
-   #############################################################################
-   def setUp(self):
-      self.mockwlt  = MockWalletFile()
-
-      self.password = SecureBinaryData('hello')
-      master32 = SecureBinaryData('\x3e'*32)
-      randomiv = SecureBinaryData('\x7d'*8)
-
-      # Create a KDF to be used for encryption key password
-      self.kdf = KdfObject('ROMIXOV2', memReqd=32*KILOBYTE,
-                                       numIter=1, 
-                                       salt=SecureBinaryData('\x21'*32))
-
-      # Create the new master encryption key to be used to encrypt priv keys
-      self.ekey = EncryptionKey().createNewMasterKey(self.kdf, 'AE256CBC', 
-                     self.password, preGenKey=master32, preGenIV8=randomiv)
-
-      # This will be attached to each ABEK object, to define its encryption
-      self.privACI = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 
-                                 self.ekey.ekeyID, 'PUBKEY20')
-
-      
-   #############################################################################
-   def tearDown(self):
-      pass
-      
-   #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def test_SpawnABEK(self):
+   def testSpawnABEK_Crypt(self):
       #leaf = makeABEKGenericClass()
       abek = ABEK_Generic()
       
@@ -930,6 +936,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
                          childIndex=None,
                          useCompressPub=True,
                          isUsed=True,
+                         notForDirectUse=False,
                          keyBornTime=t,
                          keyBornBlock=t)
 
@@ -990,7 +997,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testSpawnABEK(self):
+   def testSpawnABEK_Crypt2(self):
       # Start with this key pair
       sbdPriv  = SecureBinaryData(BIP32TestVectors[1]['seedKey'].toBinStr()[1:])
       sbdPubk  = BIP32TestVectors[1]['seedCompPubKey']
@@ -1143,7 +1150,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testKeyPool_D1(self):
+   def testKeyPool_D1_Crypt(self):
       """
       Doesn't test the accuracy of ABEK calculations, only the keypool sizes
       """
@@ -1178,6 +1185,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
                            childIndex=None,
                            useCompressPub=True,
                            isUsed=True,
+                           notForDirectUse=False,
                            keyBornTime=t,
                            keyBornBlock=t)
 
@@ -1219,7 +1227,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testKeyPool_D2(self):
+   def testKeyPool_D2_Crypt(self):
       """
       Doesn't test the accuracy of ABEK calculations, only the keypool sizes
       """
@@ -1250,6 +1258,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
                          childIndex=None,
                          useCompressPub=True,
                          isUsed=True,
+                         notForDirectUse=False,
                          keyBornTime=t,
                          keyBornBlock=t)
 
@@ -1297,7 +1306,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testABEK_seedCalc(self):
+   def testABEK_seedCalc_Crypt(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
       abekSeed.wltFileRef = mockwlt
@@ -1361,7 +1370,7 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(), '')
-   def testABEK_newSeed(self):
+   def testABEK_newSeed_Crypt(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
       abekSeed.wltFileRef = mockwlt
@@ -1392,21 +1401,30 @@ class ABEK_Encrypted_Tests(unittest.TestCase):
       runSerUnserRoundTripTest(self, abekSeed)
 
 
+   ################################################################################
+   ################################################################################
+   #
+   # Armory BIP32 Extended Key tests (NEXT UNLOCK)
+   #
+   ################################################################################
+   ################################################################################
+   @unittest.skipIf(skipFlagExists(), '')
+   def test_NEED_ABEK_NEXTUNLOCK_TESTS(self):
+      self.assertTrue(False)
+
+
 
 ################################################################################
 ################################################################################
 #
-# Armory 135 TESTS  (NO ENCRYPTION)
+# Armory Wallet 1.35 (backport) tests
 #
 ################################################################################
 ################################################################################
-
-class A135_NoCrypt_Tests(unittest.TestCase):
+class Armory135Tests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
-      pass
-
       self.rootID    = 'zrPzapKR'
       self.rootLine1 = 'okkn weod aajf skrs jdrj rafa gjtr saho eari'.replace(' ','')
       self.rootLine2 = 'rdeg jaah soea ugas jeot niua jdeg hkou gsih'.replace(' ','')
@@ -1467,11 +1485,34 @@ class A135_NoCrypt_Tests(unittest.TestCase):
       # 4: 00a7bd0654e2bebf43acfab6b75a4619e70464cce8
       # 5: 008a78852b767f5b5dc8567dbfa53214e914430789
 
+      self.password = SecureBinaryData('hello')
+      master32 = SecureBinaryData('\x3e'*32)
+      randomiv = SecureBinaryData('\x7d'*8)
+      # Create a KDF to be used for encryption key password
+      self.kdf = KdfObject('ROMIXOV2', memReqd=32*KILOBYTE,
+                                       numIter=1, 
+                                       salt=SecureBinaryData('\x21'*32))
+
+      # Create the new master encryption key to be used to encrypt priv keys
+      self.ekey = EncryptionKey().createNewMasterKey(self.kdf, 'AE256CBC', 
+                     self.password, preGenKey=master32, preGenIV8=randomiv)
+
+      # This will be attached to each ABEK object, to define its encryption
+      self.privACI = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 
+                                 self.ekey.ekeyID, 'PUBKEY20')
+
+      self.ekey.unlock(self.password)
       for idx,imap in self.keyList.iteritems():
          imap['PrivKey']   = SecureBinaryData(parsePrivateKeyData(imap['PrivB58'])[0])
          imap['PubKey']    = SecureBinaryData(hex_to_binary('04' + imap['PubKeyX'] + imap['PubKeyY']))
          imap['Chaincode'] = self.chaincode.copy()
          imap['ScrAddr']   = SCRADDR_P2PKH_BYTE + hash160(imap['PubKey'].toBinStr())
+
+         # Compute encrypted version of privkey with associated (compr) pubkey
+         pub33 = CryptoECDSA().CompressPoint(imap['PubKey'])
+         iv = SecureBinaryData(hash256(pub33.toBinStr())[:16])
+         imap['PrivCrypt'] = self.privACI.encrypt(imap['PrivKey'], ekeyObj=self.ekey, ivData=iv)
+      self.ekey.lock()
       
    #############################################################################
    def tearDown(self):
@@ -1619,11 +1660,16 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             if not WO:
                self.assertEqual(a135.sbdPrivKeyData, expectPriv)
                self.assertEqual(a135.getPlainPrivKeyCopy(), expectPriv)
+               self.assertEqual(a135.getSerializedPrivKey('bin'), expectPriv.toBinStr())
+               self.assertEqual(a135.getSerializedPrivKey('hex'), expectPriv.toHexStr())
+               self.assertEqual(a135.getSerializedPrivKey('sipa'), encodePrivKeyBase58(expectPriv.toBinStr()))
             else:
                self.assertEqual(a135.sbdPrivKeyData, NULLSBD())
    
             self.assertEqual(a135.isWatchOnly, WO)
             self.assertEqual(a135.sbdPublicKey33, expectPub)
+            self.assertEqual(a135.getSerializedPubKey('hex'), pub65.toHexStr())
+            self.assertEqual(a135.getSerializedPubKey('bin'), pub65.toBinStr())
             self.assertEqual(a135.sbdChaincode,   expectChain)
             self.assertEqual(a135.useCompressPub, False)
             self.assertEqual(a135.isUsed, False)
@@ -1862,119 +1908,12 @@ class A135_NoCrypt_Tests(unittest.TestCase):
             self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
       
 
-
-################################################################################
-################################################################################
-#
-# Armory 135 TESTS  (WITH ENCRYPTION)
-#
-# Most tests are nearly identical to the previous set of 135 tests, except
-# using encrypted-but-always-unlocked private keys.  There was probably a way
-# to combine these...
-#
-################################################################################
-################################################################################
-
-class A135_Encrypt_Tests(unittest.TestCase):
-
-   #############################################################################
-   def setUp(self):
-      pass
-
-      self.rootID    = 'zrPzapKR'
-      self.rootLine1 = 'okkn weod aajf skrs jdrj rafa gjtr saho eari'.replace(' ','')
-      self.rootLine2 = 'rdeg jaah soea ugas jeot niua jdeg hkou gsih'.replace(' ','')
-      self.binSeed   = readSixteenEasyBytes(self.rootLine1)[0] + \
-                       readSixteenEasyBytes(self.rootLine2)[0]
-      self.chaincode = DeriveChaincodeFromRootKey_135(SecureBinaryData(self.binSeed))
-
-      # Use for the 1.35a seed tests: same root but non-priv-derived chain
-      self.altChain1 = 'okkn weod aajf skrs jdrj rafa gjtr saho eari'.replace(' ','')
-      self.altChain2 = 'rdeg jaah soea ugas jeot niua jdeg hkou gsih'.replace(' ','')
-      self.binAltChn = readSixteenEasyBytes(self.altChain1)[0] + \
-                       readSixteenEasyBytes(self.altChain2)[0]
-
-      self.keyList = {}
-
-      self.keyList[0] = { \
-         'AddrStr': '13QVfpnE7TWAnkGGpHak1Z9cJVQWTZrYqb',
-         'PrivB58': '5JWFgYDRyCqxMcXprSf84RAfPC4p6x2eifXxNwHuqeL137JC11A',
-         'PubKeyX': '1a84426c38a0099975d683365436ee3eedaf2c9589c44635aa3808ede5f87081',
-         'PubKeyY': '6a905e1f3055c0982307951e5e4150349c5c98a644f3da9aeef9c80f103cf2af' }
-      self.keyList[1] = { \
-         'AddrStr': '1Dy4cGbv3KKm4EhQYVKvUJQfy6sgmGR4ii',
-         'PrivB58': '5KMBzjqDE8dXxtvRaY8dGHnMUNyE6uonDwKgeG44XBsngqTYkf9',
-         'PubKeyX': '6c23cc6208a1f6daaa196ba6e763b445555ada6315ebf9465a0b9cb49e813e3a',
-         'PubKeyY': '341eb33ed738b6a1ac6a57526a80af2e6841dcf71f287dbe721dd4486d9cf8c4' }
-      self.keyList[2] = { \
-         'AddrStr': '1BKG36rBdxiYNRQbLCYfPzi6Cf4pW2aRxQ',
-         'PrivB58': '5KhpN6mmdiVcKmZtPjqfC41Af7181Dj4JadyU7dDLVefdPcMbZi',
-         'PubKeyX': 'eb013f8047ad532a8bcc4d4f69a62887ce82afb574d7fb8a326b9bab82d240fa',
-         'PubKeyY': 'a8fdcd604105292cb04c7707da5e42300bc418654f8ffc94e2c83bd5a54e09e2' }
-      self.keyList[3] = { \
-         'AddrStr': '1NhZfoXMLmohuvAh7Ks67JMx6mpcVq2FCa',
-         'PrivB58': '5KaxXWwQgFcp3d5Bqd58xvtBDN8FEPQeRZJDpyxY5LTZ5ALZHE3',
-         'PubKeyX': 'd6e6d3031d5d3de48293d97590f5b697089e8e6b40e919a68e2a07c300c1256b',
-         'PubKeyY': '3d9b428e0ef9f73bd81c9388e1d8702f477138ca444eed57370d0e31ba9bafe5' }
-      self.keyList[4] = { \
-         'AddrStr': '1GHvHhrUBL5mMryscJa9uzDnPXeEpqU7Tn',
-         'PrivB58': '5Jb4u9bpWDv19y6hu6nAE7cDdQoUrJMoyrwGDjPxMKo8oxULSdn',
-         'PubKeyX': 'e40d3923bfffad0cdc6d6a3341c8e669beb1264b86cbfd21229ca8a74cf53ca5',
-         'PubKeyY': '587b7a9b18b648cd421d17d45d05e8fc647f7ea02f61b670a2d4c2012e3b717f' }
-      self.keyList[5] = { \
-         'AddrStr': '1DdAdN2VQXg52YqDssZ4o6XprVgEB4Evpj',
-         'PrivB58': '5JxD9BrDhCgWEKfEUG2FBcAk1D667G97hNREg81M5Qzgi9CAgdD',
-         'PubKeyX': '7e043899f917288db2962819cd78c8328efb6dd172b9cbe1bfaaf8d745fd3e99',
-         'PubKeyY': '746b29150ff3828556595291419d579c824ac2879d83fb3d51d5efea5de4715d' }
-      self.keyList[6] = { \
-         'AddrStr': '1K9QBzxv2jL7ftMkJ9jghr8dJgZ6u6zhHR',
-         'PrivB58': '5K7GHu48sqxnYNhiMNVVoeh8WXnnerrNhL2TWocHngaP8zyUPAr',
-         'PubKeyX': 'bbc9cd69dd6977b08d7916c0da81208df0b8a491b0897ca482bd42df47102d6b',
-         'PubKeyY': 'f0318b3298ba93831df82b7ce51da5e0e8647a3ecd994f600a84834b424ed2b8' }
-
-      # For reference, here's the first 6 ScrAddrs
-      # ROOT: 00ef2ba030696d99d945fea3990e4213c62d042ddd
-      # 0: 001a61c02c74328db5122fa9c1d4917f05de86a8c2
-      # 1: 008e3bd0ad4a85b3fd3d4998397e8da93635aab664
-      # 2: 0071254bf82804253fbafaf49b45fe7f85eba0d3d5
-      # 3: 00ee068cf6c7b6fc77326cba37d621aebe834a5257
-      # 4: 00a7bd0654e2bebf43acfab6b75a4619e70464cce8
-      # 5: 008a78852b767f5b5dc8567dbfa53214e914430789
-
-      self.password = SecureBinaryData('hello')
-      master32 = SecureBinaryData('\x3e'*32)
-      randomiv = SecureBinaryData('\x7d'*8)
-      # Create a KDF to be used for encryption key password
-      self.kdf = KdfObject('ROMIXOV2', memReqd=32*KILOBYTE,
-                                       numIter=1, 
-                                       salt=SecureBinaryData('\x21'*32))
-
-      # Create the new master encryption key to be used to encrypt priv keys
-      self.ekey = EncryptionKey().createNewMasterKey(self.kdf, 'AE256CBC', 
-                     self.password, preGenKey=master32, preGenIV8=randomiv)
-
-      # This will be attached to each ABEK object, to define its encryption
-      self.privACI = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 
-                                 self.ekey.ekeyID, 'PUBKEY20')
-
-      self.ekey.unlock(self.password)
-      for idx,imap in self.keyList.iteritems():
-         imap['PrivKey']   = SecureBinaryData(parsePrivateKeyData(imap['PrivB58'])[0])
-         imap['PubKey']    = SecureBinaryData(hex_to_binary('04' + imap['PubKeyX'] + imap['PubKeyY']))
-         imap['Chaincode'] = self.chaincode.copy()
-         imap['ScrAddr']   = SCRADDR_P2PKH_BYTE + hash160(imap['PubKey'].toBinStr())
-
-         # Compute encrypted version of privkey with associated (compr) pubkey
-         pub33 = CryptoECDSA().CompressPoint(imap['PubKey'])
-         iv = SecureBinaryData(hash256(pub33.toBinStr())[:16])
-         imap['PrivCrypt'] = self.privACI.encrypt(imap['PrivKey'], ekeyObj=self.ekey, ivData=iv)
-      self.ekey.lock()
-      
-   #############################################################################
-   def tearDown(self):
-      pass
-      
-
+   ################################################################################
+   ################################################################################
+   #
+   # Armory 1.35 Encryption Tests
+   #
+   ################################################################################
    #############################################################################
    def testInitFromSeed32_Crypt(self):
       seed = SecureBinaryData(self.binSeed)
@@ -2320,114 +2259,13 @@ class A135_Encrypt_Tests(unittest.TestCase):
          self.assertEqual(scrAddrToIndex[a135.getScrAddr()], a135.chainIndex)
 
       
-################################################################################
-################################################################################
-#
-# Armory 135 NEXTUNLOCK TESTS
-#
-################################################################################
-################################################################################
-
-class A135_NextUnlock_Tests(unittest.TestCase):
-
-   #############################################################################
-   def setUp(self):
-      pass
-
-      self.rootID    = 'zrPzapKR'
-      self.rootLine1 = 'okkn weod aajf skrs jdrj rafa gjtr saho eari'.replace(' ','')
-      self.rootLine2 = 'rdeg jaah soea ugas jeot niua jdeg hkou gsih'.replace(' ','')
-      self.binSeed   = readSixteenEasyBytes(self.rootLine1)[0] + \
-                       readSixteenEasyBytes(self.rootLine2)[0]
-      self.chaincode = DeriveChaincodeFromRootKey_135(SecureBinaryData(self.binSeed))
-
-
-      self.keyList = {}
-
-      self.keyList[0] = { \
-         'AddrStr': '13QVfpnE7TWAnkGGpHak1Z9cJVQWTZrYqb',
-         'PrivB58': '5JWFgYDRyCqxMcXprSf84RAfPC4p6x2eifXxNwHuqeL137JC11A',
-         'PubKeyX': '1a84426c38a0099975d683365436ee3eedaf2c9589c44635aa3808ede5f87081',
-         'PubKeyY': '6a905e1f3055c0982307951e5e4150349c5c98a644f3da9aeef9c80f103cf2af' }
-      self.keyList[1] = { \
-         'AddrStr': '1Dy4cGbv3KKm4EhQYVKvUJQfy6sgmGR4ii',
-         'PrivB58': '5KMBzjqDE8dXxtvRaY8dGHnMUNyE6uonDwKgeG44XBsngqTYkf9',
-         'PubKeyX': '6c23cc6208a1f6daaa196ba6e763b445555ada6315ebf9465a0b9cb49e813e3a',
-         'PubKeyY': '341eb33ed738b6a1ac6a57526a80af2e6841dcf71f287dbe721dd4486d9cf8c4' }
-      self.keyList[2] = { \
-         'AddrStr': '1BKG36rBdxiYNRQbLCYfPzi6Cf4pW2aRxQ',
-         'PrivB58': '5KhpN6mmdiVcKmZtPjqfC41Af7181Dj4JadyU7dDLVefdPcMbZi',
-         'PubKeyX': 'eb013f8047ad532a8bcc4d4f69a62887ce82afb574d7fb8a326b9bab82d240fa',
-         'PubKeyY': 'a8fdcd604105292cb04c7707da5e42300bc418654f8ffc94e2c83bd5a54e09e2' }
-      self.keyList[3] = { \
-         'AddrStr': '1NhZfoXMLmohuvAh7Ks67JMx6mpcVq2FCa',
-         'PrivB58': '5KaxXWwQgFcp3d5Bqd58xvtBDN8FEPQeRZJDpyxY5LTZ5ALZHE3',
-         'PubKeyX': 'd6e6d3031d5d3de48293d97590f5b697089e8e6b40e919a68e2a07c300c1256b',
-         'PubKeyY': '3d9b428e0ef9f73bd81c9388e1d8702f477138ca444eed57370d0e31ba9bafe5' }
-      self.keyList[4] = { \
-         'AddrStr': '1GHvHhrUBL5mMryscJa9uzDnPXeEpqU7Tn',
-         'PrivB58': '5Jb4u9bpWDv19y6hu6nAE7cDdQoUrJMoyrwGDjPxMKo8oxULSdn',
-         'PubKeyX': 'e40d3923bfffad0cdc6d6a3341c8e669beb1264b86cbfd21229ca8a74cf53ca5',
-         'PubKeyY': '587b7a9b18b648cd421d17d45d05e8fc647f7ea02f61b670a2d4c2012e3b717f' }
-      self.keyList[5] = { \
-         'AddrStr': '1DdAdN2VQXg52YqDssZ4o6XprVgEB4Evpj',
-         'PrivB58': '5JxD9BrDhCgWEKfEUG2FBcAk1D667G97hNREg81M5Qzgi9CAgdD',
-         'PubKeyX': '7e043899f917288db2962819cd78c8328efb6dd172b9cbe1bfaaf8d745fd3e99',
-         'PubKeyY': '746b29150ff3828556595291419d579c824ac2879d83fb3d51d5efea5de4715d' }
-      self.keyList[6] = { \
-         'AddrStr': '1K9QBzxv2jL7ftMkJ9jghr8dJgZ6u6zhHR',
-         'PrivB58': '5K7GHu48sqxnYNhiMNVVoeh8WXnnerrNhL2TWocHngaP8zyUPAr',
-         'PubKeyX': 'bbc9cd69dd6977b08d7916c0da81208df0b8a491b0897ca482bd42df47102d6b',
-         'PubKeyY': 'f0318b3298ba93831df82b7ce51da5e0e8647a3ecd994f600a84834b424ed2b8' }
-
-      # For reference, here's the first 6 ScrAddrs
-      # ROOT: 00ef2ba030696d99d945fea3990e4213c62d042ddd
-      # 0: 001a61c02c74328db5122fa9c1d4917f05de86a8c2
-      # 1: 008e3bd0ad4a85b3fd3d4998397e8da93635aab664
-      # 2: 0071254bf82804253fbafaf49b45fe7f85eba0d3d5
-      # 3: 00ee068cf6c7b6fc77326cba37d621aebe834a5257
-      # 4: 00a7bd0654e2bebf43acfab6b75a4619e70464cce8
-      # 5: 008a78852b767f5b5dc8567dbfa53214e914430789
-
-      self.password = SecureBinaryData('hello')
-      master32 = SecureBinaryData('\x3e'*32)
-      randomiv = SecureBinaryData('\x7d'*8)
-      # Create a KDF to be used for encryption key password
-      self.kdf = KdfObject('ROMIXOV2', memReqd=32*KILOBYTE,
-                                       numIter=1, 
-                                       salt=SecureBinaryData('\x21'*32))
-
-      # Create the new master encryption key to be used to encrypt priv keys
-      self.ekey = EncryptionKey().createNewMasterKey(self.kdf, 'AE256CBC', 
-                     self.password, preGenKey=master32, preGenIV8=randomiv)
-
-      # This will be attached to each ABEK object, to define its encryption
-      self.privACI = ArmoryCryptInfo(NULLKDF, 'AE256CBC', 
-                                 self.ekey.ekeyID, 'PUBKEY20')
-
-      self.ekey.unlock(self.password)
-      for idx,imap in self.keyList.iteritems():
-         imap['PrivKey']   = SecureBinaryData(parsePrivateKeyData(imap['PrivB58'])[0])
-         imap['PubKey']    = SecureBinaryData(hex_to_binary('04' + imap['PubKeyX'] + imap['PubKeyY']))
-         imap['Chaincode'] = self.chaincode.copy()
-         imap['ScrAddr']   = SCRADDR_P2PKH_BYTE + hash160(imap['PubKey'].toBinStr())
-
-         # Compute encrypted version of privkey with associated (compr) pubkey
-         pub33 = CryptoECDSA().CompressPoint(imap['PubKey'])
-         iv = SecureBinaryData(hash256(pub33.toBinStr())[:16])
-         imap['PrivCrypt'] = self.privACI.encrypt(imap['PrivKey'], ekeyObj=self.ekey, ivData=iv)
-      self.ekey.lock()
-
-
-      
-   #############################################################################
-   def tearDown(self):
-      pass
-      
-
-
-
-   #############################################################################
+   ################################################################################
+   ################################################################################
+   #
+   # Armory 135 NEXTUNLOCK TESTS
+   #
+   ################################################################################
+   ################################################################################
    @unittest.skipIf(skipFlagExists(), '')
    def testSpawnA135_ResolveNextUnlock(self):
       """
@@ -2804,7 +2642,6 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
       for idx,imap in self.keyList.iteritems():
          imap['PrivKey']   = SecureBinaryData(parsePrivateKeyData(imap['PrivB58'])[0])
          imap['PubKey']    = SecureBinaryData(hex_to_binary('04' + imap['PubKeyX'] + imap['PubKeyY']))
-         imap['Chaincode'] = self.chaincode.copy()
          imap['ScrAddr']   = SCRADDR_P2PKH_BYTE + hash160(imap['PubKey'].toBinStr())
       
    #############################################################################
@@ -2813,82 +2650,199 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
       
 
    #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def testInitA135(self):
-      #leaf = makeABEKGenericClass()
-      a135 = Armory135KeyPair()
-         
-      self.assertEqual(a135.isWatchOnly, False)
-      self.assertEqual(a135.sbdPrivKeyData, NULLSBD())
-      self.assertEqual(a135.sbdPublicKey33, NULLSBD())
-      self.assertEqual(a135.sbdChaincode, NULLSBD())
-      self.assertEqual(a135.useCompressPub, False)
-      self.assertEqual(a135.isUsed, False)
-      self.assertEqual(a135.keyBornTime, 0)
-      self.assertEqual(a135.keyBornBlock, 0)
-      self.assertEqual(a135.privKeyNextUnlock, False)
-      self.assertEqual(a135.childPoolSize, 1)
-      self.assertEqual(a135.maxChildren, 1)
-      self.assertEqual(a135.rawScript, None)
-      self.assertEqual(a135.scrAddrStr, None)
-      self.assertEqual(a135.uniqueIDBin, None)
-      self.assertEqual(a135.uniqueIDB58, None)
-      self.assertEqual(a135.akpChildByIndex, {})
-      self.assertEqual(a135.akpChildByScrAddr, {})
-      self.assertEqual(a135.lowestUnusedChild, 0)
-      self.assertEqual(a135.nextChildToCalc,   0)
-      self.assertEqual(a135.akpParentRef, None)
-      self.assertEqual(a135.masterEkeyRef, None)
+   def testImportedInit(self):
 
-      self.assertEqual(a135.getName(), 'Armory135KeyPair')
-      self.assertEqual(a135.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Uninit)
+      for i in range(2):
+         aikp    =  ArmoryImportedKeyPair() if i==0 else  ArmoryImportedRoot()
+         clsName = 'ArmoryImportedKeyPair'  if i==0 else 'ArmoryImportedRoot'
 
-      self.assertEqual(a135.chainIndex, None)
-      self.assertEqual(a135.childIndex, 0)
+         self.assertRaises(aikp.getChildClass, None)
+            
+         self.assertEqual(aikp.isWatchOnly, False)
+         self.assertEqual(aikp.sbdPrivKeyData, NULLSBD())
+         self.assertEqual(aikp.sbdPublicKey33, NULLSBD())
+         self.assertEqual(aikp.sbdChaincode,   NULLSBD())
+         self.assertEqual(aikp.useCompressPub, True)
+         self.assertEqual(aikp.isUsed, False)
+         self.assertEqual(aikp.keyBornTime, 0)
+         self.assertEqual(aikp.keyBornBlock, 0)
+         self.assertEqual(aikp.privKeyNextUnlock, False)
+         self.assertEqual(aikp.childPoolSize, 0)
+         self.assertEqual(aikp.maxChildren, 0)
+         self.assertEqual(aikp.rawScript, None)
+         self.assertEqual(aikp.scrAddrStr, None)
+         self.assertEqual(aikp.uniqueIDBin, None)
+         self.assertEqual(aikp.uniqueIDB58, None)
+         self.assertEqual(aikp.akpChildByIndex, {})
+         self.assertEqual(aikp.akpChildByScrAddr, {})
+         self.assertEqual(aikp.lowestUnusedChild, 0)
+         self.assertEqual(aikp.nextChildToCalc,   0)
+         self.assertEqual(aikp.akpParentRef, None)
+         self.assertEqual(aikp.masterEkeyRef, None)
+   
+         self.assertEqual(aikp.getName(), clsName)
+         self.assertEqual(aikp.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Uninit)
+   
+         self.assertEqual(aikp.childIndex, None)
+   
+         # WalletEntry fields
+         self.assertEqual(aikp.wltFileRef, None)
+         self.assertEqual(aikp.wltByteLoc, None)
+         self.assertEqual(aikp.wltEntrySz, None)
+         self.assertEqual(aikp.isRequired, False)
+         self.assertEqual(aikp.parEntryID, None)
+         self.assertEqual(aikp.outerCrypt.serialize(), NULLCRYPTINFO().serialize())
+         self.assertEqual(aikp.serPayload, None)
+         self.assertEqual(aikp.defaultPad, 256)
+         self.assertEqual(aikp.wltLvlParent, None)
+         self.assertEqual(aikp.wltChildRefs, [])
+         self.assertEqual(aikp.outerEkeyRef, None)
+         self.assertEqual(aikp.isOpaque,        False)
+         self.assertEqual(aikp.isUnrecognized,  False)
+         self.assertEqual(aikp.isUnrecoverable, False)
+         self.assertEqual(aikp.isDeleted,       False)
+         self.assertEqual(aikp.isDisabled,      False)
+         self.assertEqual(aikp.needFsync,       False)
+   
+         self.assertRaises(UninitializedError, aikp.serialize)
 
-      # WalletEntry fields
-      self.assertEqual(a135.wltFileRef, None)
-      self.assertEqual(a135.wltByteLoc, None)
-      self.assertEqual(a135.wltEntrySz, None)
-      self.assertEqual(a135.isRequired, False)
-      self.assertEqual(a135.parEntryID, None)
-      self.assertEqual(a135.outerCrypt.serialize(), NULLCRYPTINFO().serialize())
-      self.assertEqual(a135.serPayload, None)
-      self.assertEqual(a135.defaultPad, 256)
-      self.assertEqual(a135.wltLvlParent, None)
-      self.assertEqual(a135.wltChildRefs, [])
-      self.assertEqual(a135.outerEkeyRef, None)
-      self.assertEqual(a135.isOpaque,        False)
-      self.assertEqual(a135.isUnrecognized,  False)
-      self.assertEqual(a135.isUnrecoverable, False)
-      self.assertEqual(a135.isDeleted,       False)
-      self.assertEqual(a135.isDisabled,      False)
-      self.assertEqual(a135.needFsync,       False)
 
-      self.assertRaises(UninitializedError, a135.serialize)
 
 
    #############################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def testInitFromSeed(self):
-      seed = SecureBinaryData(self.binSeed)
+   def testImportedCompressed(self):
 
-      a135rt = Armory135Root()
-      a135rt.privCryptInfo = NULLCRYPTINFO()
-      a135rt.childPoolSize = 3
-      a135rt.initializeFromSeed(seed, fillPool=False)
+      for i in range(2):
+         aikp    =  ArmoryImportedKeyPair() if i==0 else  ArmoryImportedRoot()
+         clsName = 'ArmoryImportedKeyPair'  if i==0 else 'ArmoryImportedRoot'
 
-      self.assertEqual(a135rt.sbdSeedData.toHexStr(), '') # supposed to be empty
-      self.assertEqual(a135rt.privCryptInfo.serialize(), NULLCRYPTINFO().serialize())
-      self.assertEqual(a135rt.privKeyNextUnlock, False)
+         self.assertRaises(aikp.getChildClass, None)
 
-      self.assertEqual(a135rt.getPlainSeedCopy(), seed)
-      self.assertEqual(a135rt.getUniqueIDB58(), self.rootID)
+         sbdPriv = self.keyList[0]['PrivKey'].copy()
+         sbdPubk = self.keyList[0]['PubKey'].copy()
+         scrAddr = self.keyList[0]['ScrAddr']
+         t = long(1.4e9)
 
-      self.assertEqual(a135rt.rootLowestUnused, 0)
-      self.assertEqual(a135rt.rootNextToCalc,   0)
+   
+         sbdPubkCompr = CryptoECDSA().CompressPoint(sbdPubk)
+         scrAddrCompr = '\x00' + hash160(sbdPubkCompr.toBinStr())
+         uniqID  = '' if i==0 else hash256(sbdPubkCompr.toBinStr())[:6]
+   
+         aikp.initializeAKP(isWatchOnly=False,
+                            isRootRoot=False,
+                            privCryptInfo=NULLCRYPTINFO(),
+                            sbdPrivKeyData=sbdPriv,
+                            sbdPublicKey33=sbdPubk,
+                            sbdChaincode=NULLSBD(),
+                            privKeyNextUnlock=False,
+                            akpParScrAddr=None,
+                            childIndex=None,
+                            useCompressPub=True,
+                            isUsed=True,
+                            notForDirectUse=False,
+                            keyBornTime=t,
+                            keyBornBlock=t)
+   
+   
+                              
+         self.assertEqual(aikp.isWatchOnly, False)
+         self.assertEqual(aikp.isRootRoot, False)
+         self.assertEqual(aikp.sbdPrivKeyData, sbdPriv)
+         self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+         self.assertEqual(aikp.sbdPublicKey33, sbdPubkCompr)
+         self.assertEqual(aikp.sbdChaincode, NULLSBD())
+         self.assertEqual(aikp.useCompressPub, True)
+         self.assertEqual(aikp.isUsed, True)
+         self.assertEqual(aikp.keyBornTime, t)
+         self.assertEqual(aikp.keyBornBlock, t)
+         self.assertEqual(aikp.privKeyNextUnlock, False)
+         self.assertEqual(aikp.akpParScrAddr, None)
+         self.assertEqual(aikp.childIndex, None)
+         self.assertEqual(aikp.maxChildren, 0)
+         self.assertEqual(aikp.scrAddrStr, scrAddrCompr)
+         self.assertEqual(aikp.uniqueIDBin, uniqID)
+         self.assertEqual(aikp.uniqueIDB58, binary_to_base58(uniqID))
+         self.assertEqual(aikp.akpChildByIndex, {})
+         self.assertEqual(aikp.akpChildByScrAddr, {})
+         self.assertEqual(aikp.lowestUnusedChild, 0)
+         self.assertEqual(aikp.nextChildToCalc,   0)
+         self.assertEqual(aikp.akpParentRef, None)
+         self.assertEqual(aikp.masterEkeyRef, None)
+   
+         self.assertEqual(aikp.TREELEAF, True)
+         self.assertEqual(aikp.getName(), clsName)
+         self.assertEqual(aikp.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
+         self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+   
+         runSerUnserRoundTripTest(self, aikp)
 
-      runSerUnserRoundTripTest(self, a135rt)
+
+   #############################################################################
+   def testImportedUncompressed(self):
+      for i in range(2):
+         aikp    =  ArmoryImportedKeyPair() if i==0 else  ArmoryImportedRoot()
+         clsName = 'ArmoryImportedKeyPair'  if i==0 else 'ArmoryImportedRoot'
+   
+         sbdPriv = self.keyList[0]['PrivKey'].copy()
+         sbdPubk = self.keyList[0]['PubKey'].copy()
+         scrAddr = self.keyList[0]['ScrAddr']
+         t = long(1.4e9)
+   
+         sbdPubkCompr = CryptoECDSA().CompressPoint(sbdPubk)
+         uniqID  = '' if i==0 else hash256(sbdPubk.toBinStr())[:6]
+   
+         aikp.initializeAKP(isWatchOnly=False,
+                           isRootRoot=False,
+                           privCryptInfo=NULLCRYPTINFO(),
+                           sbdPrivKeyData=sbdPriv,
+                           sbdPublicKey33=sbdPubk,
+                           sbdChaincode=NULLSBD(),
+                           privKeyNextUnlock=False,
+                           akpParScrAddr=None,
+                           childIndex=None,
+                           useCompressPub=False,
+                           isUsed=True,
+                           notForDirectUse=False,
+                           keyBornTime=t,
+                           keyBornBlock=t)
+   
+   
+                              
+         self.assertEqual(aikp.isWatchOnly, False)
+         self.assertEqual(aikp.isRootRoot, False)
+         self.assertEqual(aikp.sbdPrivKeyData, sbdPriv)
+         self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+         self.assertEqual(aikp.sbdPublicKey33, sbdPubkCompr)
+         self.assertEqual(aikp.sbdChaincode, NULLSBD())
+         self.assertEqual(aikp.useCompressPub, False)
+         self.assertEqual(aikp.isUsed, True)
+         self.assertEqual(aikp.keyBornTime, t)
+         self.assertEqual(aikp.keyBornBlock, t)
+         self.assertEqual(aikp.privKeyNextUnlock, False)
+         self.assertEqual(aikp.akpParScrAddr, None)
+         self.assertEqual(aikp.childIndex, None)
+         self.assertEqual(aikp.maxChildren, 0)
+         self.assertEqual(aikp.scrAddrStr, scrAddr)
+         self.assertEqual(aikp.uniqueIDBin, uniqID)
+         self.assertEqual(aikp.uniqueIDB58, binary_to_base58(uniqID))
+         self.assertEqual(aikp.akpChildByIndex, {})
+         self.assertEqual(aikp.akpChildByScrAddr, {})
+         self.assertEqual(aikp.lowestUnusedChild, 0)
+         self.assertEqual(aikp.nextChildToCalc,   0)
+         self.assertEqual(aikp.akpParentRef, None)
+         self.assertEqual(aikp.masterEkeyRef, None)
+   
+         self.assertEqual(aikp.TREELEAF, True)
+         self.assertEqual(aikp.getName(), clsName)
+         self.assertEqual(aikp.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
+         self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+   
+         runSerUnserRoundTripTest(self, aikp)
+
+
+   #############################################################################
+   def testImportedRoot(self):
+      pass
 
 
 if __name__ == "__main__":

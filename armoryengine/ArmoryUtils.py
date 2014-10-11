@@ -2957,10 +2957,10 @@ def parsePrivateKeyData(theStr):
 
 
 ################################################################################
-def encodePrivKeyBase58(privKeyBin):
-   bin33 = PRIVKEYBYTE + privKeyBin
-   chk = computeChecksum(bin33)
-   return binary_to_base58(bin33 + chk)
+def encodePrivKeyBase58(privKeyBin, isCompressed=False):
+   binPriv = PRIVKEYBYTE + privKeyBin + ('\x01' if isCompressed else '')
+   chk = computeChecksum(binPriv)
+   return binary_to_base58(binPriv + chk)
 
 
 
