@@ -38,6 +38,8 @@ DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 DEFAULT_CHILDPOOLSIZE['Armory135Root']     = 1000  # old Armory wallets
 DEFAULT_CHILDPOOLSIZE['Armory135KeyPair']  = 1     # old Armory wallets
 
+DEFAULT_CHILDPOOLSIZE['ArmoryImportedKeyPair'] = 0  
+DEFAULT_CHILDPOOLSIZE['ArmoryImportedRoot']    = 0 
 
 # A key type with no constraints on child generation, mainly for testing
 DEFAULT_CHILDPOOLSIZE['ABEK_Generic'] = 5
@@ -119,6 +121,7 @@ class ArmoryKeyPair(WalletEntry):
       self.sbdChaincode    = NULLSBD()
       self.useCompressPub  = True
       self.isUsed          = False
+      self.notForDirectUse = False  # perhaps only intended for multisig
       self.keyBornTime     = 0
       self.keyBornBlock    = 0
       self.privKeyNextUnlock = False
@@ -140,9 +143,10 @@ class ArmoryKeyPair(WalletEntry):
       self.akpChildByIndex    = {}
       self.akpChildByScrAddr  = {}
       self.lowestUnusedChild  = 0
-      self.nextChildToCalc = 0   #  "P1" ~ plus 1, using top-exclude ranges
-      self.akpParentRef    = None
-      self.masterEkeyRef   = None
+      self.nextChildToCalc    = 0   
+      self.akpParentRef       = None
+      self.masterEkeyRef      = None
+      self.masterKdfRef       = None
 
 
 
@@ -244,6 +248,28 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
+   def linkWalletEntries(self, wltFileRef):
+      """
+      All children nodes look for their parents in the wallet file and call
+      the addChildRef method.  
+      """
+      self.wltFileRef = wltFileRef
+      self.masterEkeyRef = wltFileRef.ekeyMap.get(self.privCryptInfo.keySource)
+      self.masterKdfRef  = wltFileRef.ekeyMap.get(self.privCryptInfo.kdfObjID)
+
+      if not self.isRootRoot:
+         foundParent = wltFileRef.allKeyPairObjects.get(self.akpParScrAddr)
+         if foundParent is None:
+            self.isDisabled = True
+         else:
+            self.akpParentRef = foundParent.addChildRef(self)
+
+
+      
+   
+
+
+   #############################################################################
    def getName(self):
       return self.__class__.__name__
 
@@ -310,6 +336,7 @@ class ArmoryKeyPair(WalletEntry):
       self.sbdChaincode    = other.sbdChaincode.copy()
       self.useCompressPub  = other.useCompressPub
       self.isUsed          = other.isUsed
+      self.notForDirectUse = other.notForDirectUse
       self.keyBornTime     = other.keyBornTime
       self.keyBornBlock    = other.keyBornBlock
       self.privKeyNextUnlock = other.privKeyNextUnlock
@@ -320,9 +347,10 @@ class ArmoryKeyPair(WalletEntry):
       self.akpChildByIndex   = other.akpChildByIndex.copy()
       self.akpChildByScrAddr = other.akpChildByScrAddr.copy()
       self.lowestUnusedChild = other.lowestUnusedChild
-      self.nextChildToCalc  = other.nextChildToCalc
-      self.akpParentRef    = other.akpParentRef
-      self.masterEkeyRef   = other.masterEkeyRef
+      self.nextChildToCalc   = other.nextChildToCalc
+      self.akpParentRef      = other.akpParentRef
+      self.masterEkeyRef     = other.masterEkeyRef
+      self.masterKdfRef      = other.masterKdfRef
 
       self.scrAddrStr      = other.scrAddrStr
       self.rawScript       = other.rawScript
@@ -392,6 +420,7 @@ class ArmoryKeyPair(WalletEntry):
                            childIndex,
                            useCompressPub,
                            isUsed,
+                           notForDirectUse,
                            keyBornTime=UINT64_MAX,
                            keyBornBlock=UINT32_MAX):
 
@@ -415,11 +444,12 @@ class ArmoryKeyPair(WalletEntry):
       self.childIndex      = childIndex
       self.useCompressPub  = useCompressPub
       self.isUsed          = isUsed
+      self.notForDirectUse = notForDirectUse  # perhaps a multisig sibling
       self.keyBornTime     = keyBornTime
       self.keyBornBlock    = keyBornBlock
 
       if self.sbdPublicKey33.getSize() == 65:
-         self.sbdPublicKey33 = CryptoECDSA().CompressPoint(newPub)
+         self.sbdPublicKey33 = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
 
       if isRootRoot:
          self.akpParScrAddr = None
@@ -447,6 +477,7 @@ class ArmoryKeyPair(WalletEntry):
       flags.setBit(2, self.useCompressPub)
       flags.setBit(3, self.privKeyNextUnlock)
       flags.setBit(4, self.isUsed)
+      flags.setBit(5, self.notForDirectUse)
 
       
       parScrAddr = self.akpParScrAddr
@@ -459,6 +490,7 @@ class ArmoryKeyPair(WalletEntry):
       # Save space if fields are empty by using VAR_STRs
       bp = BinaryPacker()
       bp.put(UINT32,        getVersionInt(ARMORY_WALLET_VERSION))
+      bp.put(BINARY_CHUNK,  self.FILECODE,                   8)
       bp.put(BITSET,        flags,                           2)
       bp.put(BINARY_CHUNK,  self.privCryptInfo.serialize(), 32)
       bp.put(VAR_STR,       self.sbdPrivKeyData.toBinStr())
@@ -510,7 +542,8 @@ class ArmoryKeyPair(WalletEntry):
 
       # First pass is pretty much just to get to the RSEC code, second
       # pass is over the RS-corrected data.
-      flags             = akpUnpack.get(BITSET,       2)
+      filecode          = akpUnpack.get(BINARY_CHUNK,  8)
+      flags             = akpUnpack.get(BITSET,        2)
       privCryptInfoSer  = akpUnpack.get(BINARY_CHUNK, 32)
       privk             = akpUnpack.get(VAR_STR)
       pubk              = akpUnpack.get(VAR_STR)
@@ -523,17 +556,18 @@ class ArmoryKeyPair(WalletEntry):
 
       pcryptInfo = ArmoryCryptInfo().unserialize(privCryptInfoSer)
 
-      #if not extKeyType==self.EXTKEYTYPE:
-         #LOGERROR('Wrong EXTKEYTYPE for type being unserialized')
-         #LOGERROR('Self=%s, unserialized=%s' % (self.EXTKEYTYPE, extKeyType))
-         #we.isUnrecoverable = True 
-         #return we
+      if not filecode==self.FILECODE:
+         LOGERROR('Wrong FILECODE for type being unserialized')
+         LOGERROR('Self=%s, unserialized=%s' % (self.FILECODE, filecode))
+         we.isUnrecoverable = True 
+         return we
       
       isWatchOnly       = flags.getBit(0)
       isRootRoot        = flags.getBit(1)
       useCompressPub    = flags.getBit(2)
       privKeyNextUnlock = flags.getBit(3)
       isUsed            = flags.getBit(4)
+      notForDirectUse   = flags.getBit(5)
 
 
       if isRootRoot:
@@ -551,6 +585,7 @@ class ArmoryKeyPair(WalletEntry):
                           childIndex,
                           useCompressPub,
                           isUsed,
+                          notForDirectUse,
                           bornTime,
                           bornBlk)
                           
@@ -593,6 +628,14 @@ class ArmoryKeyPair(WalletEntry):
       return self.privCryptInfo.useEncryption()
 
 
+   #############################################################################
+   def serializeWatchOnlyData(self):
+      raise NotImplementedError('Encoding not implemented yet')
+      
+   #############################################################################
+   def unserializeWatchOnlyData(self):
+      raise NotImplementedError('Encoding not implemented yet')
+
 
    #############################################################################
    def getSerializedPubKey(self, serType='bin'):
@@ -611,14 +654,6 @@ class ArmoryKeyPair(WalletEntry):
       elif serType.lower()=='xpub':
          raise NotImplementedError('Encoding not implemented yet')
 
-
-   #############################################################################
-   def serializeWatchOnlyData(self):
-      raise NotImplementedError('Encoding not implemented yet')
-      
-   #############################################################################
-   def unserializeWatchOnlyData(self):
-      raise NotImplementedError('Encoding not implemented yet')
          
    #############################################################################
    @EkeyMustBeUnlocked
@@ -639,7 +674,7 @@ class ArmoryKeyPair(WalletEntry):
          return binary_to_hex(binPriv)
       elif serType.lower()=='sipa':
          binSipa = PRIVKEYBYTE + binPriv + computeChecksum(PRIVKEYBYTE+binPriv)
-         return binary_to_hex(binSipa)
+         return binary_to_base58(binSipa)
       elif serType.lower()=='xprv':
          raise NotImplementedError('xprv encoding not yet implemented')
 
@@ -668,22 +703,44 @@ class ArmoryKeyPair(WalletEntry):
          # will grab it from itself in cryptInfoObj.decrypt/encrypt 
          mapOut['ivData']  = None
 
+      # Not normal for an AKP to have a direct KDF obj, but it might
       mapOut['ekeyObj']  = self.masterEkeyRef
+      mapOut['kdfObj']  = self.masterKdfRef
+
       return mapOut
       
 
 
    #############################################################################
-   def setNewPlainPrivKey(self, sbdPrivData, cryptInfo, ekeyRef=None):
+   def setPlainKeyData(self, cryptInfo, sbdPlainPriv, sbdPub, sbdChain, 
+                                          ekeyRef=None, verifyPub=True):
       """
+      This is used to override the key data with UNENCRYPTED private key.
+      The cryptoInfo argument will usually be from the parent from which
+      this key was spawned.  It will inherit the same cryptInfo, and then
+      used the masterEkeyRef (or supplied ekeyRef) to encrypt the plain priv
+      key before storing.  
+      
+      If you want this object to hold plain private key data,
+
       ekeyRef should never have to be supplied except in very strange
       enviroments -- self.masterEkeyRef should already be set, unlocked
       and correct for the new private key. 
       """
-      if sbdPrivData is None or sbdPrivData.getSize()==0:
+      self.sbdPublicKey33 = CryptoECDSA().CompressPoint(sbdPub)
+      self.sbdChaincode = sbdChain.copy()
+
+      if sbdPlainPriv is None or sbdPlainPriv.getSize()==0:
          self.sbdPrivKeyData = NULLSBD()
          self.privCryptInfo = cryptInfo.copy()
          return
+      elif verifyPub: 
+         pub65 = CryptoECDSA().ComputePublicKey(sbdPlainPriv)
+         pubComputed33 = CryptoECDSA().CompressPoint(pub65)
+         pubSupplied33 = CryptoECDSA().CompressPoint(sbdPub) 
+         if not pubComputed33 == pubSupplied33:
+            raise KeyDataError('Supplied private and public key do not match!')
+         
 
 
       if cryptInfo.useEncryption():
@@ -711,10 +768,9 @@ class ArmoryKeyPair(WalletEntry):
             # we have a storedIV, then it will be reused (bad).
             raise EncryptionError('New priv key crypto inheriting non-pubkey IV')
 
-
       self.privCryptInfo = cryptInfo.copy()
       cryptArgs = self.getPrivCryptArgs()
-      self.sbdPrivKeyData = self.privCryptInfo.encrypt(sbdPrivData, **cryptArgs)
+      self.sbdPrivKeyData = self.privCryptInfo.encrypt(sbdPlainPriv, **cryptArgs)
 
 
 
@@ -732,6 +788,9 @@ class ArmoryKeyPair(WalletEntry):
       if self.masterEkeyRef is None:
          raise EncryptionError('No encryption key to unlock!')
 
+      if not kdfObj:
+         kdfObj = self.masterKdfRef
+
       return self.masterEkeyRef.unlock(passphrase, kdfObj)
          
 
@@ -746,6 +805,9 @@ class ArmoryKeyPair(WalletEntry):
       """
       if self.masterEkeyRef is None:
          raise EncryptionError('No encryption key to unlock!')
+
+      if not kdfObj:
+         kdfObj = self.masterKdfRef
 
       return self.masterEkeyRef.verifyPassphrase(passphrase, kdfObj)
                                                             
@@ -776,22 +838,22 @@ class ArmoryKeyPair(WalletEntry):
          self.resolveNextUnlockFlag()
 
       try:
-         privPlain = NULLSBD()
+         sbdPlain = NULLSBD()
          aciDecryptAgs = self.getPrivCryptArgs(self.privCryptInfo)
-         privPlain = self.privCryptInfo.decrypt( \
+         sbdPlain = self.privCryptInfo.decrypt( \
                            self.sbdPrivKeyData, **aciDecryptAgs)
 
          if verifyPublic:
-            computedPub = CryptoECDSA().ComputePublicKey(privPlain)
+            computedPub = CryptoECDSA().ComputePublicKey(sbdPlain)
             selfPub = CryptoECDSA().UncompressPoint(self.sbdPublicKey33)
             if not computedPub.toBinStr() == selfPub.toBinStr():
                raise KeyDataError('Private key does not match stored pubkey!')
 
-         return privPlain
+         return sbdPlain
          
       except:
          LOGEXCEPT('Failed to decrypt private key')
-         privPlain.destroy()
+         sbdPlain.destroy()
          return NULLSBD()
 
       
@@ -926,7 +988,8 @@ class ArmoryKeyPair(WalletEntry):
       self.sbdPrivKeyData.destroy() 
       self.privCryptInfo = NULLCRYPTINFO()
       self.masterEkeyRef = None
-      self.isWatchOnly = True
+      self.masterKdfRef  = None
+      self.isWatchOnly   = True
 
       if fsync:
          self.fsyncUpdates()
@@ -991,7 +1054,14 @@ class ArmoryKeyPair(WalletEntry):
       print '\n'
 
 
+   ##########################################################################
+   def getBalance(self, uxtoMaturity='Spendable'):
+      raise NotImplementedError('"%s" needs to implement getBalance()' % \
+                                                             self.getName())
 
+   def getUTXOSet(self, uxtoMaturity='Spendable', blk0=0, blk1=UINT32_MAX):
+      raise NotImplementedError('"%s" needs to implement getUTXOSet()' % \
+                                                             self.getName())
 
 
 
@@ -1014,6 +1084,8 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
       # This root has no key data.  Mainly for JBOK
       self.isFakeRoot    = False  
+      self.isDepositOnly = False  
+      self.isRestricted  = False  
       self.wltLvlParent  = self
 
 
@@ -1067,7 +1139,14 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
    #############################################################################
    def serializeAKP(self):
       bp = BinaryPacker()
+
+      flags = BitSet(16)
+      flags.setBit(0, self.isFakeRoot)
+      flags.setBit(1, self.isDepositOnly)
+      flags.setBit(2, self.isRestricted)
+
       bp.put(BINARY_CHUNK, super(ArmorySeededKeyPair, self).serializeAKP())
+      bp.put(BITSET,       flags, 2)
       bp.put(UINT16,       self.seedNumBytes)
       bp.put(BINARY_CHUNK, self.seedCryptInfo.serialize(), 32)
       bp.put(VAR_STR,      self.sbdSeedData.toBinStr())
@@ -1079,6 +1158,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
    def unserializeAKP(self, toUnpack):
       bu = makeBinaryUnpacker(toUnpack)
       super(ArmorySeededKeyPair, self).unserializeAKP(bu)
+      flags     = bu.get(BITSET, 2)
       seedBytes = bu.get(UINT16)
       cryptInfo = bu.get(BINARY_CHUNK, 32)
       binSeed   = bu.get(VAR_STR)
@@ -1086,6 +1166,10 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       self.seedNumBytes  = seedBytes
       self.seedCryptInfo = ArmoryCryptInfo().unserialize(cryptInfo)
       self.sbdSeedData   = SecureBinaryData(binSeed)
+
+      self.isFakeRoot    = flags.getBit(0)
+      self.isDepositOnly = flags.getBit(1)
+      self.isRestricted  = flags.getBit(2)
 
       binSeed = None
       return self
@@ -1193,8 +1277,8 @@ class Armory135KeyPair(ArmoryKeyPair):
          nextUnlockFlag = True
 
 
-      privPlain = NULLSBD()
-      pubKey65 = CryptoECDSA().UncompressPoint(self.sbdPublicKey33)
+      sbdPlain = NULLSBD()
+      sbdPub = CryptoECDSA().UncompressPoint(self.sbdPublicKey33)
       logMult1 = NULLSBD()
       logMult2 = NULLSBD()
       sbdNewKey1 = NULLSBD()
@@ -1206,15 +1290,15 @@ class Armory135KeyPair(ArmoryKeyPair):
       try:
          ecdsaObj = CryptoECDSA()
          if pavail==PRIV_KEY_AVAIL.Available:
-            privPlain = self.getPlainPrivKeyCopy()
-            if privPlain.getSize()==0:
+            sbdPlain = self.getPlainPrivKeyCopy()
+            if sbdPlain.getSize()==0:
                raise KeyDataError('Private key retrieval failed')
             extendFunc = ecdsaObj.ComputeChainedPrivateKey
-            extendArgs = [privPlain, self.sbdChaincode, pubKey65, logMult1]
+            extendArgs = [sbdPlain, self.sbdChaincode, sbdPub, logMult1]
             extendType = 'Private'
          else:
             extendFunc = ecdsaObj.ComputeChainedPublicKey
-            extendArgs = [pubKey65, self.sbdChaincode, logMult1]
+            extendArgs = [sbdPub, self.sbdChaincode, logMult1]
             extendType = 'Public'
          
    
@@ -1226,7 +1310,7 @@ class Armory135KeyPair(ArmoryKeyPair):
             sbdNewKey2.destroy()
             with open(MULT_LOG_FILE,'a') as f:
                f.write('%s chain (pkh, mult): %s,%s\n' % (extendType, 
-                  pubKey65.getHash160().toHexStr(), logMult1.toHexStr()))
+                  sbdPub.getHash160().toHexStr(), logMult1.toHexStr()))
          else:
             LOGCRIT('Chaining failed!  Computed keys are different!')
             LOGCRIT('Recomputing chained key 3 times; bail if they do not match')
@@ -1255,19 +1339,19 @@ class Armory135KeyPair(ArmoryKeyPair):
    
          # Assign the above calcs based on the type of calculation
          if extendType=='Private':
-            privPlain = sbdNewKey1.copy()
-            pubKey65  = CryptoECDSA().ComputePublicKey(privPlain)
+            sbdPlain = sbdNewKey1.copy()
+            sbdPub  = CryptoECDSA().ComputePublicKey(sbdPlain)
+            sbdChain = self.sbdChaincode.copy()
          else:
-            privPlain = NULLSBD()
-            pubKey65  = sbdNewKey1.copy()
+            sbdPlain = NULLSBD()
+            sbdPub  = sbdNewKey1.copy()
+            sbdChain = self.sbdChaincode.copy()
 
 
          # This sets the priv key (if non-empty)
-         childAddr.sbdPublicKey33 = CryptoECDSA().CompressPoint(pubKey65)
-         childAddr.sbdChaincode   = self.sbdChaincode.copy()
-         # See ABEK spawnChild for comment about key setting order
-         childAddr.setNewPlainPrivKey(privPlain, self.privCryptInfo)
+         childAddr.setPlainKeyData(self.privCryptInfo, sbdPlain, sbdPub, sbdChain)
          childAddr.masterEkeyRef = self.masterEkeyRef
+         childAddr.masterKdfRef  = self.masterKdfRef 
          childAddr.privKeyNextUnlock = nextUnlockFlag
 
 
@@ -1283,7 +1367,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.root135ScrAddr = self.root135ScrAddr
          childAddr.wltLvlParent = self.wltLvlParent
 
-         # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
+         # These recompute calls also call recomputeScript and recomputeUniqueIDBin
          childAddr.recomputeScrAddr()
          childAddr.recomputeUniqueIDB58()
 
@@ -1295,7 +1379,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          return childAddr
 
       finally:
-         privPlain.destroy()
+         sbdPlain.destroy()
          sbdNewKey1.destroy()
          sbdNewKey2.destroy()
          sbdNewKey3.destroy()
@@ -1467,19 +1551,18 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       wallets from them. 
       """
       if sbdPlainSeed.getSize() == 64:
-         sbdPriv           = SecureBinaryData(sbdPlainSeed.toBinStr()[:32 ])
-         self.sbdChaincode = SecureBinaryData(sbdPlainSeed.toBinStr()[ 32:])
+         sbdPriv   = SecureBinaryData(sbdPlainSeed.toBinStr()[:32 ])
+         sbdPub    = CryptoECDSA().ComputePublicKey(sbdPriv)
+         sbdChain  = SecureBinaryData(sbdPlainSeed.toBinStr()[ 32:])
       elif sbdPlainSeed.getSize() == 32:
-         sbdPriv           = sbdPlainSeed.copy()
-         self.sbdChaincode = DeriveChaincodeFromRootKey_135(sbdPriv)
+         sbdPriv   = sbdPlainSeed.copy()
+         sbdPub    = CryptoECDSA().ComputePublicKey(sbdPriv)
+         sbdChain  = DeriveChaincodeFromRootKey_135(sbdPriv)
 
       # Make sure the public key is properly set
-      self.sbdPublicKey33  = CryptoECDSA().ComputePublicKey(sbdPriv)
-      if self.sbdPublicKey33.getSize()==65:
-         self.sbdPublicKey33 = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
 
       # Set new priv key with encryption (must be set after pub key)
-      self.setNewPlainPrivKey(sbdPriv, self.privCryptInfo)
+      self.setPlainKeyData(self.privCryptInfo, sbdPriv, sbdPub, sbdChain)
 
       # Do verification of pubkey, if requested
       if verifyPub:
@@ -1688,24 +1771,63 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       if pavail in [PRIV_KEY_AVAIL.NeedDecrypt, PRIV_KEY_AVAIL.NextUnlock]:
          nextUnlockFlag = True
 
+         
 
-      # Call the C++ code that implements BIP32/HDW calculations
-      extChild = Cpp.HDWalletCrypto().childKeyDeriv(self.getCppExtendedKey(), childID)
+      def deriveChildAndMult():
+         mult = NULLSBD()
+         extKey = self.getCppExtendedKey()
+         ch = Cpp.HDWalletCrypto().childKeyDeriv(extKey, childID, mult)
+         extKey.deletePrivateKey()
+         return ch,mult
+         
+      extend1,mult1 = deriveChildAndMult()
+      extend2,mult2 = deriveChildAndMult()
 
-      childAddr.sbdPublicKey33  = extChild.getPublicKey().copy()
-      childAddr.sbdChaincode = extChild.getChaincode().copy()
+      if extend1.getPublicKey().toBinStr() == extend2.getPublicKey().toBinStr():
+         extend2.deletePrivateKey()
+         with open(MULT_LOG_FILE,'a') as f:
+            a160hex = binary_to_hex(hash160(extend1.getPublicKey().toBinStr()))
+            f.write('BIP32 deriv (pkh, mult): %s,%s\n' % (a160hex, mult1.toHexStr()))
+      else:
+         LOGCRIT('Chaining failed!  Computed keys are different!')
+         LOGCRIT('Recomputing chained key 3 times; bail if they do not match')
+         extend1,mult1 = deriveChildAndMult()
+         extend2,mult2 = deriveChildAndMult()
+         extend3,mult3 = deriveChildAndMult()
+
+         LOGCRIT('   Multiplier1: ' + mult1.toHexStr())
+         LOGCRIT('   Multiplier2: ' + mult2.toHexStr())
+         LOGCRIT('   Multiplier3: ' + mult3.toHexStr())
+
+         if extend1.getPublicKey()==extend2.getPublicKey() and \
+            extend1.getPublicKey()==extend3.getPublicKey():
+            with open(MULT_LOG_FILE,'a') as f:
+               a160hex = binary_to_hex(hash160(extend1.getPublicKey().toBinStr()))
+               f.write('Computed (pkh, mult): %s,%s\n' % (a160hex, mult1.toHexStr()))
+            extend2.deletePrivateKey()
+            extend3.deletePrivateKey()
+         else:
+            raise KeyDataError('Chaining Bip32 Key Failed!' % extendType)
+         
+
 
       if forIDCompute:
+         childAddr.sbdPublicKey33  = extend1.getPublicKey().copy()
+         childAddr.sbdChaincode    = extend1.getChaincode().copy()
          return childAddr
 
       # This sets the priv key (if non-empty)
       # NOTE: this call must come after setting the public key, as it uses the 
       #       public key to compute the IV to encrypt new priv.  Because this 
-      #       is fragile, we should consider making setNewPlainPrivKey() a 
+      #       is fragile, we should consider making setPlainKeyData() a 
       #       method that sets the pubkey and chaincode, too, to make sure this
       #       is done correctly
-      childAddr.setNewPlainPrivKey(extChild.getPrivateKey(), self.privCryptInfo)
+      childAddr.setPlainKeyData(self.privCryptInfo, 
+                                extend1.getPrivateKey(),
+                                extend1.getPublicKey(), 
+                                extend1.getChaincode())
       childAddr.masterEkeyRef = self.masterEkeyRef
+      childAddr.masterKdfRef  = self.masterKdfRef 
       childAddr.privKeyNextUnlock = nextUnlockFlag
 
       if not childAddr.sbdPublicKey33.getSize()==33:
@@ -1716,7 +1838,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.akpChildByScrAddr = {}
       childAddr.wltLvlParent = self.wltLvlParent
 
-      # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
+      # These recompute calls also call recomputeScript and recomputeUniqueIDBin
       childAddr.recomputeScrAddr()
       childAddr.recomputeUniqueIDB58()
 
@@ -1757,31 +1879,18 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       if not locatorType=='Plain':
          raise NotImplementedError('Cannot handle anything other than plain') 
 
-      if baseID is None:
-         baseID = self.root135Ref.getScrAddr()
-
-      # Walk up the parent chain looking for the baseID, to make sure we
-      # are only adding deriv-paths up to that tree node
-      akp   = self
-      akpID = self.getHash160()
-      derivePath = []
-      while not akpID==baseID:
-         if akp.akpParentRef is None:
-            raise WalletAddressError('Did not find specified base ID')
-
-         derivePath.append(akp.childIndex)
-         akp   = akp.akpParentRef
-         akpID = akp.akpParentRef.getScrAddr()
-   
+      derivePath = self.getParentList(baseID)
 
       bp = BinaryPacker()
       bp.put(BINARY_CHUNK, 'A2.0', 4)
       bp.put(VAR_STR,      locatorType)
       bp.put(BINARY_CHUNK, baseID)
       bp.put(VAR_INT, len(derivePath))
-      for i in derivePath[::-1]:
-         bp.put(UINT32, i)
+      for akp,cidx in derivePath:
+         bp.put(UINT32, cidx)
       return bp.getBinaryString() 
+
+
       
    #############################################################################
    def getSpawnMultiplierForChild(self, childID):
@@ -1791,7 +1900,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
       sbdMult = NULLSBD()
       extPubKey = Cpp.ExtendedKey(self.sbdPublicKey33, self.sbdChaincode)
-      extChild = Cpp.HDWalletCrypto().childKeyDeriv(extPubKey, childID, sbdMult)
+      Cpp.HDWalletCrypto().childKeyDeriv(extPubKey, childID, sbdMult)
 
       if sbdMult.getSize() == 0:
          raise KeyDataError('Multiplier was not set in childKeyDeriv call')
@@ -1829,9 +1938,10 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       """
 
       cppExtKey = Cpp.HDWalletCrypto().ConvertSeedToMasterKey(sbdPlainSeed)
-      self.sbdPublicKey33   = cppExtKey.getPublicKey().copy()
-      self.sbdChaincode     = cppExtKey.getChaincode().copy()
-      self.setNewPlainPrivKey(cppExtKey.getPrivateKey(), self.privCryptInfo)
+      self.setPlainKeyData(self.privCryptInfo, 
+                           cppExtKey.getPrivateKey(),
+                           cppExtKey.getPublicKey(),
+                           cppExtKey.getChaincode())
 
       if verifyPub:
          if not self.sbdPublicKey33 == CryptoECDSA().CompressPoint(verifyPub):
@@ -1845,7 +1955,8 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       self.seedNumBytes = sbdPlainSeed.getSize()
       paddedSize = roundUpMod(self.seedNumBytes, self.seedCryptInfo.getBlockSize())
       paddedSeed = SecureBinaryData(sbdPlainSeed.toBinStr().ljust(paddedSize, '\x00'))
-      self.sbdSeedData = self.seedCryptInfo.encrypt(paddedSeed, ekeyObj=self.masterEkeyRef)
+      self.sbdSeedData = self.seedCryptInfo.encrypt(paddedSeed, 
+                              ekeyObj=self.masterEkeyRef, kdfObj=self.masterKdfRef)
 
 
       self.isWatchOnly     = False
@@ -1897,29 +2008,105 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
 ################################################################################
 class ArmoryImportedKeyPair(ArmoryKeyPair):
-
    FILECODE = 'IMPORTED'
+   TREELEAF  = True
+   HARDCHILD = True
    def __init__(self, *args, **kwargs):
       super(ArmoryImportedKeyPair, self).__init__(*args, **kwargs)
+      self.childIndex = None
+      self.maxChildren = 0
+      self.fakeRootRef = None
+      self.fakeRootID  = None
+
 
    #############################################################################
    def getAddrLocatorString(self):
       return ''
 
    #############################################################################
-   def addChildRef(self, childAKP):
-      newIdx = len(self.akpChildByIndex)
-      self.akpChildByIndex[newIdx] = childAKP
+   def fillKeyPoolRecurse(self):
+      pass
+
+   #####
+   def recomputeUniqueIDBin(self):
+      self.uniqueIDBin = ''
+
+   #####
+   def recomputeScript(self):
+      pkHash160 = hash160(self.getSerializedPubKey())
+      self.rawScript = hash160_to_p2pkhash_script(pkHash160)
+
+   #####
+   def getChildClass(self, index):
+      raise NotImplementedError('Cannot spawn imported keys')
+   
+   #####
+   def getNextUnusedChild(self, index):
+      raise NotImplementedError('Cannot spawn imported keys')
+
+   #####
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False):
+      raise NotImplementedError('Cannot spawn imported keys')
 
 
 ################################################################################
 ################################################################################
-class ArmoryImportedRoot(ArmorySeededKeyPair):
+class ArmoryImportedRoot(ArmoryImportedKeyPair):
+   """
+   This class is pretty boring.  Looks a lot like a regular keypair, but has
+   no spawning, or even chaincodes.  Just a priv-pub keypair.  For the roots,
+   these are fake roots meaning that they don't do anything.  We randomly
+   create a keypair for the fake root, so that the normal mechanisms for 
+   calculating wallet ID, scrAddr, etc, will work, we just don't ever intend
+   to use the root for anything other than linking imported addresses to it.
+   """
+   FILECODE = 'IMPORTRT'
+   TREELEAF  = True
+   HARDCHILD = True
    def __init__(self):
       super(ArmoryImportedRoot, self).__init__()
       self.isFakeRoot = True
       self.isRootRoot = True
+      self.childIndex = None
+      self.maxChildren = 0
 
+
+   #############################################################################
+   def recomputeUniqueIDBin(self):
+      self.uniqueIDBin = hash256(self.getSerializedPubKey())[:6]
+
+   #############################################################################
+   def createNewRoot(self, pregenRoot=None):
+      if pregenRoot is None:
+         pregenRoot = SecureBinaryData().GenerateRandom(32)
+
+      self.privCryptInfo = NULLCRYPTINFO()
+      self.sbdPrivKeyData = pregenRoot
+      self.sbdPublicKey33 = CryptoECDSA().ComputePublicKey(self.sbdPrivKeyData)
+
+
+   #############################################################################
+   def addChildRef(self, childAIKP):
+      childScrAddr = childAIKP.getScrAddr()
+      if not childScrAddr in self.akpChildByScrAddr:
+         cidx = len(self.akpChildByIndex)
+         self.akpChildByIndex[cidx] = childAIKP
+         self.akpChildByScrAddr[childScrAddr] = childAIKP
+         childAIKP.fakeRootRef = self
+         childAIKP.fakeRootID = self.rootID()
+
+
+   #####
+   def getChildClass(self, index):
+      raise NotImplementedError('Cannot spawn imported keys')
+
+   #####
+   def getNextUnusedChild(self, index):
+      raise NotImplementedError('Cannot spawn imported keys')
+
+   #####
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False):
+      raise NotImplementedError('Cannot spawn imported keys')
 
 
 
@@ -2009,6 +2196,7 @@ class ABEK_SoftBip32Seed(ABEK_StdBip32Seed):
    HARDCHILD = False
 
 
+
 #############################################################################
 class ABEK_StdWallet(ArmoryBip32ExtendedKey):
    FILECODE  = 'STD32WLT'
@@ -2021,45 +2209,51 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
 
       self.maxChildren = 2
 
-      self.wltName  = u''
-      self.wltDescr = u''
-
-      # If this root is intended to be used in multi-sig, it should be flagged
-      # so that it won't be used as a regular wallet
-      self.onlyForMultisig = False
+      # Most AKP/ABEK objects just have a "AddrLabel" associated with them.
+      # For wallets, we need to have a name that is embedded in the entry
+      # that will be transferred when moved, copied, etc.  We can include
+      # additional (unrestricted) information by also attaching an AddrLabel
+      # to this object.
+      self.walletName = u''
 
       # This will identify what app created this root, perhaps it's imported
       # from a Trezor, or it's from another Armory instance.  This is really
       # just informational, probably not going to be used for code branching (?)
-      self.rootSourceApp   = ""
-
-      # This is a root of a single-sig phone wallet.  We have the priv keys
-      # here, but we don't intend to spend it from here.  Instead of a "Send"
-      # button it should have a "Help I lost my phone!" button to sweep the
-      # funds.
-      self.isPhoneRoot   = False  
-
-
-      # Only use to gen deposit addrs, bal is meaningless.  This might be used
-      # in the case that we integrate an exchange API, and we want Armory to 
-      # be able to generate customer-specific deposit addresses (from floating
-      # BIP32 branch).   The exchange may move the money around internally,
-      # so the "balance" of this branch is meaningless, and "balance" should be
-      # an API call to get your account balance.
-      self.isDepositOnlyRoot = False  
-
-      # In the event that some data type identifies this root as its parent AND
-      # it identifies itself as critical AND we don't recognize it (such as if
-      # you use a colored-coin variant of Armory and then later import the wlt
-      # using vanilla Armory), this wallet should be identified as existent 
-      # but unusable/disabled, to avoid doing something you shouldn't (like
-      # paying for your pizza with 30,000 shares of your startup company)
-      self.isDisabled = False
+      self.rootSourceApp   = u''
 
       # If the user decided to "remove" this wallet, then we simply mark it as
       # "removed" and don't display it or do anything with it.
       self.userRemoved = False
 
+
+   #############################################################################
+   def serialize(self):
+      bp = BinaryPacker()
+
+      flags = BitSet(16)
+      flags.setBit(0, self.userRemoved)
+
+      bp.put(BINARY_CHUNK, self.serializeAKP())
+      bp.put(BITSET,       flags, 2)
+      bp.put(VAR_UNICODE,  self.rootSourceApp)
+      bp.put(VAR_UNICODE,  self.walletName)
+      return bp.getBinaryString()
+
+      
+
+   #############################################################################
+   def unserialize(self, toUnpack):
+      bu = makeBinaryUnpacker(toUnpack)
+      self.unserializeAKP(bu)
+      flags   = bu.get(BITSET, 2)
+      rootSrc = bu.get(VAR_UNICODE)
+      wltName = bu.get(VAR_UNICODE)
+
+
+      self.userRemoved   = flags.getBit(0)
+      self.rootSourceApp = rootSrc
+      self.walletName    = wltName
+      return self
 
 
    #############################################################################
@@ -2094,6 +2288,7 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
 
    #############################################################################
    def peekNextReceivingAddress(self):
+      i = self.getWalletChainIndex('External')
       ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=False)
       return ch.peekNextUnusedChild()
 
@@ -2103,6 +2298,11 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
       ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=True)
       return ch.getNextUnusedChild()
          
+   #############################################################################
+   def peekNextChangeAddress(self):
+      i = self.getWalletChainIndex('Internal')
+      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=False)
+      return ch.getNextUnusedChild()
 
 
    
@@ -2259,7 +2459,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
       childMBEK.wltLvlParent = self.wltLvlParent
 
-      # These recompute calls also call recomputeScript and recomputeUniqueIDBIN
+      # These recompute calls also call recomputeScript and recomputeUniqueIDBin
       childMBEK.recomputeScrAddr()
       if not forIDCompute:
          childMBEK.recomputeUniqueIDB58()
@@ -2559,6 +2759,7 @@ class MBEK_StdBip32Root(MultisigABEK):
 # generic BIP32 node for various calculations and don't want arbitrary
 # limitations on child spawning (mostly during testing)
 class ABEK_Generic(ArmoryBip32ExtendedKey):
+   FILECODE = 'AGENERIC'
    TREELEAF  = False
    HARDCHILD = False
 
@@ -2572,6 +2773,7 @@ class ABEK_Generic(ArmoryBip32ExtendedKey):
 
 #############################################################################
 class MBEK_Generic(MultisigABEK):
+   FILECODE = 'MGENERIC'
    TREELEAF  = False
    HARDCHILD = False
 
@@ -2586,8 +2788,7 @@ class MBEK_Generic(MultisigABEK):
 
 
 
-# TODO:  Figure out how to prevent this code from getting run 4+ times without
-#        this conditional
+# TODO:  Figure out how to avoid this code running 4+ times without this cond
 if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
    WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
    WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Purpose)

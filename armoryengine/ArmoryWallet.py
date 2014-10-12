@@ -33,26 +33,10 @@ class ArmoryWalletFile(object):
       # Last synchronized all chains to this block
       self.lastSyncBlockNum = 0
 
-      self.allWalletEntries = []
-      self.siblingRoots = {}
-      self.allRoots = {}
+      self.allWalletEntries  = []
+      self.allKeyPairObjects = {}
+      self.allWalletObjects  = {}
 
-      # All wallet roots based on "standard" BIP 32 usage:
-      #    rootMap[0] ~ Map of all zeroth-order roots, derived from seeds
-      #    rootMap[1] ~ Map of all wallets for all base roots
-      #    rootMap[2] ~ Map of internal/external chains of all wallets.
-      # Maps are indexed by 20-byte ID (the address/hash160 they would have
-      # if they were to be used to receive funds, but they are not in these
-      # maps if they are ever used to receive funds -- all such addresses 
-      # exist at the next level)
-      self.rootMapBIP32 = [{}, {}, {}]
-
-      # If there are other roots (such as old Armory wallets, or JBOK wlts,
-      # etc) we will need to track them using other roots.  In the case of
-      # old Armory wallets, the original index=-1 address will be included
-      # in this map.  For importing old Bitcoin-Qt wallets, we will create 
-      # a root with a random ID to hold "just a bunch of keys" (JBOK).
-      self.rootMapOther = {}
 
       # Any lockboxes that are maintained in this wallet file
       # Indexed by p2sh-scrAddr
