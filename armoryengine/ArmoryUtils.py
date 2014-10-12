@@ -2469,9 +2469,11 @@ def padString(s, mod, pad='\x00'):
    return s + pad*(needSz-currSz)
 
 #############################################################################
-def getLeadingBits(binStr, nBits=3):
+def getLeadingBits(binStr, nBits):
    numBytes = roundUpMod(nBits, 8) / 8 
    modShift = (8 - (nBits%8)) % 8
+   if numBytes > len(binStr):
+      raise ValueError('Expect %d bits; got %d bits' % (nBits, len(binStr)*8))
    bitInt = binary_to_int(binStr[:numBytes], endIn=BIGENDIAN) >> modShift
    return int_to_binary(bitInt, endOut=BIGENDIAN, widthBytes=numBytes)
 
@@ -2897,62 +2899,119 @@ def decodeMiniPrivateKey(keyStr):
 
    return sha256(keyStr)
 
+################################################################################
+def parseBip32KeyData(theStr, verifyPub=True):
+   if not isLikelyDataType(theStr, DATATYPE.Base58):
+      raise KeyDataError('Invalid BIP32 priv key format; not 78 bytes')
+
+   binStr = base58_to_binary(theStr)
+   if not len(binStr)==78:  
+      raise KeyDataError('Invalid BIP32 key serialize format; not 78 bytes')
+
+   if not theStr[:4] in ['tprv','tpub','xprv','xpub']:
+      raise KeyDataError('Invalid BIP32 key serialize format; wrong type bytes')
+
+   output = {}
+   toUnpack = BinaryUnpacker(base58_to_binary(theStr))
+   ignoreData           = toUnpack.get(UINT32)  # xpub/tpub/xprv/tprv
+   output['childDepth'] = toUnpack.get(UINT8)
+   output['parFinger']  = toUnpack.get(BINARY_CHUNK, 4)
+   output['childIndex'] = toUnpack.get(UINT32)
+   output['chaincode']  = toUnpack.get(BINARY_CHUNK, 32)
+   output['keyData']    = toUnpack.get(BINARY_CHUNK, 33)
+   output['isTestnet']  = theStr[:4] in ['tprv','tpub']
+   output['isPublic']   = theStr[:4] in ['xpub','tpub']
+
+   if output['isPublic']:
+      sbdPubkCompressed = SecureBinaryData(output['keyData'])
+      if not CryptoECDSA().VerifyPublicKeyValid(sbdPubkCompressed):
+         raise KeyDataError('Not a valid public key!')
+
+   return output
+   
 
 ################################################################################
 def parsePrivateKeyData(theStr):
-      hexChars = '01234567890abcdef'
-      b58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+   """
+   This handles most standard formats for private keys, including raw hex,
+   sipa/wif format, xprv/tprv, and a few related serialization types
+   
+   This returns the raw private key, 32 bytes if uncompressed, 33 bytes ending
+   with \x01 if compressed (calling code must check for this).  The second
+   output is a string that can be displayed identifying the key type.
+   """
 
-      hexCount = sum([1 if c in hexChars else 0 for c in theStr.lower()])
-      b58Count = sum([1 if c in b58Chars else 0 for c in theStr])
-      canBeHex = hexCount==len(theStr)
-      canBeB58 = b58Count==len(theStr)
+   # xprv/tprv keys are recognizable right away, do it immediately
+   if len(theStr)>=4 and theStr[:4] in ['tprv','tpub','xprv','xpub']:
+      bip32keymap = parseBip32KeyData(theStr)
+      if not bip32keymap['isTestnet'] == USE_TESTNET:
+         raise NetworkIDError('Key is for wrong network!')
+      if bip32keymap['isPublic']:
+         raise KeyDataError('Attempted to parse public key as a private key!')
 
-      binEntry = ''
-      keyType = ''
-      isMini = False
-      if canBeB58 and not canBeHex:
-         if len(theStr) in (22, 30):
-            # Mini-private key format!
-            try:
-               binEntry = decodeMiniPrivateKey(theStr)
-            except KeyDataError:
-               raise BadAddressError('Invalid mini-private key string')
-            keyType = 'Mini Private Key Format'
-            isMini = True
-         elif len(theStr) in range(48,53):
-            binEntry = base58_to_binary(theStr)
-            keyType = 'Plain Base58'
-         else:
-            raise BadAddressError('Unrecognized key data')
-      elif canBeHex:
-         binEntry = hex_to_binary(theStr)
-         keyType = 'Plain Hex'
+      # Remove leading 0x00 byte which only identifies it's a priv key, add 
+      # a 0x01 byte to tell the caller this key requires using compressed pub
+      privKey = bip32keymap['keyData'][1:] + '\x01'
+      return privKey, 'BIP32 Private Key (%s)' % theStr[:4]
+
+      
+   # Now do all the other stuff
+   hexChars = '01234567890abcdef'
+   b58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+   hexCount = sum([1 if c in hexChars else 0 for c in theStr.lower()])
+   b58Count = sum([1 if c in b58Chars else 0 for c in theStr])
+   canBeHex = hexCount==len(theStr)
+   canBeB58 = b58Count==len(theStr)
+
+   binEntry = ''
+   keyType = ''
+
+   if canBeB58 and not canBeHex:
+      if len(theStr) in (22, 30):
+         # Mini-private key format!
+         binEntry = decodeMiniPrivateKey(theStr)
+         keyType = 'Mini Private Key'
+         return binEntry, keyType
+      elif len(theStr) in [49,50,51,52]:
+         binEntry = base58_to_binary(theStr)
+         keyType = 'Base58'
       else:
          raise BadAddressError('Unrecognized key data')
+   elif canBeHex:
+      binEntry = hex_to_binary(theStr)
+      keyType = 'hex'
+   else:
+      raise BadAddressError('Unrecognized key data')
 
 
-      if len(binEntry)==36 or (len(binEntry)==37 and binEntry[0]==PRIVKEYBYTE):
-         if len(binEntry)==36:
-            keydata = binEntry[:32 ]
-            chk     = binEntry[ 32:]
-            binEntry = verifyChecksum(keydata, chk)
-            if not isMini:
-               keyType = 'Raw %s with checksum' % keyType.split(' ')[1]
-         else:
-            # Assume leading 0x80 byte, and 4 byte checksum
-            keydata = binEntry[ :1+32 ]
-            chk     = binEntry[  1+32:]
-            binEntry = verifyChecksum(keydata, chk)
-            binEntry = binEntry[1:]
-            if not isMini:
-               keyType = 'Standard %s key with checksum' % keyType.split(' ')[1]
+   if len(binEntry)==37 and binEntry[0]==PRIVKEYBYTE:
+      # Assume leading 0x80 byte, and 4 byte checksum
+      keydata = binEntry[ :1+32 ]
+      chk     = binEntry[  1+32:]
+      binEntry = verifyChecksum(keydata, chk)
+      if len(binEntry)==0:
+         raise InvalidHashError('Private Key checksum failed!')
+      binEntry = binEntry[1:]
+      keyType = 'Standard %s key with checksum' % keyType
+   elif len(binEntry)==38 and [binEntry[0],binEntry[-5]] ==[PRIVKEYBYTE,'\x01']:
+      # Assume leading 0x80 byte, and 4 byte checksum
+      keydata = binEntry[ :1+33 ]
+      chk     = binEntry[  1+33:]
+      binEntry = verifyChecksum(keydata, chk)
+      if len(binEntry)==0:
+         raise InvalidHashError('Private Key checksum failed!')
+      binEntry = binEntry[1:]
+      keyType = 'Standard %s key (compressed pub) with checksum' % keyType
+   elif len(binEntry)==33 and binEntry[-1]=='\x01':
+      # Leave the extra byte to be extra sure the calling codes knows
+      keyType = 'Plain %s key (compressed pub)' % keyType
+   elif len(binEntry)==37 and binEntry[-5]=='\x01':
+      # Leave the extra byte to be extra sure the calling codes knows
+      binEntry = binEntry[:33]
+      keyType = 'Plain %s key (compressed pub) with checksum' % keyType
 
-         if binEntry=='':
-            raise InvalidHashError('Private Key checksum failed!')
-      elif len(binEntry) in (33, 37) and binEntry[-1]=='\x01':
-         raise CompressedKeyError('Compressed Public keys not supported!')
-      return binEntry, keyType
+   return binEntry, keyType
 
 
 

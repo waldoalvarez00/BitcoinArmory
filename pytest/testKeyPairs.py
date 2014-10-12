@@ -2840,9 +2840,90 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
          runSerUnserRoundTripTest(self, aikp)
 
 
+   '''
    #############################################################################
-   def testImportedRoot(self):
-      pass
+   def testCreateImportedRoot(self):
+      aikp = ArmoryImportedKeyPair() 
+      airt = ArmoryImportedRoot()
+
+      sbdPrivRoot  = self.keyList[0]['PrivKey'].copy()
+      sbdPubkRoot  = self.keyList[0]['PubKey'].copy()
+      scrAddrRoot  = self.keyList[0]['ScrAddr']
+
+      sbdPubRtCompr = CryptoECDSA().CompressPoint(sbdPubkRoot)
+
+      sbdPrivAikp  = self.keyList[2]['PrivKey'].copy()
+      sbdPubkAikp  = self.keyList[2]['PubKey'].copy()
+      scrAddrAikp  = self.keyList[2]['ScrAddr']
+
+      sbdPubKpCompr = CryptoECDSA().CompressPoint(sbdPubkAikp)
+
+      airt.createNewRoot(pregenRoot=sbdPrivRoot, currBlk=10)
+
+      self.assertEqual(airt.isRootRoot, True)
+      self.assertEqual(airt.sbdPrivKeyData, sbdPrivRoot)
+      self.assertEqual(airt.sbdPublicKey33, sbdPubRtCompr)
+      self.assertEqual(airt.sbdChaincode, NULLSBD())
+      self.assertEqual(airt.useCompressPub, True)
+      self.assertEqual(airt.keyBornBlock, 10)
+      self.assertEqual(airt.akpParScrAddr, None)
+      self.assertEqual(airt.childIndex, None)
+      self.assertEqual(airt.maxChildren, 0)
+      self.assertEqual(airt.scrAddrStr, scrAddrRoot)
+      self.assertEqual(airt.uniqueIDBin, uniqID)
+      self.assertEqual(airt.uniqueIDB58, binary_to_base58(uniqID))
+
+      aikp.initializeAKP(isWatchOnly=False,
+                         isRootRoot=False,
+                         privCryptInfo=NULLCRYPTINFO(),
+                         sbdPrivKeyData=sbdPrivAikp,
+                         sbdPublicKey33=sbdPubkAikp,
+                         sbdChaincode=NULLSBD(),
+                         privKeyNextUnlock=False,
+                         akpParScrAddr=scrAddrRoot,
+                         childIndex=None,
+                         useCompressPub=True,
+                         isUsed=True,
+                         notForDirectUse=False,
+                         keyBornBlock=10)
+      
+     
+
+      sbdPubkCompr = CryptoECDSA().CompressPoint(sbdPubk)
+      uniqIDRoot   = hash256(sbdPubk.toBinStr())[:6]
+
+
+                           
+      self.assertEqual(aikp.isWatchOnly, False)
+      self.assertEqual(aikp.isRootRoot, False)
+      self.assertEqual(aikp.sbdPrivKeyData, sbdPriv)
+      self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+      self.assertEqual(aikp.sbdPublicKey33, sbdPubkCompr)
+      self.assertEqual(aikp.sbdChaincode, NULLSBD())
+      self.assertEqual(aikp.useCompressPub, False)
+      self.assertEqual(aikp.isUsed, True)
+      self.assertEqual(aikp.keyBornBlock, 10)
+      self.assertEqual(aikp.privKeyNextUnlock, False)
+      self.assertEqual(aikp.akpParScrAddr, None)
+      self.assertEqual(aikp.childIndex, None)
+      self.assertEqual(aikp.maxChildren, 0)
+      self.assertEqual(aikp.scrAddrStr, scrAddr)
+      self.assertEqual(aikp.uniqueIDBin, uniqID)
+      self.assertEqual(aikp.uniqueIDB58, binary_to_base58(uniqID))
+      self.assertEqual(aikp.akpChildByIndex, {})
+      self.assertEqual(aikp.akpChildByScrAddr, {})
+      self.assertEqual(aikp.lowestUnusedChild, 0)
+      self.assertEqual(aikp.nextChildToCalc,   0)
+      self.assertEqual(aikp.akpParentRef, None)
+      self.assertEqual(aikp.masterEkeyRef, None)
+
+      self.assertEqual(aikp.TREELEAF, True)
+      self.assertEqual(aikp.getName(), clsName)
+      self.assertEqual(aikp.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
+      self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+
+      runSerUnserRoundTripTest(self, aikp)
+   '''
 
 
 if __name__ == "__main__":

@@ -2069,20 +2069,42 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
       self.isRootRoot = True
       self.childIndex = None
       self.maxChildren = 0
-
+      self.privCryptInfo = NULLCRYPTINFO()
+      self.masterEkeyRef = None
+      self.masterKdfRef = None
 
    #############################################################################
    def recomputeUniqueIDBin(self):
       self.uniqueIDBin = hash256(self.getSerializedPubKey())[:6]
 
    #############################################################################
-   def createNewRoot(self, pregenRoot=None):
+   def createNewRoot(self, pregenRoot=None, currBlk=0):
+      """
+      Encryption is irrelevant.  This is fake, unused data.  We will leave it
+      unencrypted even if the wallet has encryption
+      """
       if pregenRoot is None:
          pregenRoot = SecureBinaryData().GenerateRandom(32)
 
-      self.privCryptInfo = NULLCRYPTINFO()
-      self.sbdPrivKeyData = pregenRoot
-      self.sbdPublicKey33 = CryptoECDSA().ComputePublicKey(self.sbdPrivKeyData)
+      timeCreated = long(RightNow())
+      aci = NULLCRYPTINFO()
+      priv = pregenRoot.copy()
+      pubk = CryptoECDSA().ComputePublicKey(self.sbdPrivKeyData)
+      chain = NULLSBD()
+      self.initializeAKP(isWatchOnly=False,
+                         isRootRoot=True,
+                         privCryptInfo=aci,
+                         sbdPrivKeyData=priv,
+                         sbdPublicKey33=pubk,
+                         sbdChaincode=chain,
+                         privKeyNextUnlock=False,
+                         akpParScrAddr=None,
+                         childIndex=None,
+                         useCompressPub=True,
+                         isUsed=True,
+                         notForDirectUse=False,
+                         keyBornTime=timeCreated,
+                         keyBornBlock=currBlk)
 
 
    #############################################################################

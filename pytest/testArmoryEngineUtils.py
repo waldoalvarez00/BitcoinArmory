@@ -735,12 +735,66 @@ class BitSetTests(unittest.TestCase):
       self.assertEqual(bp.getBinaryString(), '\xf0\xf1\x55\x00\x00')
 
 
+
+################################################################################
+class ParsePrivKeyTests(unittest.TestCase):
+
+   #############################################################################
+   def testParseKeys(self):
+
+      # This is from the BIP32 test vectors
+      addrStr = '19Q2WoS5hSS6T8GjhK8KZLMgmWaq4neXrh'
+      privHex = 'edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea'
+      privWIF = 'L5BmPijJjrKbiUfG4zbiFKNqkvuJ8usooJmzuD7Z8dkRoTThYnAT'
+      xprvB58 = ('xprv9uHRZZhk6KAJC1avXpDAp4MDc3sQKNxDiPvvkX8Br5ngLNv1TxvUxt4cV1rG'
+                 'L5hj6KCesnDYUhd7oWgT11eZG7XnxHrnYeSvkzY7d2bhkJ7')
+      xprvHex = ('0488ade4013442193e8000000047fdacbd0f1097043b78c63c20c34ef4ed9a11'
+                 '1d980047ad16282c7ae623614100edb2e14f9ee77d26dd93b4ecede8d16ed408'
+                 'ce149b6cd80b0715a2d911a0afea')
+      pubkHex = '035a784662a4a20a65bf6aab9ae98a6c068a81c52e4b032c0fb5400c706cfccc56'
+      xpubB58 = ('xpub68Gmy5EdvgibQVfPdqkBBCHxA5htiqg55crXYuXoQRKfDBFA1WEjWgP6LHhw'
+                 'BZeNK1VTsfTFUHCdrfp1bgwQ9xv5ski8PX9rL2dZXvgGDnw')
+      xpubHex = ('0488b21e013442193e8000000047fdacbd0f1097043b78c63c20c34ef4ed9a11'
+                 '1d980047ad16282c7ae6236141035a784662a4a20a65bf6aab9ae98a6c068a81'
+                 'c52e4b032c0fb5400c706cfccc56')
+
+      # This is from the wiki page on mini private keys used in Casascius coins
+      miniStr  = 'S6c56bnXQiBjk9mqSYE7ykVQ7NzrRy'
+      miniPriv = '4c7a9640c72dc2099f23715d0c8a0d8a35f8906e3cab61dd3f78b67bf887c9ab'
+      miniWIF  = '5JPy8Zg7z4P7RSLsiqcqyeAF1935zjNUdMxcDeVrtU1oarrgnB7'
+      miniAddr = '1CciesT23BNionJeXrbxmjc7ywfiyM4oLW'
+
+
+      # Will return 32-byte binary of "privHex" var above
+      privHex32  = privHex
+      privWIF    = 'L5BmPijJjrKbiUfG4zbiFKNqkvuJ8usooJmzuD7Z8dkRoTThYnAT'
+      privWIFHex = base58_to_binary(privWIF)
+      privWIFHex = base58_to_binary(privWIF)
+      
+      # Will return 33-byte binary of "privHex" var with '\x01' (for compr)
+
+      inoutpairs = {}
+      inoutpairs['edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea']
+
+
 ################################################################################
 class LeadingBitTests(unittest.TestCase):
 
    #############################################################################
    def testGetLeadingBits(self):
-      raise NotImplementedError('I totally forgot to finish this test!')
+      b2b = lambda b:  BitSet.CreateFromBitString(b).toBinaryString()
+      testStr = b2b('11010110 00001000')
+      self.assertEqual(getLeadingBits(testStr, 1),  '\x01')
+      self.assertEqual(getLeadingBits(testStr, 2),  '\x03')
+      self.assertEqual(getLeadingBits(testStr, 3),  '\x06')
+      self.assertEqual(getLeadingBits(testStr, 4),  b2b('1101'))
+      self.assertEqual(getLeadingBits(testStr, 8),  b2b('11010110'))
+      self.assertEqual(getLeadingBits(testStr, 9),  b2b('11010110 0'))
+      self.assertEqual(getLeadingBits(testStr, 13), b2b('11010110 00001'))
+      self.assertEqual(getLeadingBits(testStr, 16), b2b('11010110 00001000'))
+      self.assertRaises(ValueError, getLeadingBits, testStr, 17)
+      self.assertRaises(ValueError, getLeadingBits, testStr, 24)
+      self.assertRaises(ValueError, getLeadingBits, testStr, 1000)
       
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
