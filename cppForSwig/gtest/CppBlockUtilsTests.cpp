@@ -7421,7 +7421,6 @@ protected:
    {
    }
 
-
    SecureBinaryData verifyX;
    SecureBinaryData verifyY;
 
@@ -7500,8 +7499,9 @@ TEST_F(TestCryptoECDSA, SECP256K1AddPoints)
 ////////////////////////////////////////////////////////////////////////////////
 TEST_F(TestCryptoECDSA, SECP256K1PointInverse)
 {
-   SecureBinaryData testVal = CryptoECDSA().ECInverse(invAX,
-                                                      invAY);
+   SecureBinaryData testVal;
+   bool invValid = CryptoECDSA().ECInverse(invAX, invAY, testVal);
+   EXPECT_TRUE(invValid);
    EXPECT_EQ(invRes, testVal);
 }
 
@@ -7509,15 +7509,15 @@ TEST_F(TestCryptoECDSA, SECP256K1PointInverse)
 ////////////////////////////////////////////////////////////////////////////////
 TEST_F(TestCryptoECDSA, KeyCompression)
 {
-   SecureBinaryData compressedPt1 = CryptoECDSA().CompressPoint(uncompPointPub1);
-   SecureBinaryData compressedPt2 = CryptoECDSA().CompressPoint(uncompPointPub2);
-   SecureBinaryData uncompressedPt1 = CryptoECDSA().UncompressPoint(compPointPub1);
-   SecureBinaryData uncompressedPt2 = CryptoECDSA().UncompressPoint(compPointPub2);
+   SecureBinaryData testCompressPt1 = CryptoECDSA().CompressPoint(uncompPointPub1);
+   SecureBinaryData testCompressPt2 = CryptoECDSA().CompressPoint(uncompPointPub2);
+   SecureBinaryData testUncompressPt1 = CryptoECDSA().UncompressPoint(compPointPub1);
+   SecureBinaryData testUncompressPt2 = CryptoECDSA().UncompressPoint(compPointPub2);
 
-   EXPECT_EQ(compressedPt1, compressedPt1);
-   EXPECT_EQ(compressedPt2, compressedPt2);
-   EXPECT_EQ(uncompressedPt1, uncompressedPt1);
-   EXPECT_EQ(uncompressedPt2, uncompressedPt2);
+   EXPECT_EQ(compPointPub1, testCompressPt1);
+   EXPECT_EQ(compPointPub2, testCompressPt2);
+   EXPECT_EQ(uncompPointPub1, testUncompressPt1);
+   EXPECT_EQ(uncompPointPub2, testUncompressPt2);
 }
 
 // Compute public keys given private keys. The private values have been chosen

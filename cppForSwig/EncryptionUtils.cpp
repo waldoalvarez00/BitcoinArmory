@@ -668,16 +668,22 @@ bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
 bool CryptoECDSA::VerifyPublicKeyValid(SecureBinaryData const & pubKey33or65)
 {
    if(CRYPTO_DEBUG)
+   {
       cout << "BinPub: " << pubKey33or65.toHexStr() << endl;
+   }
 
    SecureBinaryData keyToCheck(65);
 
    // To support compressed keys, we'll just check to see if a key is compressed
    // and then decompress it.
-   if(pubKey33or65.getSize() == 33) 
+   if(pubKey33or65.getSize() == 33)
+   {
       keyToCheck = UncompressPoint(pubKey33or65);
-   else 
+   }
+   else
+   { 
       keyToCheck = pubKey33or65;
+   }
 
    // Basically just copying the ParsePublicKey method, but without
    // the assert that would throw an error from C++
@@ -713,9 +719,12 @@ SecureBinaryData CryptoECDSA::SignData(SecureBinaryData const & binToSign,
    if(CRYPTO_DEBUG)
    {
       cout << "SignData:" << endl;
-      cout << "   BinSgn: " << binToSign.getSize() << " " << binToSign.toHexStr() << endl;
-      cout << "   BinPrv: " << binPrivKey.getSize() << " " << binPrivKey.toHexStr() << endl;
+      cout << "   BinSgn: " << binToSign.getSize() << " " << binToSign.toHexStr()
+           << endl;
+      cout << "   BinPrv: " << binPrivKey.getSize() << " " << binPrivKey.toHexStr()
+           << endl;
    }
+
    BTC_PRIVKEY cppPrivKey = ParsePrivateKey(binPrivKey);
    return SignData(binToSign, cppPrivKey);
 }
@@ -831,7 +840,9 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
 
 
    if( binPubKey.getSize()==0 )
+   {
       binPubKey = ComputePublicKey(binPrivKey);
+   }
 
    if( binPrivKey.getSize() != 32 || chaincode.getSize() != 32)
    {
@@ -1037,41 +1048,36 @@ BinaryData CryptoECDSA::ECMultiplyScalars(BinaryData const & A,
 // Function that multiplies an incoming scalar by the secp256k1 generator and
 // adds the result to incoming point (X/Y coordinates).
 // INPUT:  Scalar (A) and X/Y coordinates for a point (Bx & By).
-// OUTPUT: The multiply result. If the result is at infinity, this is set to 0.
+// OUTPUT: The multiply result.
 // RETURN: True if a valid result, false if at infinity (incredibly unlikely)
 ////////////////////////////////////////////////////////////////////////////////
-bool CryptoECDSA::ECMultiplyPoint(BinaryData const & A, 
-                                        BinaryData const & Bx,
+bool CryptoECDSA::ECMultiplyPoint(BinaryData const & A,
+                                  BinaryData const & Bx,
                                   BinaryData const & By,
                                   BinaryData& multResult)
 {
+   BinaryData curveOrder = BinaryData::CreateFromHex(
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    CryptoPP::Integer intA, intBx, intBy, intCx, intCy, intCurveOrder;
    bool validResult = true;
-
-   // We can't proceed if we're at infinity, even if the likelihood is LOW!!!
-   // From X9.62 D.3.2?
    intA.Decode( A.getPtr(),  A.getSize(),  UNSIGNED);
-   BinaryData curveOrder = BinaryData::CreateFromHex(
-            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
    intCurveOrder.Decode(curveOrder.getPtr(), curveOrder.getSize(), UNSIGNED);
-   BinaryData Cbd(64);
-   if(intA % intCurveOrder == 0) {
-      multResult.clear();
-      multResult.append(0x00);
-      validResult = false;
-   }
-   else {
-      multResult.clear();
-      multResult = BinaryData(64);
+
+   // Math is taken from ANSI X9.62 (Sect. D.3.2/1998 or I.3.1/2005).
+   multResult.clear();
+   multResult = BinaryData(64);
    intBx.Decode(Bx.getPtr(), Bx.getSize(), UNSIGNED);
    intBy.Decode(By.getPtr(), By.getSize(), UNSIGNED);
-
    BTC_ECPOINT B(intBx, intBy);
    BTC_ECPOINT C = ecp.ScalarMultiply(B, intA);
+   C.x.Encode(multResult.getPtr(),    32, UNSIGNED);
+   C.y.Encode(multResult.getPtr()+32, 32, UNSIGNED);
 
-      C.x.Encode(multResult.getPtr(),    32, UNSIGNED);
-      C.y.Encode(multResult.getPtr()+32, 32, UNSIGNED);
+   // We can't proceed if we're at infinity, even if the likelihood is LOW!!!
+   if(C.identity)
+   {
+      validResult = false;
    }
 
    return validResult;
@@ -1081,12 +1087,12 @@ bool CryptoECDSA::ECMultiplyPoint(BinaryData const & A,
 // Function that adds two points (X/Y coordinates) together, modulo the
 // secp256k1 finite field (Fp).
 // INPUT:  X & Y coordinates for points A & B.
-// OUTPUT: The addition result. If the result is at infinity, this is set to 0.
+// OUTPUT: The addition result.
 // RETURN: True if a valid result, false if at infinity (incredibly unlikely)
 ////////////////////////////////////////////////////////////////////////////////
-bool CryptoECDSA::ECAddPoints(BinaryData const & Ax, 
-                                    BinaryData const & Ay,
-                                    BinaryData const & Bx,
+bool CryptoECDSA::ECAddPoints(BinaryData const & Ax,
+                              BinaryData const & Ay,
+                              BinaryData const & Bx,
                               BinaryData const & By,
                               BinaryData& addResult)
 {
@@ -1102,37 +1108,38 @@ bool CryptoECDSA::ECAddPoints(BinaryData const & Ax,
             "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f");
    intFP.Decode(fp.getPtr(), fp.getSize(), UNSIGNED);
 
-   // Let's make sure we're not at infinity. This should be from X9.62 B.3.
-   if((intAx == intBx) && ((intAy + intBy) % intFP == 0)) {
-      addResult.clear();
-      addResult.append(0x00);
-      validResult = false;
-   }
-   else {
+   // Math is taken from ANSI X9.62 (Sect. B.3/1998 or G.3/2005).
    BTC_ECPOINT A(intAx, intAy);
    BTC_ECPOINT B(intBx, intBy);
-
    BTC_ECPOINT C = ecp.Add(A,B);
 
-   BinaryData Cbd(64);
-   C.x.Encode(Cbd.getPtr(),    32, UNSIGNED);
-   C.y.Encode(Cbd.getPtr()+32, 32, UNSIGNED);
-      addResult = Cbd;
+   addResult.clear();
+   addResult = BinaryData(64);
+   C.x.Encode(addResult.getPtr(),    32, UNSIGNED);
+   C.y.Encode(addResult.getPtr()+32, 32, UNSIGNED);
+   if(C.identity)
+   {
+      validResult = false;
    }
 
    return validResult;
 }
 
+
 // Function that takes an incoming point (X/Y coords) on the secp256k1 curve and
 // returns the inverse. (The inverse is the original X coordinate and the
 // inverted Y coordinate (i.e., the bits are flipped).
+// INPUT:  X & Y coordinates for point A.
+// OUTPUT: The inversion result.
+// RETURN: True if a valid result, false if at infinity (incredibly unlikely)
 ////////////////////////////////////////////////////////////////////////////////
-BinaryData CryptoECDSA::ECInverse(BinaryData const & Ax, 
-                                  BinaryData const & Ay)
-                                  
+bool CryptoECDSA::ECInverse(BinaryData const & Ax, 
+                            BinaryData const & Ay,
+                            BinaryData& invResult)
 {
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    CryptoPP::Integer intAx, intAy, intCx, intCy;
+   bool validResult = true;
 
    intAx.Decode(Ax.getPtr(), Ax.getSize(), UNSIGNED);
    intAy.Decode(Ay.getPtr(), Ay.getSize(), UNSIGNED);
@@ -1140,11 +1147,16 @@ BinaryData CryptoECDSA::ECInverse(BinaryData const & Ax,
    BTC_ECPOINT A(intAx, intAy);
    BTC_ECPOINT C = ecp.Inverse(A);
 
-   BinaryData Cbd(64);
-   C.x.Encode(Cbd.getPtr(),    32, UNSIGNED);
-   C.y.Encode(Cbd.getPtr()+32, 32, UNSIGNED);
+   invResult.clear();
+   invResult = BinaryData(64);
+   C.x.Encode(invResult.getPtr(),    32, UNSIGNED);
+   C.y.Encode(invResult.getPtr()+32, 32, UNSIGNED);
+   if(C.identity)
+   {
+       validResult = false;
+   }
 
-   return Cbd;
+   return validResult;
 }
 
 
@@ -1165,6 +1177,7 @@ SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
    return ptCompressed; 
 }
 
+
 // Function that takes an incoming 33 byte public key and returns a 65 byte
 // uncompressed version.
 ////////////////////////////////////////////////////////////////////////////////
@@ -1183,6 +1196,8 @@ SecureBinaryData CryptoECDSA::UncompressPoint(SecureBinaryData const & pubKey33)
 
 }
 
+
+// Check to see if our primary key is public (compressed).
 const bool ExtendedKey::isPub() const 
 {
    if(key_.getSize() == 0)
@@ -1190,6 +1205,7 @@ const bool ExtendedKey::isPub() const
 
    return (key_[0] == 0x02 || key_[0] == 0x03);
 }
+
 
 // Check to see if our primary key is private.
 const bool ExtendedKey::isPrv() const 
@@ -1219,26 +1235,44 @@ const SecureBinaryData ExtendedKey::getIdentifier() const
    return compressedPubKey.getHash160();
 }
 
-// Returns empty string if no priv key exists
+
+// Get the private key from the extended key.
+// Input:  None
+// Output: None
+// Result: A 32-byte big-endian buffer with the private key, or zeroed out if
+//         the extended key has only public key data (SecureBinaryData)
 SecureBinaryData ExtendedKey::getPrivateKey(void) const
 {
    if(!isPrv())
+   {
       return SecureBinaryData(0);
+   }
    else
+   {
       return key_.getSliceCopy(1,32);
-
+   }
 }
 
-// Gets the raw public key, default is compressed
+
+// Get the public key from the extended key. The default format is compressed.
+// Input:  A flag indicating if the key should be compressed (bool)
+// Output: None
+// Result: A big-endian buffer with the compressed (33-byte) or uncompressed
+//         (65-byte) public key (SecureBinaryData)
 SecureBinaryData ExtendedKey::getPublicKey(bool compr) const
 {
+   // Keep logic simple and just compress the public key instead of determining
+   // if the primary key is already compressed.
    if(compr)
+   {
       return CryptoECDSA().CompressPoint(pubKey_);
+   }
    else
+   {
       return pubKey_;
-      
-
+   }
 }
+
 
 // Function that performs a Hash160 (SHA256, then RIPEMD160) on the uncompressed
 // public key.
@@ -1259,7 +1293,8 @@ uint32_t ExtendedKey::getChildNum() const
    uint32_t retVal = 0;
 
    // If the indices list is empty, we're the master key.
-   if(indicesList_.size() != 0) {
+   if(indicesList_.size() != 0)
+   {
       list<uint32_t>::const_iterator iter = indicesList_.end();
       --iter;
       retVal = *iter;
@@ -1341,11 +1376,13 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
    parentFP_ = parFP.getSliceRef(0, 4);
    indicesList_.push_back(inChildNum);
    //
-   if(keyIsPub) {
+   if(keyIsPub)
+   {
       key_ = CryptoECDSA().CompressPoint(key);
       pubKey_ = key;
    }
-   else {
+   else
+   {
       key_ = key;
       BTC_PRIVKEY tmpA = CryptoECDSA().ParsePrivateKey(key_.getSliceRef(1, 32));
       BTC_PUBKEY tmpB = CryptoECDSA().ComputePublicKey(tmpA);
@@ -1394,7 +1431,7 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
 ////////////////////////////////////////////////////////////////////////////////
 void ExtendedKey::deletePrivateKey()
 {
-   if(key_[0] == 0x00) 
+   if(key_[0] == 0x00)
    {
       key_.destroy();
       key_ = CryptoECDSA().CompressPoint(pubKey_);
@@ -1449,13 +1486,16 @@ const string ExtendedKey::getIndexListString(const string prefix)
    vector<uint32_t> indexList = getIndicesVect();
 
    // Loops through index list. If empty, key is a master key or is invalid.
-   for(uint32_t i=0; i<indexList.size(); ++i) 
+   for(uint32_t i=0; i<indexList.size(); ++i)
    {
-      if(isHardened(indexList[i])) 
+      if(isHardened(indexList[i]))
+      {
          ss << "/" << (0x80000000 ^ indexList[i]) << "'";
-      else 
+      }
+      else
+      {
          ss << "/" << indexList[i];
-         
+      }
    }
    return ss.str();
 }
@@ -1473,12 +1513,12 @@ void ExtendedKey::updatePubKey()
 {
    // If primary key is private, derive the uncompressed private key. If public,
    // just save an uncompressed copy.
-   if(isPrv()) 
+   if(isPrv())
    {
       SecureBinaryData inPrvKey = key_.getSliceRef(1, 32);
       pubKey_ = CryptoECDSA().ComputePublicKey(inPrvKey);
    }
-   else 
+   else
    {
       pubKey_ = CryptoECDSA().UncompressPoint(pubKey_);
    }
@@ -1492,8 +1532,10 @@ const SecureBinaryData ExtendedKey::getExtKeySer()
 {
    SecureBinaryData outKey;
    if(!validKey_)
+   {
       outKey.append(0x00);
-   else 
+   }
+   else
    {
       SecureBinaryData tmpVal = WRITE_UINT32_BE(version_);
       outKey.append(tmpVal);
@@ -1634,9 +1676,11 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       intLeft.Decode(leftHMAC.getPtr(), leftHMAC.getSize(), UNSIGNED);
 
       if(multiplierOut != NULL && !isHardened(childNum))
+      {
          multiplierOut->copyFrom(leftHMAC);
+      }
 
-      if(intLeft >= ecOrder) 
+      if(intLeft >= ecOrder)
       {
          LOGERR << "Somehow derived priv key is greater than EC order";
          return derivKey;
@@ -1723,4 +1767,3 @@ ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed
 
 // HDWalletCrypto destructor. Does nothing for now.
 HDWalletCrypto::~HDWalletCrypto() {}
-

@@ -445,8 +445,9 @@ public:
                     BinaryData const & By,
                     BinaryData& addResult);
 
-   BinaryData ECInverse(BinaryData const & Ax, 
-                        BinaryData const & Ay);
+   bool ECInverse(BinaryData const & Ax, 
+                  BinaryData const & Ay,
+                  BinaryData& invResult);
 
    /////////////////////////////////////////////////////////////////////////////
    // For Point-compression
