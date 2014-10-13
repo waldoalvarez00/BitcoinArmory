@@ -990,7 +990,7 @@ bool CryptoECDSA::ECVerifyPoint(BinaryData const & x,
 }
 
 
-// Function that returns the Crypto++ ECP object for the secp256k1 surve
+// Function that returns the Crypto++ ECP object for the secp256k1 curve.
 ////////////////////////////////////////////////////////////////////////////////
 CryptoPP::ECP CryptoECDSA::Get_secp256k1_ECP(void)
 {
@@ -1023,10 +1023,10 @@ CryptoPP::ECP CryptoECDSA::Get_secp256k1_ECP(void)
 }
 
 
-// Function multiplying two scalars on the secp256k1 curve and returning the
-// result.
+// Function multiplying two scalars on the secp256k1 curve (32 bytes each) and
+// returning the result.
 ////////////////////////////////////////////////////////////////////////////////
-BinaryData CryptoECDSA::ECMultiplyScalars(BinaryData const & A, 
+BinaryData CryptoECDSA::ECMultiplyScalars(BinaryData const & A,
                                           BinaryData const & B)
 {
    // Hardcode the order of the secp256k1 EC group
@@ -1047,8 +1047,8 @@ BinaryData CryptoECDSA::ECMultiplyScalars(BinaryData const & A,
 
 // Function that multiplies an incoming scalar by the secp256k1 generator and
 // adds the result to incoming point (X/Y coordinates).
-// INPUT:  Scalar (A) and X/Y coordinates for a point (Bx & By).
-// OUTPUT: The multiply result.
+// INPUT:  Scalar (A) and X/Y coordinates for a point (Bx & By) (32 bytes each).
+// OUTPUT: The multiply result (64 bytes).
 // RETURN: True if a valid result, false if at infinity (incredibly unlikely)
 ////////////////////////////////////////////////////////////////////////////////
 bool CryptoECDSA::ECMultiplyPoint(BinaryData const & A,
@@ -1086,8 +1086,8 @@ bool CryptoECDSA::ECMultiplyPoint(BinaryData const & A,
 
 // Function that adds two points (X/Y coordinates) together, modulo the
 // secp256k1 finite field (Fp).
-// INPUT:  X & Y coordinates for points A & B.
-// OUTPUT: The addition result.
+// INPUT:  X & Y coordinates for points A & B (32 bytes each).
+// OUTPUT: The addition result (64 bytes).
 // RETURN: True if a valid result, false if at infinity (incredibly unlikely)
 ////////////////////////////////////////////////////////////////////////////////
 bool CryptoECDSA::ECAddPoints(BinaryData const & Ax,
@@ -1632,12 +1632,12 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
    assert(extPar.isInitialized());
 
    ExtendedKey derivKey;
-   if(extPar.isPub() && isHardened(childNum)) 
+   if(extPar.isPub() && isHardened(childNum))
    {
-      LOGERR << "Cannot perform hardened derivation on public key";
+      LOGERR << "Cannot perform hardened derivation on public key #" << childNum;
       return derivKey;
    }
-   else 
+   else
    {
       // First, let's get ready for an HMAC-SHA512 call. The key will always be
       // the parent's chain code. The data will depend on the parent key type
@@ -1682,7 +1682,8 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
 
       if(intLeft >= ecOrder)
       {
-         LOGERR << "Somehow derived priv key is greater than EC order";
+         LOGERR << "Derived private key #" << childNum << " is greater than the "
+            << "elliptic curve order!";
          return derivKey;
       }
 
@@ -1701,13 +1702,14 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
          SecureBinaryData prvKey = extPar.getKey().getSliceRef(1, 32);
          intKey.Decode(prvKey.getPtr(), prvKey.getSize(), UNSIGNED);
          check0 = (intLeft + intKey) % ecOrder;
-   
+
          // Highly doubtful the key hit the point of infinity. Just in case....
-         if(check0.IsZero()) 
+         if(check0.IsZero())
          {
-            LOGERR << "Somehow ended up deriving the point at infinity...";
+            LOGERR << "Addition derived the point at infinity for private key #"
+               << childNum;
          }
-         else 
+         else
          {
             // Finish child setup.
             SecureBinaryData zeros = SecureBinaryData(PRIKEYSIZE - check0.ByteCount());
@@ -1718,28 +1720,40 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
             childKey.append(check0Str);
          }
       }
-      else 
+      else
       {
          SecureBinaryData pubX = extPar.getPub().getSliceRef(1, 32);
          SecureBinaryData pubY = extPar.getPub().getSliceRef(33, 32);
+         SecureBinaryData BASE_X = SecureBinaryData().CreateFromHex(
+            "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798");
+         SecureBinaryData BASE_Y = SecureBinaryData().CreateFromHex(
+            "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8");
          SecureBinaryData newPub;
 
          // Calc the child key. Don't proceed if at the point of infinity.
-         if(!(CryptoECDSA().ECMultiplyPoint(leftHMAC, pubX, pubY, newPub))) 
+         if(!(CryptoECDSA().ECMultiplyPoint(leftHMAC, BASE_X, BASE_Y, newPub))) 
          {
-            LOGERR << "Somehow ended up deriving the point at infinity...";
+            LOGERR << "Multiplication derived the point at infinity for public "
+               << "key #" << childNum;
          }
-         else 
+         else
          {
             // Finish child setup.
-            CryptoPP::Integer newX;
-            CryptoPP::Integer newY;
-            newX.Decode(newPub.getPtr(), 32, UNSIGNED);
-            newY.Decode(newPub.getPtr() + 32, 32, UNSIGNED);
-            uint8_t pubHdr = 0x04;
-            childKey.append(pubHdr);
-            childKey.append(newPub);
-            keyIsPub = true;
+            SecureBinaryData newX = newPub.getSliceRef(0, 32);
+            SecureBinaryData newY = newPub.getSliceRef(32, 32);
+            SecureBinaryData addRes;
+            if(!(CryptoECDSA().ECAddPoints(newX, newY, pubX, pubY, addRes)))
+            {
+               LOGERR << "Addition derived the point at infinity for public "
+                  << "key #" << childNum;
+            }
+            else
+            {
+               uint8_t pubHdr = 0x04;
+               childKey.append(pubHdr);
+               childKey.append(addRes);
+               keyIsPub = true;
+            }
          }
       }
 
@@ -1748,6 +1762,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
                              extPar.getIndicesList(), extPar.getVersion(),
                              childNum, keyIsPub);
    }
+
    return derivKey;
 }
 

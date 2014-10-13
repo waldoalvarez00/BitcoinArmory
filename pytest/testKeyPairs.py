@@ -1143,8 +1143,8 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
       self.assertEqual(childAbek.rawScript, chScript)
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
-      
-      runSerUnserRoundTripTest(self, childABek)
+
+      runSerUnserRoundTripTest(self, childAbek)
 
 
 
