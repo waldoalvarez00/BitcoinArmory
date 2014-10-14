@@ -1435,6 +1435,14 @@ void ExtendedKey::deletePrivateKey()
    {
       key_.destroy();
       key_ = CryptoECDSA().CompressPoint(pubKey_);
+      if(version_ == MAIN_PRV)
+      {
+          version_ = MAIN_PUB;
+      }
+      else
+      {
+          version_ = TEST_PUB;
+      }
    }
 }
 

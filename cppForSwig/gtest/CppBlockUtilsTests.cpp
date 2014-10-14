@@ -8212,6 +8212,7 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    set2String.push_back(seedString2_D4);
    set2String.push_back(seedString2_D5);
 
+   // Check the 1st set of BIP32 test vectors.
    ExtendedKey parentKey1(seedKey1, seedCC1);
    unsigned int s1 = 0;
    for(vector<uint32_t>::iterator it1 = set1ChildNum.begin();
@@ -8253,6 +8254,7 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       ++s1;
    }
 
+   // Check the 2nd set of BIP32 test vectors.
    ExtendedKey parentKey2(seedKey2, seedCC2);
    unsigned int s2 = 0;
    for(vector<uint32_t>::iterator it2 = set2ChildNum.begin();
@@ -8292,6 +8294,137 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
 
       parentKey2 = childKey2;
       ++s2;
+   }
+
+   // Check the 1st set of BIP32 test vectors again, but use extended pub keys.
+   ExtendedKey parentPubKey1(seedKey1, seedCC1);
+   ExtendedKey tempPrvKey1(seedKey1, seedCC1);
+   ExtendedKey checkKey;
+   unsigned int sPub1 = 0;
+   for(vector<uint32_t>::iterator itPub1 = set1ChildNum.begin();
+       itPub1 != set1ChildNum.end(); ++itPub1) 
+   {
+      // Taken from isHardened() (EncryptionUtils.cpp). If not hardened, perform
+      // a full check.
+      if((0x80000000 & *itPub1) == 0x00000000)
+      {
+         parentPubKey1.deletePrivateKey();
+         ExtendedKey childPubKey1 = HDWalletCrypto().childKeyDeriv(parentPubKey1,
+                                                                   *itPub1);
+
+         checkKey = childPubKey1;
+         parentPubKey1 = childPubKey1;
+         tempPrvKey1 = HDWalletCrypto().childKeyDeriv(tempPrvKey1, *itPub1);
+      }
+      else
+      {
+         // If we're trying to get a hardened key, just derive the private key
+         // and convert to a public key.
+         ExtendedKey childKey1 = HDWalletCrypto().childKeyDeriv(tempPrvKey1,
+                                                                *itPub1);
+         tempPrvKey1 = childKey1;
+         childKey1.deletePrivateKey();
+
+         checkKey = childKey1;
+         parentPubKey1 = childKey1;
+      }
+
+      SecureBinaryData retKey1       = checkKey.getKey();
+      SecureBinaryData retPubKey1    = checkKey.getPub();
+      SecureBinaryData retChaincode1 = checkKey.getChaincode();
+      SecureBinaryData testExtSer1   = checkKey.getExtKeySer();
+      SecureBinaryData testID1       = checkKey.getIdentifier();
+      SecureBinaryData testFP1       = checkKey.getFingerprint();
+      SecureBinaryData testParFP1    = checkKey.getParentFP();
+      SecureBinaryData testCompPub1  = checkKey.getPubCompressed();
+      uint32_t testVer1              = checkKey.getVersion();
+      uint8_t testDepth1             = checkKey.getDepth();
+      uint32_t testChildNum1         = checkKey.getChildNum();
+      string testString1             = checkKey.getIndexListString();
+
+      EXPECT_TRUE(checkKey.isInitialized());
+      EXPECT_TRUE(checkKey.hasChaincode());
+      EXPECT_TRUE(checkKey.isPub());
+      EXPECT_FALSE(checkKey.isPrv());
+      EXPECT_FALSE(checkKey.isMaster());
+      EXPECT_EQ(set1CompPubKey[sPub1], retKey1);
+      EXPECT_EQ(set1PubKey[sPub1], retPubKey1);
+      EXPECT_EQ(set1CC[sPub1], retChaincode1);
+      EXPECT_EQ(set1ID[sPub1], testID1);
+      EXPECT_EQ(set1FP[sPub1], testFP1);
+      EXPECT_EQ(set1ParFP[sPub1], testParFP1);
+      EXPECT_EQ(set1CompPubKey[sPub1], testCompPub1);
+      EXPECT_EQ(verPub, testVer1);
+      EXPECT_EQ(set1Depth[sPub1], testDepth1);
+      EXPECT_EQ(*itPub1, testChildNum1);
+      EXPECT_EQ(set1String[sPub1], testString1);
+
+      ++sPub1;
+   }
+
+   // Check the 2nd set of BIP32 test vectors again, but use extended pub keys.
+   ExtendedKey parentPubKey2(seedKey2, seedCC2);
+   ExtendedKey tempPrvKey2(seedKey2, seedCC2);
+   unsigned int sPub2 = 0;
+   for(vector<uint32_t>::iterator itPub2 = set2ChildNum.begin();
+       itPub2 != set2ChildNum.end(); ++itPub2) 
+   {
+      // Taken from isHardened() (EncryptionUtils.cpp). If not hardened, perform
+      // a full check.
+      if((0x80000000 & *itPub2) == 0x00000000)
+      {
+         parentPubKey2.deletePrivateKey();
+         ExtendedKey childPubKey2 = HDWalletCrypto().childKeyDeriv(parentPubKey2,
+                                                                   *itPub2);
+
+         checkKey = childPubKey2;
+         parentPubKey2 = childPubKey2;
+         tempPrvKey2 = HDWalletCrypto().childKeyDeriv(tempPrvKey2, *itPub2);
+      }
+      else
+      {
+         // If we're trying to get a hardened key, just derive the private key
+         // and convert to a public key.
+         ExtendedKey childKey2 = HDWalletCrypto().childKeyDeriv(tempPrvKey2,
+                                                                *itPub2);
+         tempPrvKey2 = childKey2;
+         childKey2.deletePrivateKey();
+
+         checkKey = childKey2;
+         parentPubKey2 = childKey2;
+      }
+
+      SecureBinaryData retKey2       = checkKey.getKey();
+      SecureBinaryData retPubKey2    = checkKey.getPub();
+      SecureBinaryData retChaincode2 = checkKey.getChaincode();
+      SecureBinaryData testExtSer2   = checkKey.getExtKeySer();
+      SecureBinaryData testID2       = checkKey.getIdentifier();
+      SecureBinaryData testFP2       = checkKey.getFingerprint();
+      SecureBinaryData testParFP2    = checkKey.getParentFP();
+      SecureBinaryData testCompPub2  = checkKey.getPubCompressed();
+      uint32_t testVer2              = checkKey.getVersion();
+      uint8_t testDepth2             = checkKey.getDepth();
+      uint32_t testChildNum2         = checkKey.getChildNum();
+      string testString2             = checkKey.getIndexListString();
+
+      EXPECT_TRUE(checkKey.isInitialized());
+      EXPECT_TRUE(checkKey.hasChaincode());
+      EXPECT_TRUE(checkKey.isPub());
+      EXPECT_FALSE(checkKey.isPrv());
+      EXPECT_FALSE(checkKey.isMaster());
+      EXPECT_EQ(set2CompPubKey[sPub2], retKey2);
+      EXPECT_EQ(set2PubKey[sPub2], retPubKey2);
+      EXPECT_EQ(set2CC[sPub2], retChaincode2);
+      EXPECT_EQ(set2ID[sPub2], testID2);
+      EXPECT_EQ(set2FP[sPub2], testFP2);
+      EXPECT_EQ(set2ParFP[sPub2], testParFP2);
+      EXPECT_EQ(set2CompPubKey[sPub2], testCompPub2);
+      EXPECT_EQ(verPub, testVer2);
+      EXPECT_EQ(set2Depth[sPub2], testDepth2);
+      EXPECT_EQ(*itPub2, testChildNum2);
+      EXPECT_EQ(set2String[sPub2], testString2);
+
+      ++sPub2;
    }
 }
 
