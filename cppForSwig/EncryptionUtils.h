@@ -191,9 +191,12 @@ public:
 
    SecureBinaryData copySwapEndian(size_t pos1=0, size_t pos2=0) const;
 
-   SecureBinaryData & append(SecureBinaryData & sbd2) ;
+   SecureBinaryData& append(SecureBinaryData & sbd2);
    SecureBinaryData& append(uint8_t byte);
-   SecureBinaryData & operator=(SecureBinaryData const & sbd2);
+   SecureBinaryData& append(uint8_t const byte, uint32_t sz);
+   SecureBinaryData& append(uint8_t const * str, uint32_t sz);
+
+   SecureBinaryData& operator=(SecureBinaryData const & sbd2);
    SecureBinaryData   operator+(SecureBinaryData & sbd2) const;
    //uint8_t const & operator[](size_t i) const {return BinaryData::operator[](i);}
    bool operator==(SecureBinaryData const & sbd2) const;
@@ -465,6 +468,7 @@ public:
 // will be its match. If we're deriving a public key, both keys will match and
 // be public. In either case, the primary key will be 33 bytes, meaning it'll be
 // compressed if it's public. The public key will be 65 bytes (uncompressed).
+// Unless otherwise noted, all algorithms are from the BIP32 paper.
 class ExtendedKey
 {
 public:
@@ -520,8 +524,7 @@ public:
    SecureBinaryData getPublicKey(bool compr=true) const;
    SecureBinaryData getChaincode() const  { return chaincode_; }
 
-
-   BinaryData               getHash160() const;
+   BinaryData               getHash160() const; // Hash160 of uncomp pub key
    ExtendedKey              copy() const;
 
    SecureBinaryData getPubCompressed() const;

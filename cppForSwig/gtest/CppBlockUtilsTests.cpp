@@ -7771,19 +7771,20 @@ class TestHDWalletCrypto : public ::testing::Test
 {
 protected:
    /////////////////////////////////////////////////////////////////////////////
-   virtual void SetUp(void) 
+   virtual void SetUp(void)
    {
-      if(1) 
+      if(1)
       {
          verPub          = 76067358; // 0x0488B21E
          verPri          = 76066276; // 0x0488ADE4
       }
-      else 
+      else
       {
          verPub          = 70617039; // 0x043587CF
          verPri          = 70615956; // 0x04358394
       }
 
+      // Data pulled from the decoded BIP32 test vector addresses. Hardened = '
       seedKey1           = READHEX("00e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35");
       seedCC1            = READHEX("873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508");
       seedPubKey1        = READHEX("0439a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c23cbe7ded0e7ce6a594896b8f62888fdbc5c8821305e2ea42bf01e37300116281");
@@ -8062,7 +8063,8 @@ protected:
 };
 
 // Generate all the data (except WIF and Base58 values) from the BIP32 test
-// vector suite, and confirm that it matches what we expect.
+// vector suite, and confirm that it matches what we expect. Extended keys will
+// be public and private.
 ////////////////////////////////////////////////////////////////////////////////
 TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
 {
@@ -8212,11 +8214,12 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    set2String.push_back(seedString2_D4);
    set2String.push_back(seedString2_D5);
 
-   // Check the 1st set of BIP32 test vectors.
+   // Check the 1st set of BIP32 test vectors. This covers the private parent
+   // -> private child case.
    ExtendedKey parentKey1(seedKey1, seedCC1);
    unsigned int s1 = 0;
    for(vector<uint32_t>::iterator it1 = set1ChildNum.begin();
-       it1 != set1ChildNum.end(); ++it1) 
+       it1 != set1ChildNum.end(); ++it1)
    {
       ExtendedKey childKey1 = HDWalletCrypto().childKeyDeriv(parentKey1, *it1);
       SecureBinaryData retKey1       = childKey1.getKey();
@@ -8254,11 +8257,12 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       ++s1;
    }
 
-   // Check the 2nd set of BIP32 test vectors.
+   // Check the 2nd set of BIP32 test vectors. This covers the private parent
+   // -> private child case.
    ExtendedKey parentKey2(seedKey2, seedCC2);
    unsigned int s2 = 0;
    for(vector<uint32_t>::iterator it2 = set2ChildNum.begin();
-       it2 != set2ChildNum.end(); ++it2) 
+       it2 != set2ChildNum.end(); ++it2)
    {
       ExtendedKey childKey2 = HDWalletCrypto().childKeyDeriv(parentKey2, *it2);
       SecureBinaryData retKey2       = childKey2.getKey();
@@ -8297,17 +8301,23 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    }
 
    // Check the 1st set of BIP32 test vectors again, but use extended pub keys.
+   // This covers both the public parent -> public child case (non-hardened) and
+   // private parent -> public child case (hardened).
    ExtendedKey parentPubKey1(seedKey1, seedCC1);
    ExtendedKey tempPrvKey1(seedKey1, seedCC1);
    ExtendedKey checkKey;
    unsigned int sPub1 = 0;
+
    for(vector<uint32_t>::iterator itPub1 = set1ChildNum.begin();
-       itPub1 != set1ChildNum.end(); ++itPub1) 
+       itPub1 != set1ChildNum.end(); ++itPub1)
    {
       // Taken from isHardened() (EncryptionUtils.cpp). If not hardened, perform
       // a full check.
       if((0x80000000 & *itPub1) == 0x00000000)
       {
+         // If not hardened, take the private key, convert it to a public key, and
+         // then derive the public child. In the BIP32 spec, this covers both the
+         // public -> public case and the private -> public case (non-hardened).
          parentPubKey1.deletePrivateKey();
          ExtendedKey childPubKey1 = HDWalletCrypto().childKeyDeriv(parentPubKey1,
                                                                    *itPub1);
@@ -8319,7 +8329,8 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       else
       {
          // If we're trying to get a hardened key, just derive the private key
-         // and convert to a public key.
+         // and convert to a public key. In the BIP32 spec, this covers both the
+         // public -> public case and the private -> public case (hardened).
          ExtendedKey childKey1 = HDWalletCrypto().childKeyDeriv(tempPrvKey1,
                                                                 *itPub1);
          tempPrvKey1 = childKey1;
@@ -8366,13 +8377,17 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    ExtendedKey parentPubKey2(seedKey2, seedCC2);
    ExtendedKey tempPrvKey2(seedKey2, seedCC2);
    unsigned int sPub2 = 0;
+
    for(vector<uint32_t>::iterator itPub2 = set2ChildNum.begin();
-       itPub2 != set2ChildNum.end(); ++itPub2) 
+       itPub2 != set2ChildNum.end(); ++itPub2)
    {
       // Taken from isHardened() (EncryptionUtils.cpp). If not hardened, perform
       // a full check.
       if((0x80000000 & *itPub2) == 0x00000000)
       {
+         // If not hardened, take the private key, convert it to a public key, and
+         // then derive the public child. In the BIP32 spec, this covers both the
+         // public -> public case and the private -> public case (non-hardened).
          parentPubKey2.deletePrivateKey();
          ExtendedKey childPubKey2 = HDWalletCrypto().childKeyDeriv(parentPubKey2,
                                                                    *itPub2);
@@ -8384,7 +8399,8 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       else
       {
          // If we're trying to get a hardened key, just derive the private key
-         // and convert to a public key.
+         // and convert to a public key. In the BIP32 spec, this covers both the
+         // public -> public case and the private -> public case (hardened).
          ExtendedKey childKey2 = HDWalletCrypto().childKeyDeriv(tempPrvKey2,
                                                                 *itPub2);
          tempPrvKey2 = childKey2;

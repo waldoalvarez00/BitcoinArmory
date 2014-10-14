@@ -33,6 +33,7 @@ inline bool isHardened(uint32_t inChildNumber)
    return ((0x80000000 & inChildNumber) == 0x80000000);
 }
 
+
 /////////////////////////////////////////////////////////////////////////////
 // We have to explicitly re-define some of these methods...
 SecureBinaryData & SecureBinaryData::append(SecureBinaryData & sbd2) 
@@ -49,12 +50,33 @@ SecureBinaryData & SecureBinaryData::append(SecureBinaryData & sbd2)
    return (*this);
 }
 
-SecureBinaryData & SecureBinaryData::append(uint8_t byte)
+
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData& SecureBinaryData::append(uint8_t byte)
 {
    BinaryData::append(byte);
    lockData();
    return (*this);
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData& SecureBinaryData::append(uint8_t const byte, uint32_t sz)
+{
+   BinaryData::append(byte, sz);
+   lockData();
+   return (*this);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData& SecureBinaryData::append(uint8_t const * str, uint32_t sz)
+{
+   BinaryData::append(str, sz);
+   lockData();
+   return (*this);
+}
+
 
 /////////////////////////////////////////////////////////////////////////////
 SecureBinaryData SecureBinaryData::operator+(SecureBinaryData & sbd2) const
@@ -952,6 +974,7 @@ SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
    return CryptoECDSA::SerializePublicKey(newPubKey);
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::InvMod(const SecureBinaryData& m)
 {
@@ -1033,6 +1056,7 @@ BinaryData CryptoECDSA::ECMultiplyScalars(BinaryData const & A,
    static BinaryData curveOrd = BinaryData::CreateFromHex(
            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
 
+   // Let Crypto++ do the actual multiplication & modulo.
    CryptoPP::Integer intA, intB, intC, intCurveOrd;
    intA.Decode(A.getPtr(), A.getSize(), UNSIGNED);
    intB.Decode(B.getPtr(), B.getSize(), UNSIGNED);
@@ -1097,16 +1121,13 @@ bool CryptoECDSA::ECAddPoints(BinaryData const & Ax,
                               BinaryData& addResult)
 {
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
-   CryptoPP::Integer intAx, intAy, intBx, intBy, intCx, intCy, intFP;
+   CryptoPP::Integer intAx, intAy, intBx, intBy, intCx, intCy;
    bool validResult = true;
 
    intAx.Decode(Ax.getPtr(), Ax.getSize(), UNSIGNED);
    intAy.Decode(Ay.getPtr(), Ay.getSize(), UNSIGNED);
    intBx.Decode(Bx.getPtr(), Bx.getSize(), UNSIGNED);
    intBy.Decode(By.getPtr(), By.getSize(), UNSIGNED);
-   BinaryData fp = BinaryData::CreateFromHex(
-            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f");
-   intFP.Decode(fp.getPtr(), fp.getSize(), UNSIGNED);
 
    // Math is taken from ANSI X9.62 (Sect. B.3/1998 or G.3/2005).
    BTC_ECPOINT A(intAx, intAy);
@@ -1144,6 +1165,7 @@ bool CryptoECDSA::ECInverse(BinaryData const & Ax,
    intAx.Decode(Ax.getPtr(), Ax.getSize(), UNSIGNED);
    intAy.Decode(Ay.getPtr(), Ay.getSize(), UNSIGNED);
 
+   // Math is taken from ANSI X9.62 (Sect. B.1/1998 or G.1/2005).
    BTC_ECPOINT A(intAx, intAy);
    BTC_ECPOINT C = ecp.Inverse(A);
 
@@ -1165,9 +1187,13 @@ bool CryptoECDSA::ECInverse(BinaryData const & Ax,
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
 {
-   if(pubKey65.getSize() == 33)
+   // In case a compressed key is passed in, just send it right back out.
+   if(pubKey65.getSize() == 33 && (pubKey65[0] == 0x02 || pubKey65[0] == 0x03))
+   {
       return pubKey65;
+   }
 
+   // Let Crypto++ do the heavy lifting. Build uncompressed key, then compress.
    assert(pubKey65.getSize() == 65);
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    BTC_ECPOINT ptPub;
@@ -1183,9 +1209,13 @@ SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::UncompressPoint(SecureBinaryData const & pubKey33)
 {
-   if(pubKey33.getSize() == 65)
+   // In case an uncompressed key is passed in, just send it right back out.
+   if(pubKey33.getSize() == 65 && pubKey33[0] == 0x04)
+   {
       return pubKey33;
+   }
 
+   // Let Crypto++ do the heavy lifting. Build compressed key, then decompress.
    assert(pubKey33.getSize() == 33);
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    BTC_ECPOINT ptPub;
@@ -1198,20 +1228,26 @@ SecureBinaryData CryptoECDSA::UncompressPoint(SecureBinaryData const & pubKey33)
 
 
 // Check to see if our primary key is public (compressed).
-const bool ExtendedKey::isPub() const 
+const bool ExtendedKey::isPub() const
 {
+   // Bail if the primary key doesn't exist.
    if(key_.getSize() == 0)
+   {
       return false;
+   }
 
    return (key_[0] == 0x02 || key_[0] == 0x03);
 }
 
 
 // Check to see if our primary key is private.
-const bool ExtendedKey::isPrv() const 
+const bool ExtendedKey::isPrv() const
 {
+   // Bail if the primary key doesn't exist.
    if(key_.getSize() == 0)
+   {
       return false;
+   }
 
    return (key_[0] == 0x00);
 }
@@ -1243,14 +1279,21 @@ const SecureBinaryData ExtendedKey::getIdentifier() const
 //         the extended key has only public key data (SecureBinaryData)
 SecureBinaryData ExtendedKey::getPrivateKey(void) const
 {
+   SecureBinaryData retVal;
+
    if(!isPrv())
    {
-      return SecureBinaryData(0);
+      // Zero-pad smaller keys.
+      SecureBinaryData zeros(32);
+      zeros.fill(0x00);
+      retVal = zeros;
    }
    else
    {
-      return key_.getSliceCopy(1,32);
+      retVal = key_.getSliceCopy(1,32);
    }
+
+   return retVal;
 }
 
 
@@ -1261,21 +1304,25 @@ SecureBinaryData ExtendedKey::getPrivateKey(void) const
 //         (65-byte) public key (SecureBinaryData)
 SecureBinaryData ExtendedKey::getPublicKey(bool compr) const
 {
+   SecureBinaryData retVal;
+
    // Keep logic simple and just compress the public key instead of determining
    // if the primary key is already compressed.
    if(compr)
    {
-      return CryptoECDSA().CompressPoint(pubKey_);
+      retVal = CryptoECDSA().CompressPoint(pubKey_);
    }
    else
    {
-      return pubKey_;
+      retVal = pubKey_;
    }
+
+   return retVal;
 }
 
 
 // Function that performs a Hash160 (SHA256, then RIPEMD160) on the uncompressed
-// public key.
+// public key, which is used as the Hash160 value of the entire key.
 // INPUT:  None
 // OUTPUT: None
 // RETURN: 20 byte Hash160 result.
@@ -1303,6 +1350,8 @@ uint32_t ExtendedKey::getChildNum() const
    return retVal;
 }
 
+
+// Get a vector showing where in the tree the key is located.
 ////////////////////////////////////////////////////////////////////////////////
 vector<uint32_t> ExtendedKey::getIndicesVect() const
 {
@@ -1335,7 +1384,7 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
    key_ = key;
    chaincode_ = ch;
 
-   // This allows us to initialize a public extended key
+   // This allows us to initialize a public extended key.
    if(key[0] == 0x02 || key[0] == 0x03)
    {
       pubKey_ = key.copy();
@@ -1375,7 +1424,8 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
 
    parentFP_ = parFP.getSliceRef(0, 4);
    indicesList_.push_back(inChildNum);
-   //
+
+   // Create and compute keys as required. Let Crypto++ do the heavy lifting.
    if(keyIsPub)
    {
       key_ = CryptoECDSA().CompressPoint(key);
@@ -1433,15 +1483,23 @@ void ExtendedKey::deletePrivateKey()
 {
    if(key_[0] == 0x00)
    {
+      // Get rid of the private key and compress the public key.
       key_.destroy();
       key_ = CryptoECDSA().CompressPoint(pubKey_);
+
+      // Change the version value.
       if(version_ == MAIN_PRV)
       {
-          version_ = MAIN_PUB;
+         version_ = MAIN_PUB;
+      }
+      else if(version_ == TEST_PRV)
+      {
+         version_ = TEST_PUB;
       }
       else
       {
-          version_ = TEST_PUB;
+         LOGERR << "Extended key (identifier " << getIdentifier().toHexStr()
+            << ") has an invalid version!";
       }
    }
 }
@@ -1475,14 +1533,14 @@ ExtendedKey ExtendedKey::copy() const
 ////////////////////////////////////////////////////////////////////////////////
 void ExtendedKey::debugPrint()
 {
-   cout << "Indices:              " << getIndexListString() << endl;
-   cout << "Fingerprint (Self):   " << getFingerprint().toHexStr() << endl;
-   cout << "Fingerprint (Parent): " << getParentFP().toHexStr() << endl;
-   cout << "Private Key:          " << key_.toHexStr() << endl;
-   cout << "Public Key Comp:      " << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
-   cout << "Public Key:           " << pubKey_.toHexStr() << endl;
-   cout << "Chain Code:           " << chaincode_.toHexStr() << endl;
-   cout << "Hash160:              " << getHash160().toHexStr() << endl << endl;
+   cout << "Indices:                 " << getIndexListString() << endl;
+   cout << "Fingerprint (Self):      " << getFingerprint().toHexStr() << endl;
+   cout << "Fingerprint (Parent):    " << getParentFP().toHexStr() << endl;
+   cout << "Private Key:             " << key_.toHexStr() << endl;
+   cout << "Public Key Compressed:   " << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
+   cout << "Public Key Uncompressed: " << pubKey_.toHexStr() << endl;
+   cout << "Chain Code:              " << chaincode_.toHexStr() << endl;
+   cout << "Hash160 (Uncom Pub Key): " << getHash160().toHexStr() << endl << endl;
 }
 
 
@@ -1516,8 +1574,9 @@ SecureBinaryData ExtendedKey::getPubCompressed() const
    return CryptoECDSA().CompressPoint(pubKey_);
 }
 
-// Function that updates the public key based on the primary key. 
-void ExtendedKey::updatePubKey() 
+
+// Function that updates the public key based on the primary key.
+void ExtendedKey::updatePubKey()
 {
    // If primary key is private, derive the uncompressed private key. If public,
    // just save an uncompressed copy.
@@ -1541,7 +1600,10 @@ const SecureBinaryData ExtendedKey::getExtKeySer()
    SecureBinaryData outKey;
    if(!validKey_)
    {
-      outKey.append(0x00);
+      // Zero-pad smaller keys
+      SecureBinaryData zeros(78);
+      zeros.fill(0x00);
+      outKey = zeros;
    }
    else
    {
