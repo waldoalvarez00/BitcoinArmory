@@ -1282,16 +1282,9 @@ SecureBinaryData ExtendedKey::getPrivateKey(void) const
    SecureBinaryData retVal;
 
    if(!isPrv())
-   {
-      // Zero-pad smaller keys.
-      SecureBinaryData zeros(32);
-      zeros.fill(0x00);
-      retVal = zeros;
-   }
+      return SecureBinaryData(0);
    else
-   {
       retVal = key_.getSliceCopy(1,32);
-   }
 
    return retVal;
 }

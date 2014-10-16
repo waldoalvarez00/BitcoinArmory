@@ -570,8 +570,8 @@ class ABEK_Tests(unittest.TestCase):
 
 
       # Test the serialized Pub/Priv methods
-      self.assertEqual(childAbek.getSerializedPubKey('hex'), sbdPubk.toHexStr())
-      self.assertEqual(childAbek.getSerializedPubKey('bin'), sbdPubk.toBinStr())
+      self.assertEqual(childAbek.getSerializedPubKey('hex'), nextPubk.toHexStr())
+      self.assertEqual(childAbek.getSerializedPubKey('bin'), nextPubk.toBinStr())
       
 
 
@@ -777,7 +777,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeed = ABEK_StdBip32Seed()
       abekSeed.wltFileRef = mockwlt
 
-      WRONGPUBK = SecureBinaryData().GenerateRandom(33)
+      WRONGPUBK = SecureBinaryData('\x03' + '\xaa'*32)
    
       abekSeed.privCryptInfo = NULLCRYPTINFO()
       abekSeed.initializeFromSeed(SEEDTEST[0]['Seed'], fillPool=False)
@@ -1310,7 +1310,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeed.wltFileRef = mockwlt
       abekSeed.masterEkeyRef = self.ekey
 
-      WRONGPUBK = SecureBinaryData().GenerateRandom(33)
+      WRONGPUBK = SecureBinaryData('\x03' + '\xaa'*32)
 
       self.ekey.lock()
       self.assertRaises(WalletLockError, abekSeed.initializeFromSeed, \
