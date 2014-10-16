@@ -2901,18 +2901,25 @@ def decodeMiniPrivateKey(keyStr):
 
 ################################################################################
 def parseBip32KeyData(theStr, verifyPub=True):
+   from BinaryUnpacker import BinaryUnpacker, UINT32, UINT8, BINARY_CHUNK
    if not isLikelyDataType(theStr, DATATYPE.Base58):
-      raise KeyDataError('Invalid BIP32 priv key format; not 78 bytes')
+      raise KeyDataError('Invalid BIP32 priv key format; not base58')
 
    binStr = base58_to_binary(theStr)
-   if not len(binStr)==78:  
-      raise KeyDataError('Invalid BIP32 key serialize format; not 78 bytes')
+   if not len(binStr)==82:  
+      raise KeyDataError('Invalid BIP32 key serialize format; not 78+chk bytes')
 
    if not theStr[:4] in ['tprv','tpub','xprv','xpub']:
       raise KeyDataError('Invalid BIP32 key serialize format; wrong type bytes')
 
+   binStr = base58_to_binary(theStr)
+   bytes78,chk = binStr[:78],binStr[-4:]
+   bytes78 = verifyChecksum(bytes78, chk)
+   if len(bytes78)==0:
+      raise KeyDataError('Unrecoverable checksum error')
+
    output = {}
-   toUnpack = BinaryUnpacker(base58_to_binary(theStr))
+   toUnpack = BinaryUnpacker(bytes78)
    ignoreData           = toUnpack.get(UINT32)  # xpub/tpub/xprv/tprv
    output['childDepth'] = toUnpack.get(UINT8)
    output['parFinger']  = toUnpack.get(BINARY_CHUNK, 4)
@@ -2940,6 +2947,7 @@ def parsePrivateKeyData(theStr):
    with \x01 if compressed (calling code must check for this).  The second
    output is a string that can be displayed identifying the key type.
    """
+
 
    # xprv/tprv keys are recognizable right away, do it immediately
    if len(theStr)>=4 and theStr[:4] in ['tprv','tpub','xprv','xpub']:
@@ -3006,10 +3014,10 @@ def parsePrivateKeyData(theStr):
    elif len(binEntry)==33 and binEntry[-1]=='\x01':
       # Leave the extra byte to be extra sure the calling codes knows
       keyType = 'Plain %s key (compressed pub)' % keyType
-   elif len(binEntry)==37 and binEntry[-5]=='\x01':
+   #elif len(binEntry)==37 and binEntry[-5]=='\x01':
       # Leave the extra byte to be extra sure the calling codes knows
-      binEntry = binEntry[:33]
-      keyType = 'Plain %s key (compressed pub) with checksum' % keyType
+      #binEntry = binEntry[:33]
+      #keyType = 'Plain %s key (compressed pub) with checksum' % keyType
 
    return binEntry, keyType
 

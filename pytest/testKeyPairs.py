@@ -547,8 +547,8 @@ class ABEK_Tests(unittest.TestCase):
       childAbek = abek.spawnChild(nextIdx, fsync=False)
 
       self.assertEqual(childAbek.sbdPrivKeyData, NULLSBD())
-      self.assertEqual(childAbek.sbdPublicKey33, nextPubk)
       self.assertEqual(childAbek.sbdChaincode,   nextChain)
+      self.assertEqual(childAbek.sbdPublicKey33, nextPubk)
       self.assertEqual(childAbek.useCompressPub, True)
       self.assertEqual(childAbek.isUsed, False)
       self.assertEqual(childAbek.privKeyNextUnlock, False)
@@ -558,8 +558,6 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
       self.assertEqual(childAbek.rawScript, chScript)
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
-      #self.assertEqual(childAbek.akpChildByIndex, {})
-      #self.assertEqual(childAbek.akpChildByScrAddr, {})
       self.assertEqual(childAbek.lowestUnusedChild, 0)
       self.assertEqual(childAbek.nextChildToCalc,   0)
       self.assertEqual(childAbek.akpParentRef, None)
@@ -2840,7 +2838,6 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
          runSerUnserRoundTripTest(self, aikp)
 
 
-   '''
    #############################################################################
    def testCreateImportedRoot(self):
       aikp = ArmoryImportedKeyPair() 
@@ -2856,9 +2853,11 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
       sbdPubkAikp  = self.keyList[2]['PubKey'].copy()
       scrAddrAikp  = self.keyList[2]['ScrAddr']
 
+      sbdPubRtCompr = CryptoECDSA().CompressPoint(sbdPubkRoot)
       sbdPubKpCompr = CryptoECDSA().CompressPoint(sbdPubkAikp)
 
       airt.createNewRoot(pregenRoot=sbdPrivRoot, currBlk=10)
+      uniqID = hash256(sbdPubRtCompr.toBinStr())[:6]
 
       self.assertEqual(airt.isRootRoot, True)
       self.assertEqual(airt.sbdPrivKeyData, sbdPrivRoot)
@@ -2869,7 +2868,6 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
       self.assertEqual(airt.akpParScrAddr, None)
       self.assertEqual(airt.childIndex, None)
       self.assertEqual(airt.maxChildren, 0)
-      self.assertEqual(airt.scrAddrStr, scrAddrRoot)
       self.assertEqual(airt.uniqueIDBin, uniqID)
       self.assertEqual(airt.uniqueIDB58, binary_to_base58(uniqID))
 
@@ -2888,42 +2886,30 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
                          keyBornBlock=10)
       
      
+      airt.addChildRef(aikp)
 
-      sbdPubkCompr = CryptoECDSA().CompressPoint(sbdPubk)
-      uniqIDRoot   = hash256(sbdPubk.toBinStr())[:6]
+      self.assertEqual(aikp.akpParScrAddr, airt.getScrAddr())
+      self.assertEqual(aikp.akpParentRef.getScrAddr(), airt.getScrAddr())
+      self.assertEqual(airt.akpChildByIndex[0].getScrAddr(), aikp.getScrAddr())
+      self.assertEqual(airt.getChildByIndex(0).getScrAddr(), aikp.getScrAddr())
+      self.assertTrue(aikp.getScrAddr() in airt.akpChildByScrAddr)
 
 
-                           
-      self.assertEqual(aikp.isWatchOnly, False)
-      self.assertEqual(aikp.isRootRoot, False)
-      self.assertEqual(aikp.sbdPrivKeyData, sbdPriv)
-      self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
-      self.assertEqual(aikp.sbdPublicKey33, sbdPubkCompr)
-      self.assertEqual(aikp.sbdChaincode, NULLSBD())
-      self.assertEqual(aikp.useCompressPub, False)
-      self.assertEqual(aikp.isUsed, True)
-      self.assertEqual(aikp.keyBornBlock, 10)
-      self.assertEqual(aikp.privKeyNextUnlock, False)
-      self.assertEqual(aikp.akpParScrAddr, None)
-      self.assertEqual(aikp.childIndex, None)
-      self.assertEqual(aikp.maxChildren, 0)
-      self.assertEqual(aikp.scrAddrStr, scrAddr)
-      self.assertEqual(aikp.uniqueIDBin, uniqID)
-      self.assertEqual(aikp.uniqueIDB58, binary_to_base58(uniqID))
-      self.assertEqual(aikp.akpChildByIndex, {})
-      self.assertEqual(aikp.akpChildByScrAddr, {})
-      self.assertEqual(aikp.lowestUnusedChild, 0)
-      self.assertEqual(aikp.nextChildToCalc,   0)
-      self.assertEqual(aikp.akpParentRef, None)
-      self.assertEqual(aikp.masterEkeyRef, None)
+################################################################################
+################################################################################
+#
+# Multisig BIP32 Extended Key tests 
+#
+################################################################################
+################################################################################
 
-      self.assertEqual(aikp.TREELEAF, True)
-      self.assertEqual(aikp.getName(), clsName)
-      self.assertEqual(aikp.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
-      self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
+################################################################################
+class MBEK_Tests(unittest.TestCase):
 
-      runSerUnserRoundTripTest(self, aikp)
-   '''
+   def testMBEK(self):
+      raise NotImplementedError('Have not implemented any MBEK tests yet!')
+      
+
 
 
 if __name__ == "__main__":

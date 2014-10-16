@@ -255,7 +255,7 @@ class ArmoryKeyPair(WalletEntry):
       """
       self.wltFileRef = wltFileRef
       self.masterEkeyRef = wltFileRef.ekeyMap.get(self.privCryptInfo.keySource)
-      self.masterKdfRef  = wltFileRef.ekeyMap.get(self.privCryptInfo.kdfObjID)
+      self.masterKdfRef  = wltFileRef.kdfMap.get(self.privCryptInfo.kdfObjID)
 
       if not self.isRootRoot:
          foundParent = wltFileRef.allKeyPairObjects.get(self.akpParScrAddr)
@@ -2015,8 +2015,6 @@ class ArmoryImportedKeyPair(ArmoryKeyPair):
       super(ArmoryImportedKeyPair, self).__init__(*args, **kwargs)
       self.childIndex = None
       self.maxChildren = 0
-      self.fakeRootRef = None
-      self.fakeRootID  = None
 
 
    #############################################################################
@@ -2058,7 +2056,8 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
    these are fake roots meaning that they don't do anything.  We randomly
    create a keypair for the fake root, so that the normal mechanisms for 
    calculating wallet ID, scrAddr, etc, will work, we just don't ever intend
-   to use the root for anything other than linking imported addresses to it.
+   to use the root for anything other than using it as a hub for imported
+   keys
    """
    FILECODE = 'IMPORTRT'
    TREELEAF  = True
@@ -2072,6 +2071,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
       self.privCryptInfo = NULLCRYPTINFO()
       self.masterEkeyRef = None
       self.masterKdfRef = None
+
 
    #############################################################################
    def recomputeUniqueIDBin(self):
@@ -2089,7 +2089,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
       timeCreated = long(RightNow())
       aci = NULLCRYPTINFO()
       priv = pregenRoot.copy()
-      pubk = CryptoECDSA().ComputePublicKey(self.sbdPrivKeyData)
+      pubk = CryptoECDSA().ComputePublicKey(priv)
       chain = NULLSBD()
       self.initializeAKP(isWatchOnly=False,
                          isRootRoot=True,
@@ -2114,8 +2114,8 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
          cidx = len(self.akpChildByIndex)
          self.akpChildByIndex[cidx] = childAIKP
          self.akpChildByScrAddr[childScrAddr] = childAIKP
-         childAIKP.fakeRootRef = self
-         childAIKP.fakeRootID = self.rootID()
+         childAIKP.akpParentRef = self
+         childAIKP.akpParScrAddr = self.getScrAddr()
 
 
    #####

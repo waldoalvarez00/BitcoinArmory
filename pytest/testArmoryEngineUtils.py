@@ -758,23 +758,31 @@ class ParsePrivKeyTests(unittest.TestCase):
                  '1d980047ad16282c7ae6236141035a784662a4a20a65bf6aab9ae98a6c068a81'
                  'c52e4b032c0fb5400c706cfccc56')
 
+
+      # Will return 32-byte binary of "privHex" var above
+      privHex33  = privHex + '01'
+      privBin33  = hex_to_binary(privHex33)
+      privWIF    = 'L5BmPijJjrKbiUfG4zbiFKNqkvuJ8usooJmzuD7Z8dkRoTThYnAT'
+      privWIFHex = binary_to_hex(base58_to_binary(privWIF))
+      privXprv58 = xprvB58
+
+      self.assertEqual(parsePrivateKeyData(privHex33)[0],  privBin33)
+      self.assertEqual(parsePrivateKeyData(privWIF)[0],    privBin33)
+      self.assertEqual(parsePrivateKeyData(privWIFHex)[0], privBin33)
+      self.assertEqual(parsePrivateKeyData(privXprv58)[0], privBin33)
+      
       # This is from the wiki page on mini private keys used in Casascius coins
       miniStr  = 'S6c56bnXQiBjk9mqSYE7ykVQ7NzrRy'
       miniPriv = '4c7a9640c72dc2099f23715d0c8a0d8a35f8906e3cab61dd3f78b67bf887c9ab'
       miniWIF  = '5JPy8Zg7z4P7RSLsiqcqyeAF1935zjNUdMxcDeVrtU1oarrgnB7'
       miniAddr = '1CciesT23BNionJeXrbxmjc7ywfiyM4oLW'
 
+      miniBin = hex_to_binary(miniPriv)
 
-      # Will return 32-byte binary of "privHex" var above
-      privHex32  = privHex
-      privWIF    = 'L5BmPijJjrKbiUfG4zbiFKNqkvuJ8usooJmzuD7Z8dkRoTThYnAT'
-      privWIFHex = base58_to_binary(privWIF)
-      privWIFHex = base58_to_binary(privWIF)
-      
-      # Will return 33-byte binary of "privHex" var with '\x01' (for compr)
+      self.assertEqual(parsePrivateKeyData(miniStr)[0],   miniBin)
+      self.assertEqual(parsePrivateKeyData(miniPriv)[0],  miniBin)
+      self.assertEqual(parsePrivateKeyData(miniWIF)[0],   miniBin)
 
-      inoutpairs = {}
-      inoutpairs['edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea']
 
 
 ################################################################################
@@ -782,6 +790,7 @@ class LeadingBitTests(unittest.TestCase):
 
    #############################################################################
    def testGetLeadingBits(self):
+      raise NotImplementedError('These tests are not finished!')
       b2b = lambda b:  BitSet.CreateFromBitString(b).toBinaryString()
       testStr = b2b('11010110 00001000')
       self.assertEqual(getLeadingBits(testStr, 1),  '\x01')
