@@ -21,17 +21,17 @@ HARDBIT = 0x80000000
 DEFAULT_CHILDPOOLSIZE = {}
 DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Seed']    = 0  # no keypool
 DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Purpose'] = 0  # no keypool
-DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Bitcoin'] = 2  # Look two wallets ahead
+DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Bitcoin'] = 2  # Lookahead two wallets
 
-DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Look two wallets ahead
-DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Look two wallets ahead
+DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Lookahead two wallets
+DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Lookahead two wallets
 DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']     = 2
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 20
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100
 DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 5
 DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']       = 0  # leaf node
 
 DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 5
-DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 20
+DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100
 DEFAULT_CHILDPOOLSIZE['MBEK_StdChainInt']  = 10
 DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 
@@ -1764,7 +1764,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.isUsed = False
       childAddr.lowestUnusedChild = 0
       childAddr.nextChildToCalc   = 0
-      childAddr.keyBornTime       = RightNow()
+      childAddr.keyBornTime       = long(RightNow())
       childAddr.keyBornBlock      = currBlk
 
       # If the child key corresponds to a "hardened" derivation, we require

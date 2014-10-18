@@ -1521,6 +1521,14 @@ class ABEK_Tests(unittest.TestCase):
       
       
 
+      abek105 = abekSeedNU.getChildByPath([1,0,5])
+      self.assertEqual(abek105.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NextUnlock)
+      abek105.getPlainPrivKeyCopy()
+      self.assertEqual(abek105.getPrivKeyAvailability(), PRIV_KEY_AVAIL.Available)
+      self.ekey.lock()
+      self.assertEqual(abek105.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NeedDecrypt)
+
+
 
 
 ################################################################################
