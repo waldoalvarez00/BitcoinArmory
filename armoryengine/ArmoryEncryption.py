@@ -1287,10 +1287,14 @@ class MultiPwdEncryptionKey(EncryptionKey):
       self.lockTimeout         = 10
 
 
+      self.keyIsInUseRLock  = threading.RLock()
+
+
       # List of references to KDF objects, usually set after reading from file
       # Alternatively, if these are None, the kdfs can be passed in during 
       # unlock()
       self.kdfRefList = []
+
 
 
    #############################################################################
