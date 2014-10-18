@@ -827,16 +827,19 @@ class ABEK_Tests(unittest.TestCase):
    
       abekSeed.privCryptInfo = NULLCRYPTINFO()
 
-      # Should fail for seed being too small
-      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 8, None)
-
-      # Should fail for not supplying extra entropy
-      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 16, None)
-
       # Extra entropy should be pulled from external sources!  Such as
       # system files, screenshots, uninitialized RAM states... only do
       # it the following way for testing!
-      entropy = SecureBinaryData().GenerateRandom(8)
+      entropy = SecureBinaryData().GenerateRandom(16)
+
+      # Should fail for seed being too small
+      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 8, entropy)
+
+      # Should fail for not supplying extra entropy
+      self.assertRaises(TypeError, abekSeed.createNewSeed, 16, None)
+
+      # Should fail for not supplying extra entropy
+      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 16, NULLSBD())
 
       for seedsz in [16, 20, 256]:
          abekSeed.createNewSeed(seedsz, entropy, fillPool=False)
@@ -850,7 +853,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeed = ABEK_StdBip32Seed()
       abekSeed.wltFileRef = mockwlt
       abekSeed.privCryptInfo = NULLCRYPTINFO()
-      entropy = SecureBinaryData().GenerateRandom(8)
+      entropy = SecureBinaryData().GenerateRandom(16)
       abekSeed.createNewSeed(16, entropy, fillPool=False)
 
       # Test root itself, shoudl be empty
@@ -1376,17 +1379,21 @@ class ABEK_Tests(unittest.TestCase):
    
       abekSeed.privCryptInfo = self.privACI
 
-      self.ekey.unlock(self.password)
-      # Should fail for seed being too small
-      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 8, None)
-
-      # Should fail for not supplying extra entropy
-      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 16, None)
-
       # Extra entropy should be pulled from external sources!  Such as
       # system files, screenshots, uninitialized RAM states... only do
       # it the following way for testing!
-      entropy = SecureBinaryData().GenerateRandom(8)
+      entropy = SecureBinaryData().GenerateRandom(16)
+
+      self.ekey.unlock(self.password)
+      # Should fail for seed being too small
+      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 8, entropy)
+
+      # Should fail for not supplying extra entropy
+      self.assertRaises(TypeError, abekSeed.createNewSeed, 16, None)
+
+      # Should fail for not supplying extra entropy
+      self.assertRaises(KeyDataError, abekSeed.createNewSeed, 16, NULLSBD())
+
 
       self.ekey.lock()
       for seedsz in [16, 20, 256]:
@@ -1406,9 +1413,113 @@ class ABEK_Tests(unittest.TestCase):
    #
    ################################################################################
    ################################################################################
-   @unittest.skipIf(skipFlagExists(), '')
-   def test_NEED_ABEK_NEXTUNLOCK_TESTS(self):
-      self.assertTrue(False)
+   def test_FillKeyPool_NextUnlock(self):
+      mockwlt  = MockWalletFile()
+
+      
+      # Do this three times, once unencrypted, once encrypted-but-unlocked, then
+      # build the same tree encrypted-and-locked then trigger resolveNextUnlock
+      # We use ABEK_SoftBip32Seed since it is real wallet structure with no
+      # hardened derivations
+
+      # Generate entropy once for all seeds
+      sbdSeed = SecureBinaryData('\xfc\x3d'*8)
+
+      abekSeedBase = ABEK_SoftBip32Seed()
+      abekSeedBase.wltFileRef = mockwlt
+      abekSeedBase.masterEkeyRef = None
+      abekSeedBase.privCryptInfo = NULLCRYPTINFO()
+      abekSeedBase.initializeFromSeed(sbdSeed, fillPool=False)
+      abekSeedBase.fillKeyPoolRecurse()
+
+      
+      abekSeedCrypt = ABEK_SoftBip32Seed()
+      abekSeedCrypt.wltFileRef = mockwlt
+      abekSeedCrypt.masterEkeyRef = self.ekey
+      abekSeedCrypt.privCryptInfo = self.privACI
+      self.ekey.unlock(self.password)
+      abekSeedCrypt.initializeFromSeed(sbdSeed, fillPool=False)
+      abekSeedCrypt.fillKeyPoolRecurse()
+
+      
+      abekSeedNU = ABEK_SoftBip32Seed()
+      abekSeedNU.wltFileRef = mockwlt
+      abekSeedNU.masterEkeyRef = self.ekey
+      abekSeedNU.privCryptInfo = self.privACI
+      abekSeedNU.initializeFromSeed(sbdSeed, fillPool=False)
+      self.ekey.lock(self.password)
+      abekSeedNU.fillKeyPoolRecurse()
+
+      def cmpNodes(a,b,c, withpriv):
+         self.assertTrue(a.sbdPublicKey33 == b.sbdPublicKey33 == c.sbdPublicKey33)
+         self.assertTrue(a.sbdChaincode   == b.sbdChaincode   == c.sbdChaincode  )
+         privMatch = True
+         if withpriv:
+            self.assertTrue( a.getPlainPrivKeyCopy() == \
+                             b.getPlainPrivKeyCopy() == \
+                             c.getPlainPrivKeyCopy()  )
+         else:
+            self.assertTrue(c.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NextUnlock)
+
+         
+
+      
+      def cmpTrees(withPriv):
+         for i,lvl0_child in abekSeedBase.akpChildByIndex.iteritems():
+            wa = abekSeedBase.getChildByIndex(i)
+            wb = abekSeedCrypt.getChildByIndex(i)
+            wc = abekSeedNU.getChildByIndex(i)
+            cmpNodes(wa, wb, wc, withPriv)
+            for j,lvl1_child in lvl0_child.akpChildByIndex.iteritems():
+               ca = wa.getChildByIndex(j)
+               cb = wb.getChildByIndex(j)
+               cc = wc.getChildByIndex(j)
+               cmpNodes(ca, cb, cc, withPriv)
+               for k,lvl2_child in lvl1_child.akpChildByIndex.iteritems():
+                  aa = ca.getChildByIndex(k)
+                  ab = cb.getChildByIndex(k)
+                  ac = cc.getChildByIndex(k)
+                  cmpNodes(aa, ab, ac, withPriv)
+
+
+      cmpTrees(False)
+
+      # Check that getChildByPath is only returning pre-generated addrs
+      self.assertRaises(ChildDeriveError, abekSeedNU.getChildByPath, [10,10,10], False)
+
+      # Two passes, first time nextUnlock should be True, unlock, then shoudl be false
+      for nu in [True, False]:
+         expectAvail = PRIV_KEY_AVAIL.NextUnlock if nu else PRIV_KEY_AVAIL.Available 
+
+         abek = abekSeedNU
+         abek = abek.getChildByIndex(1);  
+         self.assertEqual(abek.getPrivKeyAvailability(), expectAvail)
+         abek = abek.getChildByIndex(0);  
+         self.assertEqual(abek.getPrivKeyAvailability(), expectAvail)
+         abek = abek.getChildByIndex(4);  
+         self.assertEqual(abek.getPrivKeyAvailability(), expectAvail)
+
+         cmp104a = abekSeedBase.getChildByPath([1,0,4])
+         cmp104b = abekSeedCrypt.getChildByPath([1,0,4])
+         cmpNodes(cmp104a, cmp104b, abek, not nu) 
+
+
+         # Before and after, [1,0,5] should remain in nextUnlock state
+         abek105 = abekSeedNU.getChildByPath([1,0,5])
+         self.assertEqual(abek105.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NextUnlock)
+
+         # Before and after, [0] should remain in nextUnlock state
+         abek000 = abekSeedNU.getChildByPath([0])
+         self.assertEqual(abek000.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NextUnlock)
+
+         if not nu:
+            self.assertEqual(abek.sbdPrivKeyData,        cmp104b.sbdPrivKeyData)
+            self.assertEqual(abek.getPlainPrivKeyCopy(), cmp104b.getPlainPrivKeyCopy())
+         
+         self.ekey.unlock(self.password)
+         abek.resolveNextUnlockFlag()
+      
+      
 
 
 

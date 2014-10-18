@@ -26,12 +26,12 @@ DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Bitcoin'] = 2  # Look two wallets ahead
 DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Look two wallets ahead
 DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Look two wallets ahead
 DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']     = 2
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 20
 DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 5
 DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']       = 0  # leaf node
 
 DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 5
-DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 50
+DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 20
 DEFAULT_CHILDPOOLSIZE['MBEK_StdChainInt']  = 10
 DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 
@@ -181,6 +181,9 @@ class ArmoryKeyPair(WalletEntry):
 
    #############################################################################
    def fillKeyPoolRecurse(self):
+      if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
+         raise UninitializedError('AKP object not init, cannot fill pool')
+
       if self.TREELEAF:
          return
 
@@ -217,6 +220,12 @@ class ArmoryKeyPair(WalletEntry):
                                       (binary_to_hex(scrAddr), self.getName()))
       return ch
 
+   #############################################################################
+   def getChildByPath(self, iList, spawnIfNeeded=True, fsync=True):
+      akp = self
+      for i in iList:
+         akp = akp.getChildByIndex(i, spawnIfNeeded, fsync)
+      return akp
 
    #############################################################################
    def getChildSpawnClass(self, index):
@@ -388,9 +397,9 @@ class ArmoryKeyPair(WalletEntry):
             # only recurse one level on each call, since parent.privKeyNextUnlock
             # is false.  fsync is always False in the recursive call, applied 
             # later if needed
-            newAkp = akp.akpParentRef.spawnChild(childID=self.childIndex,
-                                                privSpawnReqd=True, 
-                                                fsync=False)
+            newAkp = akp.akpParentRef.spawnChild(childID=akp.childIndex,
+                                                 privSpawnReqd=True, 
+                                                 fsync=False)
             
                
             if akp.sbdPublicKey33.toBinStr() != newAkp.sbdPublicKey33.toBinStr():
@@ -1737,7 +1746,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
 
    #############################################################################
-   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False):
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False, currBlk=0):
       """
       Derive a child extended key from this one. 
 
@@ -1753,6 +1762,10 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
       childAddr.copyFromAKP(self)
       childAddr.isUsed = False
+      childAddr.lowestUnusedChild = 0
+      childAddr.nextChildToCalc   = 0
+      childAddr.keyBornTime       = RightNow()
+      childAddr.keyBornBlock      = currBlk
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
@@ -1977,6 +1990,7 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
    #############################################################################
    @EkeyMustBeUnlocked
+   @VerifyArgTypes(extraEntropy=SecureBinaryData)
    def createNewSeed(self, seedSize, extraEntropy, fillPool=True):
       """
       This calls initializeFromSeed(), which requires you already set the 
@@ -1985,15 +1999,10 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       """
 
       if seedSize < 16 and not USE_TESTNET:
-         raise KeyDataError('Seed size is not large enough to be considered secure!')
+         raise KeyDataError('Seed size is not large enough to be secure!')
 
-      # Uses Crypto++ PRNG -- which is suitable for cryptographic purposes.
-      # 16 bytes is generally considered enough, though we add 4 extra for 
-      # some margin.  We also have the option to add some extra entropy 
-      # through the last command line argument.  We use this in ArmoryQt
-      # and armoryd by pulling key presses and volatile system files
-      if extraEntropy is None or extraEntropy.getSize()==0:
-         raise KeyDataError('Must provide extra entropy for seed generation')
+      if extraEntropy.getSize()<16:
+         raise KeyDataError('Must provide >= 16B extra entropy for seed gen')
 
       newSeed = SecureBinaryData().GenerateRandom(seedSize, extraEntropy)
       self.initializeFromSeed(newSeed, fillPool=fillPool)
