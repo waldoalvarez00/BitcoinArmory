@@ -25,11 +25,6 @@ class ArmoryWalletFile(object):
       self.updateQueue   = []
       self.lastFilesize  = -1
 
-      # WalletEntry objects may request an update, but that update is not 
-      # applied right away.  This variable will be incremented on every
-      # call to fsyncUpdates(), so WE objects know when it's done
-      self.updateCount  = 0
-
       # Last synchronized all chains to this block
       self.lastSyncBlockNum = 0
 
@@ -132,13 +127,13 @@ class ArmoryWalletFile(object):
       """
       LOGINFO('Creating new %s KDF with the following parameters:' % kdfAlgo)
       for key,val in kdfCreateArgs.iteritems():
-         LOGINFO('   %s: %s' % (key, str([val]))
+         LOGINFO('   %s: %s' % (key, str([val])))
          
       newKDF = KdfObject.createNewKDF(kdfAlgo, **kdfCreateArgs)
       self.kdfMap[newKDF.getKdfID()] = newKDF
 
       if writeToFile:
-         self.doFileOperation('Append', newWE)
+         self.doFileOperation('AddEntry', newWE)
 
 
    
@@ -409,7 +404,7 @@ class ArmoryWalletFile(object):
          # We explicitly don't use isinstance here, because it's easy to
          # mess up derived classes, which will fall into conditional
          # branches you weren't expecting
-         if we.FILECODE in WalletEntry.KEYPAIR_TYPES:
+         if issubclass(we.__class__, ArmoryKeyPair):
             if weID in self.masterScrAddrMap:
                LOGWARN('ScrAddr is in wallet file multiple times!')
             self.masterScrAddrMap[we.getScrAddr()] = we
@@ -523,31 +518,6 @@ class ArmoryWalletFile(object):
          self.fsyncUpdates()
 
       return wlt
-
-      #self.rootMapBIP32 = [{}, {}, {}]
-      #self.rootMapOther = {}
-      #self.lockboxMap = {}
-      #self.ekeyMap = {}
-      #self.kdfMap  = {}
-      #self.relationshipMap  = {}
-      #self.masterScrAddrMap  = {}
-      #self.arbitraryDataMap = {}
-      #self.opaqueList  = []
-      #self.unrecognizedList  = []
-      #self.unrecoverableList  = []
-      #self.disabledEntries = set()
-
-      #'ROOT', ArmoryRootKey, ISREQUIRED)
-      #'ALBL', AddressLabel)
-      #'TLBL', TxLabel)
-      #'LBOX', MultiSigLockbox)
-      #'RLAT', RootRelationship, ISREQUIRED)
-      #'EKEY', EncryptionKey)
-      #'MKEY', MultiPwdEncryptionKey)
-      #'KDF_', KdfObject)
-      #'IDNT', IdentityPublicKey)
-      #'SIGN', WltEntrySignature)
-      #'DATA', ArbitraryDataContainer)
          
       
 
@@ -570,9 +540,7 @@ class ArmoryWalletFile(object):
    @VerifyArgTypes(operationType=str, wltEntry=[WalletEntry, ArmoryFileHeader])
    def addFileOperationToQueue(self, operationType, wltEntry)
       """
-      This will add/update/delete a wallet entry . 
-      batch operation.  
-      a shortcut method for operating with WalletEntry objects.
+      This will queue up an add/update/delete op for wallet entry.
 
           ('RewriteHeader', ArmoryFileHeader)
           ('AddEntry',      WalletEntryObj)
@@ -593,66 +561,6 @@ class ArmoryWalletFile(object):
       self.updateQueue.append([operationType, wltEntry])
       wltEntry.needsFsync = True
          
-      '''
-      # The data to eventually be added to the file, or overwrite previous data
-      serData = None
-
-      # Convert the "___Entry" commands into the lower-level Append/Modify cmds
-      if operationType.lower()=='addentry':
-         # Add a new wallet entry to this wallet file
-         if wltEntry.wltByteLoc >= 0:
-            return   # Already in the wallet
-         operationType = 'Append'
-         serData = we.serialize()
-      elif operationType.lower()=='updateentry':
-         # Update an existing entry -- delete and append if size changed
-         # wltEntrySz is the size of the WE when it was last read from 
-         # the wallet file.  If its size has changed, its serialized size
-         # will be different than that
-         serData = we.serialize()
-         if len(we.serializeEntry())==we.wltEntrySz:
-            fileLoc = we.wltStartByte
-            operationType = 'Modify'
-         else:
-            LOGINFO('WalletEntry replace != size (%s).  ', we.entryCode)
-            LOGINFO('Delete&Append')
-            self.addFileOperationToQueue('DeleteEntry', we.wltStartByte)
-            operationType = 'Append'
-      elif operationType.lower()=='deleteentry':
-         # Delete an entry from the wallet
-         fileLoc = we.wltStartByte 
-         if not isinstance(we, (int,long)):
-            LOGERROR('Delete entry only using WltEntry object or start byte')
-            return
-
-         delBytes = wltEntrySz
-         serData = ZeroData(delBytes).serialize()
-         operationType = 'Modify'
-
-         # We already know that the entry is going away, set the start byte now
-         we.wltStartByte = -1
-         we.wltEntrySz = -1
-
-
-      #####
-      # This is where it actually gets added to the queue.
-      if operationType.lower()=='append':
-         if isWltEntryObj:
-            we.wltStartByte =  self.lastFilesize
-         self.lastFilesize += len(serData)
-         self.updateQueue.append([WLT_UPDATE_ADD, serData])
-      elif operationType.lower()=='modify':
-         if not fileLoc:
-            LOGERROR('Must supply start byte of modification')
-            raise BadInputError
-         self.updateQueue.append([WLT_UPDATE_MODIFY, [serData, fileLoc]])
-
-      #####
-      # Tell the WalletEntry object when to expect its internal state to be 
-      # consistent with the wallet file
-      if isWltEntryObj:
-         we.syncWhenUpdateCount = self.updateCount + 1
-      '''
          
          
 
@@ -919,14 +827,15 @@ class ArmoryWalletFile(object):
    @VerifyArgTypes(securePwd=SecureBinaryData,
                    extraEntropy=[SecureBinaryData, None],
                    preGenSeed=[SecureBinaryData, None])
-   def generateNewSinglePwdSeedEkeyKDF(self, securePwd, kdfAlgo='ROMIXOV2',
-                                       kdfTargSec=0.25, kdfMaxMem=32*MEGABYTE,
-                                       encrAlgo='AES256CBC', extraEntropy=None,
-                                       preGenSeed=None):
+   def generateNewSinglePwdSeedEkeyKDF(self, 
+         rootClass, securePwd, kdfAlgo='ROMIXOV2', 
+         kdfTargSec=0.25, kdfMaxMem=32*MEGABYTE, encrAlgo='AES256CBC', 
+         extraEntropy=None, preGenSeed=None):
       
    
       LOGINFO('Creating new single-password wallet seed')
 
+      # Create a KDF
       LOGINFO('Creating new KDF with params: time=%0.2fs, maxmem=%0.2fMB', 
                                         kdfTargSec, kdfMaxMem/float(MEGABYTE))
 
@@ -941,22 +850,17 @@ class ArmoryWalletFile(object):
                      newKdf.memReqd/float(MEGABYTE), (tend-tstart))
 
       
+      # Create an Ekey
       LOGINFO('Creating new master encryption key')
       newEkey = EncryptionKey().createNewMasterKey(newKdf, encrAlgo, securePwd)
       LOGINFO('New Ekey has ID=%s',  binary_to_hex(newEkey.ekeyID))
 
-      
-      # Copy all sensitive data into newSeed and destroy at the end.  If a SBD
-      # object was created to be passed into pregen arg, caller can destroy it.
-      if preGeneratedSeed is None:
-         if extraEntropy is None:
-            raise KeyDataError('Need extra entropy for secure seed creation')
-         newSeed = SecureBinaryData().GenerateRandom(32, extraEntropy)
-      else:
-         newSeed = preGeneratedSeed.copy()
 
+      # Create the cryptinfo object for both the above
+      newCryptInfo = ArmoryCryptInfo(NULLKDF, encrAlgo, newEkey.ekeyID, 'PUBKEY20')
 
-      newRoot = ArmoryRootKey().createNewRootFromSeed(seed=newSeed)
+      # Create a root that will be encrypted with the above masterkey
+      self.createNewRoot(rootClass, extraEntropy, newCryptInfo
       
       
       self.addFileOperationToQueue('AddEntry', newKdf)
@@ -969,8 +873,8 @@ class ArmoryWalletFile(object):
    #############################################################################
    @VerifyArgTypes(extraEntropy=[SecureBinaryData, None],
                    preGeneratedSeed=[SecureBinaryData, None])
-   def createAndAddNewMasterRoot(self, extraEntropy, encryptInfo, 
-                                       preGeneratedSeed=None, **cryptKwArgs):
+   def createNewSeededRoot(self, rootClass, extraEntropy, encryptInfo, 
+                                     preGeneratedSeed=None, **cryptKwArgs):
       """
       If this new master seed is being protected with encryption that isn't
       already defined in the wallet, then the new Ekey & KDF objects needs 
@@ -982,7 +886,9 @@ class ArmoryWalletFile(object):
       Thus, it should contain everything that is needed to do the master 
       seed encryption.  If it's password encryption only, then it should
       include a KDF and a password.  If it's master-key encryption, should 
-      include the master ekeyObj and the password(s) with which it is encrypted
+      include the master ekeyObj and password(s) with which it is encrypted.
+      In the latter case, you can simply unlock the ekeyObj first, then 
+      pass it in with no other args.
       
       "extraEntropy" is a required argument here, because we should *always*
       be sending extra entropy into the secure (P)RNG for seed creation.  
@@ -1031,34 +937,36 @@ class ArmoryWalletFile(object):
 
       ekeyObj.unlock(**unlockArgs)
 
+
    #############################################################################
-   def lockWalletEkey(self, ekeyID):
+   def forceLockWalletEkey(self, ekeyID):
       # Lock this specific ekey
+      LOGWARN('Forcing ekey lock; checkLockTimeout() to lock only if not in use')
       ekeyObj = self.ekeyMap.get(ekeyID, None)
       if ekeyObj is None:
          raise KeyDataError("No ekey in wlt with id=%s" % binary_to_hex(ekeyID))
+
       ekeyObj.lock()
 
+
    #############################################################################
-   def lockwalletekeysall(self):
+   def forceLockAllWalletEkeys(self):
       for eid,ekeyObj in self.ekeyMap.iteritems():
-         ekeyObj.lock()
+         self.forceLockWalletEkey(eid)
       
       
    #############################################################################
-   def checkWalletLockTimeout(self):
+   def checkLockTimeoutAllEkeys(self):
+      # Using ekey.checkLockTimeout guarantees we won't lock an ekey in the 
+      # middle of 
       currTime = RightNow()
       for eid,ekeyObj in self.ekeyMap.iteritems():
-         if currTime > ekeyObj.relockAtTime:
-            ekeyObj.lock()
-
-
-   #############################################################################
-   def createNewLinkedWallet(self, typeStr, withEncrypt,):
+         ekeyObj.checkLockTimeout()
 
 
    #############################################################################
    def writeFreshWalletFile(self, path, newName='', newDescr=''):
+      raise NotImplementedError
 
 
    #############################################################################
@@ -1222,78 +1130,6 @@ class ArmoryWalletFile(object):
 
 
 
-
-################################################################################
-class AddressLabel(WalletEntry):
-  
-   FILECODE = 'ADDRLABL' 
-
-   def __init__(self, scrAddrStr=None, label=None):
-      self.scrAddr = scrAddrStr
-      self.label   = toUnicode(lbl)
-
-   def initialize(self, scrAddrStr=None, lbl=None):
-
-   def serialize(self):
-      if self.scrAddrStr is None:
-         raise UninitializedError('AddrLabel not initialized')
-
-      bp = BinaryPacker()
-      bp.put(VAR_STR,     self.scrAddr)
-      bp.put(VAR_UNICODE, self.label)
-      return bp.getBinaryString()
-
-   def unserialize(self, theStr):
-      bu = makeBinaryUnpacker(theStr)
-      scraddr = bu.get(VAR_STR)
-      lbl     = bu.get(VAR_UNICODE)
-      self.__init__(scraddr, lbl)
-      return self
-
-
-################################################################################
-class TxLabel(WalletEntry):
-
-   FILECODE = 'TXLABEL_'
-
-   #############################################################################
-   def __init__(self, txidFull=None, txidMall=None, comment=None):
-      """
-      "Mall" refers to malleability-resistant.  This isn't just for 
-      transactions that have been "mall"ed after broadcast, but for 
-      offline and multi-sig transactions that haven't been signed yet,
-      for which we don't have the full ID.  The user may set the comment
-      when creating the tx, and we want Armory to later associate 
-      that comment with the final transaction.  For each transaction
-      in the ledger, we will look for both the "Full" and "Mall" version
-      of the transaction ID (if available).  
-      """
-      self.setComment(txidFull, txidMall, comment)
-
-   #############################################################################
-   def setComment(self, txidFull, txidMall, comment):
-      self.txidFull =   '' if txidFull is None else txidFull[:]
-      self.txidMall =   '' if txidMall is None else txidMall[:]
-      self.uComment  = u'' if comment  is None else toUnicode(comment)
-
-   #############################################################################
-   def serialize(self):
-      if [len(self.txidFull), len(self.txidMall)] = [0,0]:
-         raise UninitializedError('TxComm is not associated with any tx')
-
-      bp = BinaryPacker()
-      bp.put(VAR_STR,      self.txidFull)
-      bp.put(VAR_STR,      self.txidMall)
-      bp.put(VAR_UNICODE,  self.uComment)
-      return bp.getBinaryString()
-
-   #############################################################################
-   def unserialize(self, theStr):
-      bu = makeBinaryUnpacker(theStr)
-      self.txidFull = bu.get(VAR_STR)
-      self.txidMall = bu.get(VAR_STR)
-      self.uComment = bu.get(VAR_UNICODE)
-      return self
 
 
 ################################################################################
@@ -1490,25 +1326,12 @@ class ArmoryFileHeader(object):
 
 
 
-################################################################################
-class ArbitraryDataContainer(WalletEntry):
-   FILECODE = 'ARBDATA_'
-   def __init__(self):
-      pass
-
-
 
 
 # We should have all the classes availale by now, we can add the 
 # class list to the WalletEntry static members
-ISREQUIRED=True
-WalletEntry.RegisterWalletStorageClass(AddressLabel)
-WalletEntry.RegisterWalletStorageClass(TxLabel)
-WalletEntry.RegisterWalletStorageClass(MultiSigLockbox)
-WalletEntry.RegisterWalletStorageClass(EncryptionKey)
-WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
-WalletEntry.RegisterWalletStorageClass(KdfObject)
-WalletEntry.RegisterWalletStorageClass(IdentityPublicKey)
-WalletEntry.RegisterWalletStorageClass(WltEntrySignature)
-WalletEntry.RegisterWalletStorageClass(ArbitraryDataContainer)
+#ISREQUIRED=True
+#WalletEntry.RegisterWalletStorageClass(MultiSigLockbox)
+#WalletEntry.RegisterWalletStorageClass(IdentityPublicKey)
+#WalletEntry.RegisterWalletStorageClass(WltEntrySignature)
 

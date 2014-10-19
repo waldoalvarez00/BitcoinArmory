@@ -97,66 +97,38 @@ def runSerUnserRoundTripTest(tself, obj):
    
 
    # Now check that all the properties are identical
-   cmpprop(akpNew, akpNew2, 'isWatchOnly')
-   cmpprop(akpNew, akpNew2, 'isRootRoot')
-   cmpprop(akpNew, akpNew2, 'sbdPrivKeyData')
-   cmpprop(akpNew, akpNew2, 'sbdPublicKey33')
-   cmpprop(akpNew, akpNew2, 'sbdChaincode')
-   cmpprop(akpNew, akpNew2, 'useCompressPub')
-   cmpprop(akpNew, akpNew2, 'isUsed')
-   cmpprop(akpNew, akpNew2, 'notForDirectUse')
-   cmpprop(akpNew, akpNew2, 'keyBornTime')
-   cmpprop(akpNew, akpNew2, 'keyBornBlock')
-   cmpprop(akpNew, akpNew2, 'privKeyNextUnlock')
-   cmpprop(akpNew, akpNew2, 'akpParScrAddr')
-   cmpprop(akpNew, akpNew2, 'childIndex')
-   cmpprop(akpNew, akpNew2, 'maxChildren')
-   cmpprop(akpNew, akpNew2, 'rawScript')
-   cmpprop(akpNew, akpNew2, 'scrAddrStr')
-   cmpprop(akpNew, akpNew2, 'uniqueIDBin')
-   cmpprop(akpNew, akpNew2, 'uniqueIDB58')
+   cmpprop(objNew, objNew2, 'isWatchOnly')
+   cmpprop(objNew, objNew2, 'isRootRoot')
+   cmpprop(objNew, objNew2, 'sbdPrivKeyData')
+   cmpprop(objNew, objNew2, 'sbdPublicKey33')
+   cmpprop(objNew, objNew2, 'sbdChaincode')
+   cmpprop(objNew, objNew2, 'useCompressPub')
+   cmpprop(objNew, objNew2, 'isUsed')
+   cmpprop(objNew, objNew2, 'notForDirectUse')
+   cmpprop(objNew, objNew2, 'keyBornTime')
+   cmpprop(objNew, objNew2, 'keyBornBlock')
+   cmpprop(objNew, objNew2, 'privKeyNextUnlock')
+   cmpprop(objNew, objNew2, 'akpParScrAddr')
+   cmpprop(objNew, objNew2, 'childIndex')
+   cmpprop(objNew, objNew2, 'maxChildren')
+   cmpprop(objNew, objNew2, 'rawScript')
+   cmpprop(objNew, objNew2, 'scrAddrStr')
+   cmpprop(objNew, objNew2, 'uniqueIDBin')
+   cmpprop(objNew, objNew2, 'uniqueIDB58')
+   cmpprop(objNew, objNew2, 'walletName')
+   cmpprop(objNew, objNew2, 'sbdSeedData')
+   cmpprop(objNew, objNew2, 'seedNumBytes')
+   cmpprop(objNew, objNew2, 'chainIndex')
+   cmpprop(objNew, objNew2, 'root135ScrAddr')
+   cmpprop(objNew, objNew2, 'userRemoved')
+   cmpprop(objNew, objNew2, 'rootSourceApp')
+   cmpprop(objNew, objNew2, 'fakeRootID')
 
-   tself.assertEqual( akpNew.privCryptInfo.serialize(),
-                     akpNew2.privCryptInfo.serialize())
-
-   cmpprop(akpNew, akpNew2, 'walletName')
-   cmpprop(akpNew, akpNew2, 'sbdSeedData')
-   cmpprop(akpNew, akpNew2, 'seedNumBytes')
-   cmpprop(akpNew, akpNew2, 'chainIndex')
-   cmpprop(akpNew, akpNew2, 'root135ScrAddr')
-   cmpprop(akpNew, akpNew2, 'userRemoved')
-   cmpprop(akpNew, akpNew2, 'rootSourceApp')
-   cmpprop(akpNew, akpNew2, 'fakeRootID')
-
-   try:
-      tself.assertEqual( akpNew.seedCryptInfo.serialize(),
-                        akpNew2.seedCryptInfo.serialize())
-   except:
-      pass
 
    # Test that the raw serializations are identical
    tself.assertEqual(ser1, ser2)
 
-   # For fun, why not add these encoding tests everywhere we test ser/unser
-   if akpNew.sbdPublicKey33.getSize() > 0:
-      sbdPubk = akpNew2.sbdPublicKey33.copy()
-      if not akpNew.useCompressPub:
-         sbdPubk = CryptoECDSA().UncompressPoint(sbdPubk)
-      tself.assertEqual(akpNew.getSerializedPubKey('hex'), sbdPubk.toHexStr())
-      tself.assertEqual(akpNew.getSerializedPubKey('bin'), sbdPubk.toBinStr())
 
-   if akpNew.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Available:
-      lastByte = '\x01' if akpNew.useCompressPub else ''
-      lastHex  =   '01' if akpNew.useCompressPub else ''
-         
-      sbdPriv = akpNew2.getPlainPrivKeyCopy()
-      sipaPriv = PRIVKEYBYTE + sbdPriv.toBinStr() + lastByte
-      sipaPriv = binary_to_base58(sipaPriv + computeChecksum(sipaPriv))
-      tself.assertEqual(akpNew.getSerializedPrivKey('bin'), sbdPriv.toBinStr()+lastByte)
-      tself.assertEqual(akpNew.getSerializedPrivKey('hex'), sbdPriv.toHexStr()+lastHex)
-      tself.assertEqual(akpNew.getSerializedPrivKey('sipa'), sipaPriv)
-      tself.assertEqual(akpNew.getSerializedPrivKey('sipa'), 
-            encodePrivKeyBase58(sbdPriv.toBinStr(), isCompressed=akpNew.useCompressPub))
 
 ################################################################################
 class ArmoryFileHeaderTests(unittest.TestCase):
@@ -164,8 +136,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
    #############################################################################
    #############################################################################
    def setUp(self):
-
-      
+      pass
 
       
    #############################################################################
@@ -174,10 +145,13 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       
 
    #############################################################################
-   def test_InitABEK(self):
-      abek = ABEK_Generic()
+   def test_CreateAFH(self):
+      afh = ArmoryFileHeader()
+      
+      afh.isTransferWallet = True
+      afh.isSupplemental = False
 
-
+      afh.createTime(
 
 
 

@@ -811,48 +811,23 @@ class EncryptionKey(WalletEntry):
 
 
    #############################################################################
-   @VerifyArgTypes(passphrase=[SecureBinaryData, None])
-   def lock(self, passphrase=None, kdfObj=None):
+   def lock(self, forceLock=False):
       """
-      The reason we don't prevent locking if it can't acquire the RLock is that
-      we are trying to make this method reliable, so we know that the key data 
-      will never remain unlocked.  It's up to the next code layer up to verify
-      that we don't call this method unless the RLock is acquire()able.  We
-      expect this will mostly be used by checkLockTimeout() which DOES do this
-      check (and will usually be called by a background thread at somewhat
-      regular intervals)
+      This will refuse to lock the ekey if it can't acquire the RLock.  The 
+      RLock indicates that another thread is currently using the key.
       """
       gotRLock = self.keyIsInUseRLock.acquire(blocking=0)
       if not gotRLock:
-         LOGCRIT('Locking encryption key despite another thread using it!')
+         if forceLock:
+            LOGCRIT('Locking encryption key despite another thread using it!')
+         else:
+            return False
 
       LOGDEBUG('Locking encryption key %s', self.ekeyID)
-      try:
-         if self.masterKeyCrypt.getSize()==0:
-            if passphrase is None:
-               LOGERROR('No encrypted master key, and no passphrase for lock()')
-               LOGERROR('Deleting it anyway.')
-               return False
-            else:
-               if kdfObj is None:
-                  kdfObj = self.kdfRef
-
-               if kdfObj is None:
-                  raise KdfError('No KDF avaialble for unlocking ekey object')
-               
-               if not self.kdfRef.getKdfID() == self.keyCryptInfo.kdfObjID:
-                  raise KdfError('KDF object ID does not match crypt info for ekey')
-
-               passphrase = SecureBinaryData(passphrase)
-               self.masterKeyCrypt = self.keyCryptInfo.encrypt( \
-                                                   self.masterKeyPlain, 
-                                                   passphrase,
-                                                   kdfObj=kdfOj)
-               return True
-      finally:
-         self.masterKeyPlain.destroy()
-         if gotRLock:
-            self.keyIsInUseRLock.release()
+      self.masterKeyPlain.destroy()
+      if gotRLock:
+         self.keyIsInUseRLock.release()
+      return True
 
 
 
@@ -878,15 +853,8 @@ class EncryptionKey(WalletEntry):
       if self.lockTimeout<=0:
          return
 
-         
       if RightNow() > self.relockAtTime:
-         isSafeToLock = self.keyIsInUseRLock.acquire(blocking=0)
-         if not isSafeToLock:
-            LOGINFO('Ekey lock timeout delayed due to keyIsUse flag')
-            # acquire failed, no release() necessary
-         else:
-            self.lock()
-            self.keyIsInUseRLock.release()
+         self.lock(forceLock=False)
 
 
    #############################################################################
