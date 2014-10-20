@@ -25,11 +25,10 @@ class InfinimapTests(unittest.TestCase):
       inf = Infinimap()
 
       inf.setData(['a','b','c'], 'Helloabc')
-      inf.setData(['a','b',], 'abhi')
-      inf.setData(['a','b',], 'abhi')
-      inf.setData(['a','c',], 'I c u')
-      inf.setData(['a','d',], 'ddddd')
-      inf.setData(['a','z',], 'skipped a few')
+      inf.setData(['a','b'], 'abhi')
+      inf.setData(['a','c'], 'I c u')
+      inf.setData(['a','d'], 'ddddd')
+      inf.setData(['a','z'], 'skipped a few')
       inf.setData(['123','456','789'], 'numbers')
       inf.setData(['123','456','abc'], 'not all numbers')
       inf.setData(['123','456','ab3'], 'hexnumbers')
@@ -41,6 +40,10 @@ class InfinimapTests(unittest.TestCase):
       self.assertEqual(inf.getData(['123']), 'lessnumbers')
       self.assertEqual(inf.getData(['123','456','ab3']), 'hexnumbers')
       self.assertEqual(inf.getData(['123','456','abr3']), None)
+
+      self.assertEqual(inf.countNodes(), 11)
+      self.assertEqual(inf.countLeaves(), 7)
+      self.assertEqual(inf.countNonEmpty(), 9)
 
       self.assertEqual(inf.getData(['zzz']), None)
       inf.setData(['zzz'], 'zzz')
@@ -61,8 +64,8 @@ class InfinimapTests(unittest.TestCase):
       
       inf = Infinimap()
       inf.setData(['a','b','c'],       'Helloabc')
-      inf.setData(['a','b',],          None)
-      inf.setData(['a','z',],          'skipped a few')
+      inf.setData(['a','b'],           '')
+      inf.setData(['a','z'],           'skipped a few')
       inf.setData(['123','456','789'], 'numbers')
       inf.setData(['123'],             'lessnumbers')
       inf.setData(['123', '3', 'a'],   'something different')
@@ -75,6 +78,54 @@ class InfinimapTests(unittest.TestCase):
 
       inf.applyToMap(anotherCheck)
       self.assertEqual(countRef[0], 68)
+
+      
+      singleLetterKeys = []
+      inf.applyToBranch(['a'], checkNode)
+      self.assertEqual(len(singleLetterKeys), 4)
+      self.assertEqual(sorted(singleLetterKeys), ['a','b','c','z'])
+
+
+   #############################################################################
+   def testClearData(self):
+
+      inf = Infinimap()
+      inf.setData(['a','b','c'],       'Helloabc')
+      inf.setData(['a','b'],           '')
+      inf.setData(['a','z'],           'skipped a few')
+      inf.setData(['123','456','789'], 'numbers')
+      inf.setData(['123'],             'lessnumbers')
+      inf.setData(['123', '3', 'a'],   'something different')
+      inf.setData(['123', '3', 'ab'],  'and simple')
+
+      self.assertEqual(inf.countNodes(), 10)
+      self.assertEqual(inf.countLeaves(), 5)
+      self.assertEqual(inf.countNonEmpty(), 6)
+
+      inf.clearMap()
+      self.assertEqual(inf.countNodes(), 0)
+      self.assertEqual(inf.countLeaves(), 0)
+      self.assertEqual(inf.countNonEmpty(), 0)
+
+      inf.setData(['a','b','c'],       'Helloabc')
+      inf.setData(['a','b',],          '')
+      inf.setData(['a','z',],          'skipped a few')
+      inf.setData(['123','456','789'], 'numbers')
+      inf.setData(['123'],             'lessnumbers')
+      inf.setData(['123', '3', 'a'],   'something different')
+      inf.setData(['123', '3', 'ab'],  'and simple')
+      
+      inf.clearBranch(['123','3'])
+      self.assertEqual(inf.countNodes(), 7)
+      self.assertEqual(inf.countLeaves(), 3)
+      self.assertEqual(inf.countNonEmpty(), 4)
+
+      inf.clearBranch(['a'], andBranchPoint=False)
+      self.assertEqual(inf.countNodes(), 4)
+      self.assertEqual(inf.countLeaves(), 2)
+      self.assertEqual(inf.countNonEmpty(), 2)
+
+
 
 
 if __name__ == "__main__":
