@@ -114,7 +114,7 @@ class Infinimap(object):
       return None if node is None else node.data
       
    #############################################################################
-   def setData(self, keyList, theData, doCreate=True):
+   def setData(self, keyList, theData, doCreate=True, warnIfDup=False):
       # By default we create the key path
       self.checkKeyList(keyList, theData)
       node = self.root.getPathNodeRecurse(keyList, doCreate=doCreate)
@@ -123,6 +123,10 @@ class Infinimap(object):
 
       if not isinstance(theData, str):
          raise TypeError('Data for infinimap must be reg string (no unicode)')
+
+      if warnIfDup and len(node.data)>0:
+         LOGWARN('Infinimap entry already has a value: %s,%s' % \
+                                                (str(keyList0), node.data))
 
       node.data = theData if theData is not None else ''
 

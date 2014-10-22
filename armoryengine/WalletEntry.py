@@ -411,6 +411,17 @@ class WalletEntry(object):
       else:
          self.wltFileRef.doFileOperation('UpdateEntry', self)
 
+   #############################################################################
+   def queueFsync(self):
+      if self.wltFileRef is None:
+         LOGERROR('Attempted to rewrite WE object but no wlt file ref.')
+         return
+
+      if self.wltByteLoc<=0:
+         self.wltFileRef.addFileOperationToQueue('AddEntry', self)
+      else:
+         self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
+
 
    #############################################################################
    def useOuterEncryption(self):

@@ -474,7 +474,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.useCompressPub, True)
       self.assertEqual(childAbek.isUsed, False)
       self.assertEqual(childAbek.privKeyNextUnlock, False)
-      self.assertEqual(childAbek.akpParScrAddr, None)
+      self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
       self.assertEqual(childAbek.childIndex, nextIdx)
       self.assertEqual(childAbek.childPoolSize, 5)
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
@@ -484,7 +484,6 @@ class ABEK_Tests(unittest.TestCase):
       #self.assertEqual(childAbek.akpChildByScrAddr, {})
       self.assertEqual(childAbek.lowestUnusedChild, 0)
       self.assertEqual(childAbek.nextChildToCalc,   0)
-      self.assertEqual(childAbek.akpParentRef, None)
       self.assertEqual(childAbek.masterEkeyRef, None)
       
       # Check the uniqueID, by spawning another child
@@ -552,7 +551,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.useCompressPub, True)
       self.assertEqual(childAbek.isUsed, False)
       self.assertEqual(childAbek.privKeyNextUnlock, False)
-      self.assertEqual(childAbek.akpParScrAddr, None)
+      self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
       self.assertEqual(childAbek.childIndex, nextIdx)
       self.assertEqual(childAbek.childPoolSize, 5)
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
@@ -560,7 +559,6 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
       self.assertEqual(childAbek.lowestUnusedChild, 0)
       self.assertEqual(childAbek.nextChildToCalc,   0)
-      self.assertEqual(childAbek.akpParentRef, None)
       self.assertEqual(childAbek.masterEkeyRef, None)
 
 
@@ -1056,7 +1054,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.useCompressPub, True)
       self.assertEqual(childAbek.isUsed, False)
       self.assertEqual(childAbek.privKeyNextUnlock, False)
-      self.assertEqual(childAbek.akpParScrAddr, None)
+      self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
       self.assertEqual(childAbek.childIndex, nextIdx)
       self.assertEqual(childAbek.childPoolSize, 5)
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)
@@ -1064,7 +1062,6 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.scrAddrStr, chScrAddr)
       self.assertEqual(childAbek.lowestUnusedChild, 0)
       self.assertEqual(childAbek.nextChildToCalc,   0)
-      self.assertEqual(childAbek.akpParentRef, None)
       
       # Check the uniqueID, by spawning another child
       subCh = childAbek.spawnChild(0x7fffffff, fsync=False, forIDCompute=True)
@@ -1138,7 +1135,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(childAbek.getPrivKeyAvailability(), PRIV_KEY_AVAIL.NextUnlock)
       self.assertEqual(childAbek.privKeyNextUnlock, True)
 
-      self.assertEqual(childAbek.akpParScrAddr, None)
+      self.assertEqual(childAbek.akpParScrAddr, parScrAddr)
       self.assertEqual(childAbek.childIndex, nextIdx)
       self.assertEqual(childAbek.childPoolSize, 5)
       self.assertEqual(childAbek.maxChildren, UINT32_MAX)

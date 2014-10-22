@@ -180,7 +180,7 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   def fillKeyPoolRecurse(self):
+   def fillKeyPoolRecurse(self, fsync=True):
       if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
          raise UninitializedError('AKP object not init, cannot fill pool')
 
@@ -189,12 +189,12 @@ class ArmoryKeyPair(WalletEntry):
 
       keysToGen = self.numKeysNeededToFillPool()
       for i in range(keysToGen):
-         newAkp = self.spawnChild(self.getNextChildToCalcIndex())
-         self.addChildRef(newAkp)  # this increments nextChildToCalc
+         newAkp = self.spawnChild(self.getNextChildToCalcIndex(), fsync=fsync, 
+                                                               linkParent=True)
 
       # Now recurse to each child
       for scrAddr,childAKP in self.akpChildByScrAddr.iteritems():
-         childAKP.fillKeyPoolRecurse()
+         childAKP.fillKeyPoolRecurse(fsync=fsync)
 
          
          
@@ -399,7 +399,8 @@ class ArmoryKeyPair(WalletEntry):
             # later if needed
             newAkp = akp.akpParentRef.spawnChild(childID=akp.childIndex,
                                                  privSpawnReqd=True, 
-                                                 fsync=False)
+                                                 fsync=False,
+                                                 linkParent=False)
             
                
             if akp.sbdPublicKey33.toBinStr() != newAkp.sbdPublicKey33.toBinStr():
@@ -507,7 +508,6 @@ class ArmoryKeyPair(WalletEntry):
       bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
       bp.put(UINT64,        self.keyBornTime)
       bp.put(UINT32,        self.keyBornBlock)
-      bp.put(UINT32,        self.lowestUnusedChild)
       bp.put(VAR_STR,       parScrAddr)
       bp.put(UINT32,        childIndex)
 
@@ -559,7 +559,6 @@ class ArmoryKeyPair(WalletEntry):
       chain             = akpUnpack.get(VAR_STR)
       bornTime          = akpUnpack.get(UINT64)
       bornBlk           = akpUnpack.get(UINT32)
-      lowestUnused      = akpUnpack.get(UINT32)
       parScrAddr        = akpUnpack.get(VAR_STR)
       childIndex        = akpUnpack.get(UINT32)
 
@@ -784,7 +783,7 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   def unlockEkey(self, passphrase, kdfObj=None):
+   def unlockEkey(self, passphrase=None, kdfObj=None):
       """
       Ekeys should always already have the kdf set already, but we can
       pass it in if this is a strange environment where it was never set
@@ -794,8 +793,18 @@ class ArmoryKeyPair(WalletEntry):
              not supplied).  If KDF object refs are not already set in the 
              ekey, pass them in as a list or map as the second arg.
       """
+      if self.privCryptInfo.noEncryption():
+         return True
+
       if self.masterEkeyRef is None:
          raise EncryptionError('No encryption key to unlock!')
+
+      if not self.masterEkeyRef.isLocked():
+         return True
+
+      if passphrase is None:
+         raise PassphraseError('Must supply a passphrase to unlock ekey')
+
 
       if not kdfObj:
          kdfObj = self.masterKdfRef
@@ -957,7 +966,8 @@ class ArmoryKeyPair(WalletEntry):
    #############################################################################
    def peekNextUnusedChild(self):
       if self.lowestUnusedChild >= self.nextChildToCalc:
-         childAddr = self.spawnChild(self.lowestUnusedChild, fsync=False)
+         childAddr = self.spawnChild(self.lowestUnusedChild, \
+                                          fsync=False, linkParent=False)
       else:
          if not self.lowestUnusedChild in self.akpChildByIndex:
             raise ChildDeriveError('Somehow child is missing from map')
@@ -984,7 +994,8 @@ class ArmoryKeyPair(WalletEntry):
       # are updated properly
       self.addChildRef(childAddr)
 
-      self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
+      # Not sure we need to update self entry... no serialized ata changed
+      #self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
       self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
       self.wltFileRef.fsyncUpdates()
       self.fillKeyPoolRecurse()
@@ -993,7 +1004,7 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   def wipePrivateData(self, fsync=False):
+   def wipePrivateData(self, fsync=True):
       self.sbdPrivKeyData.destroy() 
       self.privCryptInfo = NULLCRYPTINFO()
       self.masterEkeyRef = None
@@ -1001,7 +1012,7 @@ class ArmoryKeyPair(WalletEntry):
       self.isWatchOnly   = True
 
       if fsync:
-         self.fsyncUpdates()
+         self.fsync()
        
       
 
@@ -1073,6 +1084,19 @@ class ArmoryKeyPair(WalletEntry):
                                                              self.getName())
 
 
+   #############################################################################
+   def akpBranchQueueFsync(self):
+      self.queueFsync()
+      for idx,child in self.akpChildByIndex.iteritems():
+         child.queueFsync()
+
+
+   #############################################################################
+   def akpBranchFsync(self):
+      self.akpBranchQueueFsync()
+      self.wltFileRef.fsyncUpdates()
+
+      
 
 #############################################################################
 class ArmorySeededKeyPair(ArmoryKeyPair):
@@ -1257,10 +1281,12 @@ class Armory135KeyPair(ArmoryKeyPair):
                               
 
    #############################################################################
-   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, forIDCompute=False):
+   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, linkParent=True, forIDCompute=False, currBlk=0):
       """
       Spawn an Armory135KeyPair from another one.
       """
+      if forIDCompute:
+         linkParent=False
 
       if not childID == 0:
          raise KeyDataError('Can only derive child ID=0 for 1.35 AKPs')
@@ -1372,17 +1398,20 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.childIndex = 0
          childAddr.akpChildByIndex   = {}
          childAddr.akpChildByScrAddr = {}
-         childAddr.root135Ref = self.root135Ref
-         childAddr.root135ScrAddr = self.root135ScrAddr
+         childAddr.keyBornTime       = long(RightNow())
+         childAddr.keyBornBlock      = currBlk
          childAddr.wltLvlParent = self.wltLvlParent
 
          # These recompute calls also call recomputeScript and recomputeUniqueIDBin
          childAddr.recomputeScrAddr()
          childAddr.recomputeUniqueIDB58()
 
-         if fsync:
+         if linkParent:
+            childAddr.root135Ref = self.root135Ref
+            childAddr.root135ScrAddr = self.root135ScrAddr
             self.addChildRef(childAddr)
-            self.fsync()
+
+         if fsync:
             childAddr.fsync()
 
          return childAddr
@@ -1410,7 +1439,7 @@ class Armory135KeyPair(ArmoryKeyPair):
 
 
    #############################################################################
-   def fillKeyPoolRecurse(self):
+   def fillKeyPoolRecurse(self, *args, **kwargs):
       raise KeyDataError('Cannot fill keypool from A135 key pairs')
       
    #############################################################################
@@ -1463,6 +1492,8 @@ class Armory135KeyPair(ArmoryKeyPair):
       return self
 
 
+
+
 ################################################################################
 class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    #############################################################################
@@ -1499,7 +1530,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       return Armory135KeyPair
 
    #############################################################################
-   def fillKeyPoolRecurse(self):
+   def fillKeyPoolRecurse(self, fsync=True):
       # For 135 wallets, not actually recursive
       currPool = self.rootNextToCalc - self.rootLowestUnused
       toGen = max(0, self.childPoolSize - currPool)
@@ -1508,7 +1539,10 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
 
       ch = self.getChildByIndex(self.rootNextToCalc-1)
       for i in range(toGen):
-         ch = ch.spawnChild(0, privSpawnReqd=False, fsync=True)
+         ch = ch.spawnChild(0, privSpawnReqd=False, linkParent=True, fsync=fsync)
+
+      if fsync:
+         self.wltFileRef.fsyncUpdates()
        
 
    #############################################################################
@@ -1608,9 +1642,10 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    #############################################################################
    def peekNextUnusedChild(self):
       if self.rootLowestUnused == 0:
-         return self.spawnChild(fsync=False)
+         return self.spawnChild(fsync=False, linkParent=False)
       elif self.rootLowestUnused >= self.rootNextToCalc:
-         return self.root135ChainMap[self.rootLowestUnused-1].spawnChild(fsync=False)
+         return self.root135ChainMap[self.rootLowestUnused-1].spawnChild( \
+                                             fsync=False, linkParent=False)
       else:
          return self.root135ChainMap[self.rootLowestUnused]
 
@@ -1632,10 +1667,11 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       #self.rootLowestUnused += 1
 
 
-      self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
+      # Not sure we need to update self entry... no serialized ata changed
+      #self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
       self.wltFileRef.addFileOperationToQueue('UpdateEntry', childAddr)
-      self.wltFileRef.fsyncUpdates()
       self.fillKeyPoolRecurse()
+      self.wltFileRef.fsyncUpdates()
       
       return childAddr
 
@@ -1746,7 +1782,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
 
    #############################################################################
-   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, forIDCompute=False, currBlk=0):
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, linkParent=True, forIDCompute=False, currBlk=0):
       """
       Derive a child extended key from this one. 
 
@@ -1757,6 +1793,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
       if forIDCompute:
          childAddr = ABEK_Generic()
+         linkParent = False
       else:
          childAddr = self.getChildClass(childID)()
 
@@ -1856,10 +1893,11 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.recomputeUniqueIDB58()
 
 
-      if fsync:
+      if linkParent:
          self.addChildRef(childAddr)
+
+      if fsync:
          childAddr.fsync()
-         self.fsync()
 
       return childAddr
 
@@ -2031,7 +2069,7 @@ class ArmoryImportedKeyPair(ArmoryKeyPair):
       return ''
 
    #############################################################################
-   def fillKeyPoolRecurse(self):
+   def fillKeyPoolRecurse(self, *args, **kwargs):
       pass
 
    #####
@@ -2320,7 +2358,7 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
    #############################################################################
    def peekNextReceivingAddress(self):
       i = self.getWalletChainIndex('External')
-      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=False)
+      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=False, linkParent=False)
       return ch.peekNextUnusedChild()
 
    #############################################################################
@@ -2332,7 +2370,7 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
    #############################################################################
    def peekNextChangeAddress(self):
       i = self.getWalletChainIndex('Internal')
-      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=False)
+      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=False, linkParent=False)
       return ch.getNextUnusedChild()
 
 
@@ -2831,14 +2869,31 @@ if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
    WalletEntry.RegisterWalletStorageClass(ABEK_StdChainInt)
    WalletEntry.RegisterWalletStorageClass(ABEK_StdLeaf)
 
-   WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
-   WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
-   WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
-   WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
-   WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
+   # Same as ABEK_StdBip32Seed, but with non-hardened derivation
+   WalletEntry.RegisterWalletStorageClass(ABEK_SoftBip32Seed)
+
+   # For now we disable registering these classes since we don't
+   # support them yet.  This makes sure they get sent to the 
+   # "unrecognized" list when the wallet file is read, and none
+   # of the untested/unfinisehd code will attempt execution.
+   # Uncomment these lines when MBEK_* classes are implemented.
+   #WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
+   #WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
+   #WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
+   #WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
+   #WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
 
    WalletEntry.RegisterWalletStorageClass(Armory135Root)
    WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
    WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
    WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
+
+   try:
+      from ArmoryWallet import ArmoryWalletFile
+      ArmoryWalletFile.RegisterWalletDisplayClass(ABEK_StdWallet)
+      ArmoryWalletFile.RegisterWalletDisplayClass(Armory135Root)
+      ArmoryWalletFile.RegisterWalletDisplayClass(ArmoryImportedRoot)
+   except:
+      LOGERROR('Could not register wallet display classes')
+
 
