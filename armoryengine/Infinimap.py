@@ -6,22 +6,34 @@
 #                                                                              #
 ################################################################################
 from ArmoryUtils import *
+from BinaryPacker import *
+from BinaryUnpacker import *
+from WalletEntry import WalletEntry
 
 
 class MaxDepthExceeded(Exception): pass
 
 ################################################################################
-class InfinimapNode(object):
-   def __init__(self, key=None, parent=None):
-      self.data     = ''
-      self.children = {}
+class InfinimapNode(WalletEntry):
+   FILECODE = 'ARBDATA_'
+   def __init__(self, klist=None, data=None, parent=None):
+      super(InfinimapNode, self).__init__()
+      self.data     = data if data else ''
+      self.keyList  = klist[:] if klist else []
       self.parent   = parent
-      self.selfKey  = key
+      self.children = {}
+
+
+   #############################################################################
+   def getSelfKey(self):
+      return '' if len(self.keyList) == 0 else self.keyList[-1]
+
+      
       
    #############################################################################
    def pprintRecurse(self, indentCt=0, indentSz=3, keyJust=16):
       prInd  = indentCt * indentSz * ' '
-      prKey  = self.selfKey[:keyJust].ljust(keyJust)
+      prKey  = self.getSelfKey().ljust(keyJust)
       prData = str(self.data) if self.data else ''
       print prInd + prKey + ': ' + prData
       for key,child in self.children.iteritems():
@@ -35,11 +47,14 @@ class InfinimapNode(object):
          return self
 
       key = toBytes(keyList[0])
+      childKeyList = self.keyList[:] + [key]
 
       if doCreate:
-         # setdefault always returns the data at that key.  If the key 
-         # doesn't exist yet, it adds it and sets it to the second arg.
-         nextNode = self.children.setdefault(key, InfinimapNode(key, self))
+         # Always creating the next child seems inefficient, but the 
+         # alternative is doing two map lookups.  We will revisit this
+         # if there's a reason to make this container high-performance
+         nextMaybeChild = InfinimapNode(childKeyList, '', self)
+         nextNode = self.children.setdefault(key, nextMaybeChild)
          return nextNode.getPathNodeRecurse(keyList[1:], doCreate)
       else:
          nextNode = self.children.get(key)
@@ -71,6 +86,39 @@ class InfinimapNode(object):
       for key in keysToDelete:
          del self.children[key]
 
+   #############################################################################
+   def serialize(self):
+      bp = BinaryPacker()
+      if self.data is None:
+         raise UninitializedError
+
+      bp = BinaryPacker()
+      bp.put(VAR_INT,  len(self.keyList))
+      for k in self.keyList:
+         bp.put(VAR_STR,  k)
+      bp.put(VAR_STR, self.data)
+      return bp.getBinaryString()
+
+
+   #####
+   def unserialize(self, theStr):
+      klist = []
+
+      bu = makeBinaryUnpacker(theStr)
+      nkeys = bu.get(VAR_INT)
+      for k in nkeys:
+         klist.append( bu.get(VAR_STR) )
+      data = bu.get(VAR_STR)
+
+      self.initialize(klist, data)
+      return self
+         
+
+   #####
+   def linkWalletEntries(self, wltFileRef):
+      pass
+      
+
 
       
 
@@ -89,7 +137,7 @@ class Infinimap(object):
 
    #############################################################################
    def __init__(self):
-      self.root = InfinimapNode('ROOT')
+      self.root = InfinimapNode()
 
    #############################################################################
    @staticmethod
@@ -135,8 +183,12 @@ class Infinimap(object):
       self.root.pprintRecurse()
          
    #############################################################################
-   def applyToMap(self, funcInputNode, topFirst=True):
-      self.root.applyToAllNodesRecurse(funcInputNode, topFirst)
+   def applyToMap(self, funcInputNode, topFirst=True, withRoot=False):
+      if withRoot:
+         self.root.applyToAllNodesRecurse(funcInputNode, topFirst)
+      else:
+         for key,child in self.root.children.iteritems():
+            self.applyToBranch([key], funcInputNode, topFirst)
          
    #############################################################################
    def applyToBranch(self, keyList, funcInputNode, topFirst=True):
@@ -161,7 +213,7 @@ class Infinimap(object):
       node.recurseDelete()
 
       if andBranchPoint:
-         del node.parent.children[node.selfKey]
+         del node.parent.children[node.keyList[-1]]
       
       
    #############################################################################
@@ -175,7 +227,7 @@ class Infinimap(object):
       else:
          self.applyToBranch(keyList, ctfunc)
 
-      return ct[0]-1  # -1 for root node which would be unexpected
+      return ct[0]  
 
       
    #############################################################################
@@ -209,3 +261,5 @@ class Infinimap(object):
 
 
 
+
+from WalletEntry import WalletEntry

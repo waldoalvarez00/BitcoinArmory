@@ -760,6 +760,15 @@ class EncryptionKey(WalletEntry):
 
       self.kdfRef = kdf
       
+
+   #############################################################################
+   def linkWalletEntries(self, wltFileRef):
+      super(EncryptionKey, self).linkWalletEntries(wltFileRef)
+      if self.kdfRef is None:
+         self.kdfRef = wltFileRef.kdfMap.get(self.keyCryptInfo.kdfObjID)
+         if self.kdfRef:
+            LOGERROR('Could not find KDF in wallet file')        
+   
    
    #############################################################################
    def getEncryptionKeyID(self):
@@ -834,13 +843,16 @@ class EncryptionKey(WalletEntry):
 
    #############################################################################
    def getPlainEncryptionKey(self):
+      """
+      This returns a copy of the master key.  Please destroy when done!
+      """
       if self.isLocked():
          raise KeyDataError('Cannot get plain key when locked')
 
       if self.masterKeyPlain.getSize()==0:
          raise KeyDataError('No plain key data available (uninitialized ekey?)')
 
-      return self.masterKeyPlain
+      return self.masterKeyPlain.copy()
       
 
    #############################################################################
@@ -1272,6 +1284,18 @@ class MultiPwdEncryptionKey(EncryptionKey):
       for kdf in newList:
          self.kdfRefList.append(kdf)
       
+   #############################################################################
+   def linkWalletEntries(self, wltFileRef):
+      # super() would inherit EncryptionKey class method, which is not suited
+      # for this method.  Instead, we do the WalletEntry class method directly.
+      WalletEntry.linkWalletEntries(self, wltFileRef)
+      if len(self.kdfRefList) == 0:
+         for aci in self.einfos:
+            kdfref = wltFileRef.kdfMap.get(aci.kdfObjID)
+            if kdfref is None:
+               LOGERROR('Could not find KDF in wallet file')        
+            self.kdfRefList.append(kdfref)
+
 
    #############################################################################
    def verifyPassphrase(self, sbdUnlockObjs, kdfObjList=None):

@@ -49,18 +49,31 @@ class InfinimapTests(unittest.TestCase):
       inf.setData(['zzz'], 'zzz')
       self.assertEqual(inf.getData(['zzz']), 'zzz')
 
+   #############################################################################
+   def testGetKeyList(self):
+      listlist = [ ['a'],  ['a','b'], ['123','456','789'], []]
+      inf = Infinimap()
+      for lst in listlist:
+         inf.setData(lst, 'hello')
+
+      # Get node from in the inf via key list, then check getKeyList matches
+      for lst in listlist:
+         self.assertEqual(inf.root.getPathNodeRecurse(lst).keyList, lst)
 
    #############################################################################
    def testRecurseApply(self):
       # Count all nodes that are only a single letter
       singleLetterKeys = []
       def checkNode(node):
-         if len(node.selfKey)==1:
-            singleLetterKeys.append(node.selfKey)
+         if len(node.getSelfKey())==1:
+            singleLetterKeys.append(node.getSelfKey())
 
       countRef = [0]
       def anotherCheck(node):
          countRef[0] += 0 if node.data is None else len(node.data)
+
+      def justPrint(node):
+         print str(node.getKeyList()) + ' : ' + node.data
       
       inf = Infinimap()
       inf.setData(['a','b','c'],       'Helloabc')

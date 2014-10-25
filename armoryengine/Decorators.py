@@ -138,7 +138,6 @@ def VerifyArgTypes(**typemap):
    # Create an error str to identify what arguments failed and what's expected
    def generateErrorMsg(argname, var):
       errStr = 'Argument "%s" is %s;  Expected ' % (argname, str(type(var)))
-      #errStr = 'Argument "%s" is %s (expected %s)' % (aname, str(type(aname)), str(typemap[aname]))
       if isinstance(typemap[argname], (list,tuple)):
          errStr += ' or '.join([str(t) for t in typemap[argname]])
       else:

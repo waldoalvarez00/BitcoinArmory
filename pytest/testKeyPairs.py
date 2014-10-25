@@ -425,7 +425,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(abek.outerCrypt.serialize(), NULLCRYPTINFO().serialize())
       self.assertEqual(abek.serPayload, None)
       self.assertEqual(abek.defaultPad, 256)
-      self.assertEqual(abek.wltLvlParent, None)
+      self.assertEqual(abek.wltParentRef, None)
       self.assertEqual(abek.wltChildRefs, [])
       self.assertEqual(abek.outerEkeyRef, None)
       self.assertEqual(abek.isOpaque,        False)
@@ -698,7 +698,7 @@ class ABEK_Tests(unittest.TestCase):
          self.assertEqual(echain.nextChildToCalc,     0)
          self.assertEqual(echain.childPoolSize,       5)
 
-         echain.fillKeyPoolRecurse()
+         echain.fillKeyPool()
 
          self.assertEqual(echain.lowestUnusedChild,  0)
          self.assertEqual(echain.nextChildToCalc,    5)
@@ -751,7 +751,7 @@ class ABEK_Tests(unittest.TestCase):
          self.assertEqual(awlt.lowestUnusedChild, 0)
          self.assertEqual(awlt.nextChildToCalc,   0)
 
-         awlt.fillKeyPoolRecurse()
+         awlt.fillKeyPool()
 
          self.assertEqual(awlt.lowestUnusedChild,  0)
          self.assertEqual(awlt.nextChildToCalc,    2)
@@ -857,7 +857,7 @@ class ABEK_Tests(unittest.TestCase):
       # Test root itself, shoudl be empty
       self.assertEqual(abekSeed.getParentList(), [])
 
-      abekSeed.fillKeyPoolRecurse()
+      abekSeed.fillKeyPool()
 
       # Test first-level parent lists
       for widx,abekWlt in abekSeed.akpChildByIndex.iteritems():
@@ -1204,7 +1204,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(echain.childPoolSize,       5)
 
       self.ekey.unlock(self.password)
-      echain.fillKeyPoolRecurse()
+      echain.fillKeyPool()
 
       self.assertEqual(echain.lowestUnusedChild,  0)
       self.assertEqual(echain.nextChildToCalc,    5)
@@ -1276,7 +1276,7 @@ class ABEK_Tests(unittest.TestCase):
       self.assertEqual(awlt.nextChildToCalc,   0)
 
       self.ekey.unlock(self.password)
-      awlt.fillKeyPoolRecurse()
+      awlt.fillKeyPool()
 
       self.assertEqual(awlt.lowestUnusedChild,  0)
       self.assertEqual(awlt.nextChildToCalc,    2)
@@ -1421,7 +1421,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeedBase.masterEkeyRef = None
       abekSeedBase.privCryptInfo = NULLCRYPTINFO()
       abekSeedBase.initializeFromSeed(sbdSeed, fillPool=False)
-      abekSeedBase.fillKeyPoolRecurse()
+      abekSeedBase.fillKeyPool()
 
       
       abekSeedCrypt = ABEK_SoftBip32Seed()
@@ -1430,7 +1430,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeedCrypt.privCryptInfo = self.privACI
       self.ekey.unlock(self.password)
       abekSeedCrypt.initializeFromSeed(sbdSeed, fillPool=False)
-      abekSeedCrypt.fillKeyPoolRecurse()
+      abekSeedCrypt.fillKeyPool()
 
       
       abekSeedNU = ABEK_SoftBip32Seed()
@@ -1439,7 +1439,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeedNU.privCryptInfo = self.privACI
       abekSeedNU.initializeFromSeed(sbdSeed, fillPool=False)
       self.ekey.lock(self.password)
-      abekSeedNU.fillKeyPoolRecurse()
+      abekSeedNU.fillKeyPool()
 
       def cmpNodes(a,b,c, withpriv):
          self.assertTrue(a.sbdPublicKey33 == b.sbdPublicKey33 == c.sbdPublicKey33)
@@ -1578,7 +1578,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeedBase.masterEkeyRef = None
       abekSeedBase.privCryptInfo = NULLCRYPTINFO()
       abekSeedBase.initializeFromSeed(sbdSeed, fillPool=False)
-      abekSeedBase.fillKeyPoolRecurse()
+      abekSeedBase.fillKeyPool()
 
       
       abekSeedCrypt = ABEK_SoftBip32Seed()
@@ -1587,7 +1587,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeedCrypt.privCryptInfo = privACI
       mkey.unlock(unlockList)
       abekSeedCrypt.initializeFromSeed(sbdSeed, fillPool=False)
-      abekSeedCrypt.fillKeyPoolRecurse()
+      abekSeedCrypt.fillKeyPool()
 
       
       abekSeedNU = ABEK_SoftBip32Seed()
@@ -1596,7 +1596,7 @@ class ABEK_Tests(unittest.TestCase):
       abekSeedNU.privCryptInfo = privACI
       abekSeedNU.initializeFromSeed(sbdSeed, fillPool=False)
       mkey.lock()
-      abekSeedNU.fillKeyPoolRecurse()
+      abekSeedNU.fillKeyPool()
 
       def cmpNodes(a,b,c, withpriv):
          self.assertTrue(a.sbdPublicKey33 == b.sbdPublicKey33 == c.sbdPublicKey33)
@@ -1836,7 +1836,7 @@ class Armory135Tests(unittest.TestCase):
       self.assertEqual(a135.outerCrypt.serialize(), NULLCRYPTINFO().serialize())
       self.assertEqual(a135.serPayload, None)
       self.assertEqual(a135.defaultPad, 256)
-      self.assertEqual(a135.wltLvlParent, None)
+      self.assertEqual(a135.wltParentRef, None)
       self.assertEqual(a135.wltChildRefs, [])
       self.assertEqual(a135.outerEkeyRef, None)
       self.assertEqual(a135.isOpaque,        False)
@@ -2015,7 +2015,7 @@ class Armory135Tests(unittest.TestCase):
          self.assertEqual(testChild.getScrAddr(), self.keyList[0]['ScrAddr'])
          
 
-         a135rt.fillKeyPoolRecurse()
+         a135rt.fillKeyPool()
 
          self.assertEqual(len(a135rt.akpChildByIndex),   1)
          self.assertEqual(len(a135rt.akpChildByScrAddr), 1)
@@ -2077,7 +2077,7 @@ class Armory135Tests(unittest.TestCase):
 
          
          a135rt.rootLowestUnused += 2
-         a135rt.fillKeyPoolRecurse()
+         a135rt.fillKeyPool()
 
          self.assertEqual(len(a135rt.akpChildByIndex),   1)
          self.assertEqual(len(a135rt.akpChildByScrAddr), 1)
@@ -2120,7 +2120,7 @@ class Armory135Tests(unittest.TestCase):
          while kidx+3 in self.keyList:
             #print '---Testing k =', kidx
    
-            # This calls fillKeyPoolRecurse, so the keypool is always +3
+            # This calls fillKeyPool, so the keypool is always +3
             a135 = a135rt.getNextUnusedChild()
             #a135rt.pprintVerbose()
             self.assertEqual(len(a135rt.root135ChainMap), kidx+POOLSZ+1)
@@ -2363,7 +2363,7 @@ class Armory135Tests(unittest.TestCase):
       self.assertEqual(testChild.getScrAddr(), self.keyList[0]['ScrAddr'])
       
 
-      a135rt.fillKeyPoolRecurse()
+      a135rt.fillKeyPool()
 
       self.assertEqual(len(a135rt.akpChildByIndex),   1)
       self.assertEqual(len(a135rt.akpChildByScrAddr), 1)
@@ -2427,7 +2427,7 @@ class Armory135Tests(unittest.TestCase):
 
       
       a135rt.rootLowestUnused += 2
-      a135rt.fillKeyPoolRecurse()
+      a135rt.fillKeyPool()
 
       self.assertEqual(len(a135rt.akpChildByIndex),   1)
       self.assertEqual(len(a135rt.akpChildByScrAddr), 1)
@@ -2471,7 +2471,7 @@ class Armory135Tests(unittest.TestCase):
       while kidx+3 in self.keyList:
          #print '---Testing k =', kidx
 
-         # This calls fillKeyPoolRecurse, so the keypool is always +3
+         # This calls fillKeyPool, so the keypool is always +3
          a135 = a135rt.getNextUnusedChild()
          #a135rt.pprintVerbose()
          self.assertEqual(len(a135rt.root135ChainMap), kidx+POOLSZ+1)
@@ -2968,7 +2968,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
          self.assertEqual(aikp.outerCrypt.serialize(), NULLCRYPTINFO().serialize())
          self.assertEqual(aikp.serPayload, None)
          self.assertEqual(aikp.defaultPad, 256)
-         self.assertEqual(aikp.wltLvlParent, None)
+         self.assertEqual(aikp.wltParentRef, None)
          self.assertEqual(aikp.wltChildRefs, [])
          self.assertEqual(aikp.outerEkeyRef, None)
          self.assertEqual(aikp.isOpaque,        False)

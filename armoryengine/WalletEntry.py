@@ -66,6 +66,8 @@ class WalletEntry(object):
    RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
                  'Check':  ReedSolomonWrapper.checkRSECCode}
 
+   NOPARENT = 'ROOTROOT'
+
    #############################################################################
    @staticmethod
    def RegisterWalletStorageClass(clsType, isReqd=False):
@@ -145,13 +147,14 @@ class WalletEntry(object):
       self.serPayload = serPayload
       self.defaultPad = defaultPad
 
-      self.wltLvlParent = None
+      self.wltParentRef = None
       self.wltChildRefs = []
       self.outerEkeyRef = None
       #self.wltEntryID = None
       #self.flagBitset = BitSet(16)
 
       self.isOpaque = False
+      self.isOrphan = False
       self.isUnrecognized = False
       self.isUnrecoverable = False
       self.isDeleted = False
@@ -170,7 +173,7 @@ class WalletEntry(object):
       self.serPayload = weOther.serPayload
       self.defaultPad = weOther.defaultPad
 
-      self.wltLvlParent = weOther.wltLvlParent
+      self.wltParentRef = weOther.wltParentRef
       self.wltChildRefs = weOther.wltChildRefs[:]
       self.outerEkeyRef = weOther.outerEkeyRef
       
@@ -188,6 +191,26 @@ class WalletEntry(object):
    #############################################################################
    def getEntryID(self):
       raise NotImplementedError('This must be overriden by derived class!')
+
+   #############################################################################
+   def isRootRoot(self):
+      return self.parEntryID == WalletEntry.NOPARENT
+
+   #############################################################################
+   def linkWalletEntries(self, wltFileRef):
+      if self.isRootRoot():
+         self.wltParentRef = None
+         return
+         
+
+      parent = wltFileRef.masterScrAddrMap.get(self.parEntryID)
+      if parent is None:
+         self.isOrphan = True
+         wltFileRef.wltParentMissing.append(self)
+         return
+
+      self.wltParentRef = parent
+      parent.wltChildRefs.append(self)
 
    #############################################################################
    def serializeEntry(self, doDelete=False, **encryptKwargs):
