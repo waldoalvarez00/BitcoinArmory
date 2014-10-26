@@ -65,6 +65,42 @@ def calcEKeyID(rawKey):
 
 
 
+
+################################################################################
+# This is a decorator-factory.  Decorate a bound method using this decorator
+# and a string argument which is the variable name of the ekey object we 
+# expect to be unlocked
+################################################################################
+# This decorator not only confirms that the member ekey is unlocked before 
+# calling the function, but it also acquires the re-entrant lock (rlock) to
+# make sure that no other process locks the key while this method is using
+# it (using the wrapper functions markKeyInUse() and finishedWithKey())
+################################################################################
+def EkeyMustBeUnlocked(ekeyVarName):
+   def decorator(func):
+
+      def wrappedFunc(*args, **kwargs):
+         aekSelf = args[0]
+         ekey = getattr(aekSelf, ekeyVarName)
+
+         if ekey is None:
+            return func(*args, **kwargs)
+            
+         if ekey.isLocked():
+            raise WalletLockError('Ekey locked when calling %s' % func.__name__)
+   
+         try:
+            ekey.markKeyInUse()
+            return func(*args, **kwargs)
+         finally:
+            ekey.finishedWithKey()
+            
+      return wrappedFunc
+ 
+   return decorator
+
+
+
 ################################################################################
 ################################################################################
 class ArmoryCryptInfo(object):
@@ -210,6 +246,15 @@ class ArmoryCryptInfo(object):
    ############################################################################
    def copy(self):
       return ArmoryCryptInfo().unserialize(self.serialize())
+
+   ############################################################################
+   def copyWithNewIV(self, newIV=None):
+      aci = ArmoryCryptInfo().unserialize(self.serialize())
+      if not newIV:
+         newIV = SecureBinaryData().GenerateRandom(8)
+      
+      aci.ivSource = newIV
+      return aci
 
    ############################################################################
    def hasStoredIV(self):

@@ -70,10 +70,10 @@ class InfinimapTests(unittest.TestCase):
 
       countRef = [0]
       def anotherCheck(node):
-         countRef[0] += 0 if node.data is None else len(node.data)
+         countRef[0] += 0 if node.getAwdData() is None else len(node.getAwdData())
 
       def justPrint(node):
-         print str(node.getKeyList()) + ' : ' + node.data
+         print str(node.getKeyList()) + ' : ' + node.getAwdData()
       
       inf = Infinimap()
       inf.setData(['a','b','c'],       'Helloabc')

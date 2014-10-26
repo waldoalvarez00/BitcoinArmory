@@ -5,39 +5,195 @@
 # See LICENSE or http://www.gnu.org/licenses/agpl.html                         #
 #                                                                              #
 ################################################################################
+#
+# Infinimap:
+#
+#     An Infinimap is a concept I (ACR) created, which is analogous to BIP32
+#     key trees, but for holding arbitrary data instead of ECDSA keys.  It's
+#     an infinite dimensional key-value map, the example below shows using 
+#     it to store wallet settings, but it can be used to store just about 
+#     anything:
+#     
+#        inf = Infinimap()
+#        inf.setData(['CreateDate'],  'Oct 29, 2014, 8:33pm')
+#        inf.setData(['Settings','HomePath'], '/home/user/.armory')
+#        inf.setData(['Settings','DebugLevel'], 'DEBUG2')
+#        inf.setData(['Settings','Defaults'], 'Defaults for ABC')
+#        inf.setData(['Settings','Defaults','A'], 'True')
+#        inf.setData(['Settings','Defaults','B'], 'False')
+#        inf.setData(['Settings','Defaults','C'], '/media/b39f-881a')
+#        inf.setData(['APIKeys','Exchange1'], '<encryptedkey>', cryptInfo=aci)
+#        inf.setData(['APIKeys','Exchange2'], '<encryptedkey>', cryptInfo=aci)
+#
+#    To avoid recursion limit issues, the max depth is limited to 32.
+#    The last two show us putting encrypted data into the map.  The map nodes
+#    track ACI (ArmoryCryptInfo) objects, and will serialize them along with
+#    the encrypted data, if necessary.
+#
+#    Note an important feature of this map type, which is shared by BIP32
+#    wallets but is not obvious:  any node can hold both data, not just the
+#    leaves of the tree.  For instance, ['Settings','Defaults'] has both
+#    data, but also has children.  This means that you can setData on *any*
+#    keyList, regardless of whether a parent path is holding data.
+#
+################################################################################
 from ArmoryUtils import *
 from BinaryPacker import *
 from BinaryUnpacker import *
 from WalletEntry import WalletEntry
+from ArmoryEncryption import *
 
 
 class MaxDepthExceeded(Exception): pass
 
 ################################################################################
-class InfinimapNode(WalletEntry):
+# Used to be called "InfinimapNode"
+class ArbitraryWalletData(WalletEntry):
    FILECODE = 'ARBDATA_'
-   def __init__(self, klist=None, data=None, parent=None):
+   CRYPTPADDING = 128
+   def __init__(self, klist=None, data=None, cryptInfo=None):
+      super(ArbitraryWalletData, self).__init__()
+      self.keyList   = klist[:] if klist else []
+      self.cryptInfo = ArmoryCryptInfo(None)
+      self.dataStr   = data if data else ''
+      self.ekeyRef   = None
+
+
+   #############################################################################
+   def linkWalletEntries(self, wltFileRef):
+      self.insertIntoInfinimap(wltFileRef.arbitraryDataMap)
+      if self.cryptInfo.useEncryption():
+         self.ekeyRef = self.wltFileRef.ekeyMap.get(self.cryptInfo.keySource)
+         if self.ekeyRef is None:
+            LOGERROR('ArbitraryData/InfinimapNode could not link ekey')
+      
+
+
+   #############################################################################
+   @EkeyMustBeUnlocked('ekeyRef')
+   def getPlainDataCopy(self):
+      """
+      self.ekeyRef must be unlocked (if it is encrypted).  Returns a copy of
+      the data as a python string (unlike other get*Copy() methods in other
+      classes).
+      """
+      if self.cryptInfo.noEncryption(): 
+         return self.dataStr
+      else:
+         sbdCrypt = SecureBinaryData(self.dataStr)
+         sbdPlain = self.cryptInfo.decrypt(sbdCrypt, ekeyObj=self.ekeyRef)
+
+         bu = BinaryUnpacker(sbdPlain.toBinStr())
+         lenData = bu.get(UINT32)
+         return bu.get(BINARY_CHUNK, lenData)
+       
+      
+   #############################################################################
+   def setPlaintextData(self, plainData):
+      if self.cryptInfo.useEncryption():
+         LOGERROR('Made a regular setData call on encrypted InfNode.')
+
+      self.cryptInfo = ArmoryCryptInfo(None)
+      self.ekeyRef = None
+      self.dataStr = plainData[:]
+
+
+
+   #############################################################################
+   def setEncryptedData(self, cryptData, newACI=None, ekey=None):
+      if newACI:
+         self.cryptInfo = newACI.copy()
+
+      if ekey:
+         self.ekeyRef = ekey
+
+      if not self.ekeyRef.ekeyID == self.cryptInfo.keySource:
+         raise KeyDataError('Ekey does not match ACI object key source!')
+
+      if isinstance(cryptData, basestring):
+         self.dataStr = cryptData[:]
+      else:
+         self.dataStr = cryptData.toBinStr()
+
+
+
+   #############################################################################
+   @EkeyMustBeUnlocked('ekeyRef')
+   def setPlainDataToEncrypt(self, plainData):
+      """
+      self.cryptInfo and self.ekeyRef must be set and the ekey must be
+      unlocked before calling this method.
+      """
+      if self.cryptInfo.noEncryption():
+         if isinstance(plainData, basestring):
+            self.dataStr = plainData[:]
+         else:
+            self.dataStr = plainData.toBinStr()
+      else: 
+         sbdPlain = SecureBinaryData(plainData)
+         lenPlain = sbdPlain.getSize()
+         paddedLen = roundUpMod(lenPlain+4, CRYPTPADDING)
+         zeroBytes = '\x00'*(paddedLen - (lenPlain+4))
+         bp = BinaryPacker()
+         bp.put(UINT32, lenPlain)
+         bp.put(BINARY_CHUNK, sbdPlain.toBinStr())
+         bp.put(BINARY_CHUNK, zeroBytes)
+
+         self.dataStr = self.cryptInfo.encrypt(bp.getBinaryString(), 
+                                            ekeyObj=self.ekeyRef)
+
+         sbdPlain.destroy()
+
+   
+   #############################################################################
+   def prettyData(self):
+      if len(self.dataStr) == 0:
+         return ''
+      elif self.cryptInfo.useEncryption():
+         return '<encrypted:%s>' % binary_to_hex(self.dataStr)[:16]
+      else:
+         return self.dataStr
+
+   #############################################################################
+   def prettyString(self, indent=0):
+      return '%s%s: "%s"' % (indent*' ', str(self.keyList), self.prettyData())
+
+
+
+
+
+
+
+################################################################################
+################################################################################
+class InfinimapNode(object):
+   def __init__(self, klist=None, parent=None):
       super(InfinimapNode, self).__init__()
-      self.data     = data if data else ''
-      self.keyList  = klist[:] if klist else []
-      self.parent   = parent
-      self.children = {}
+      self.keyList   = klist[:] if klist else []
+      self.awdObj    = None
+      self.parent    = parent
+      self.children  = {}
 
 
    #############################################################################
    def getSelfKey(self):
       return '' if len(self.keyList) == 0 else self.keyList[-1]
 
+
+   
+   #############################################################################
+   def getAwdData(self):
+      if self.awdObj is None:
+         return ''
+      else:
+         return awdObj.dataStr
       
       
    #############################################################################
-   def pprintRecurse(self, indentCt=0, indentSz=3, keyJust=16):
-      prInd  = indentCt * indentSz * ' '
-      prKey  = self.getSelfKey().ljust(keyJust)
-      prData = str(self.data) if self.data else ''
-      print prInd + prKey + ': ' + prData
+   def pprintRecurse(self, indentCt=0, indentSz=3):
+      print self.prettyString(indentCt * indentSz)
       for key,child in self.children.iteritems():
-         child.pprintRecurse(indentCt+1, indentSz, keyJust)
+         child.pprintRecurse(indentCt+1, indentSz)
 
 
    #############################################################################
@@ -46,14 +202,14 @@ class InfinimapNode(WalletEntry):
       if len(keyList) == 0:
          return self
 
-      key = toBytes(keyList[0])
+      key = keyList[0]
       childKeyList = self.keyList[:] + [key]
 
       if doCreate:
          # Always creating the next child seems inefficient, but the 
          # alternative is doing two map lookups.  We will revisit this
          # if there's a reason to make this container high-performance
-         nextMaybeChild = InfinimapNode(childKeyList, '', self)
+         nextMaybeChild = InfinimapNode(childKeyList, self)
          nextNode = self.children.setdefault(key, nextMaybeChild)
          return nextNode.getPathNodeRecurse(keyList[1:], doCreate)
       else:
@@ -89,18 +245,27 @@ class InfinimapNode(WalletEntry):
    #############################################################################
    def serialize(self):
       bp = BinaryPacker()
-      if self.data is None:
+      if self.dataStr is None:
          raise UninitializedError
+
+      flags = BitSet(8)
+      flags.setBit(0, self.cryptInfo.useEncryption())
 
       bp = BinaryPacker()
       bp.put(VAR_INT,  len(self.keyList))
       for k in self.keyList:
          bp.put(VAR_STR,  k)
-      bp.put(VAR_STR, self.data)
+
+      bp.put(BITSET, flags, 1)
+      if self.cryptInfo.useEncryption():
+         bp.put(BINARY_CHUNK, self.cryptInfo.serialize(), 32)
+
+      bp.put(VAR_STR, self.dataStr)
+
       return bp.getBinaryString()
 
 
-   #####
+   #############################################################################
    def unserialize(self, theStr):
       klist = []
 
@@ -114,24 +279,22 @@ class InfinimapNode(WalletEntry):
       return self
          
 
-   #####
-   def linkWalletEntries(self, wltFileRef):
-      pass
-      
 
+   #############################################################################
+   def insertIntoInfinimap(self, infmap, warnIfDup=True):
+      node = infmap.getPathNodeRecurse(self.keyList, doCreate=True)
+      if not node.awdObj is None and warnIfDup:
+         LOGWARN('Node "%s" already has data; overwriting.' % str(self.keyList))
+         
+      if not node.keyList == self.keyList:
+         raise ShouldNotGetHereError('Somehow returned key list does not match!?')
+
+      node.awdObj = self
 
       
 
 ################################################################################
 class Infinimap(object):
-   """
-   This class is used to hold a tree of arbitrary data.  Much like BIP32 
-   key trees, this is [near-]infinite-dimensional, and data can be stored
-   at any node.
-
-      self.setData(['ColorData','Red'], obj)
-      self.setData(['ColorData','Red', 'Comment'], 'I like red coins')
-   """
 
    MAX_DEPTH = 32
 
@@ -157,7 +320,6 @@ class Infinimap(object):
 
    #############################################################################
    def getData(self, keyList):
-      self.checkKeyList(keyList)
       node = self.root.getPathNodeRecurse(keyList)
       return None if node is None else node.data
       
@@ -179,7 +341,7 @@ class Infinimap(object):
       node.data = theData if theData is not None else ''
 
    #############################################################################
-   def pprint(self, keyJust=8, indentCt=0, indentSz=3):
+   def pprint(self):
       self.root.pprintRecurse()
          
    #############################################################################

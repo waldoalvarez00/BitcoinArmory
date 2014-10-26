@@ -519,8 +519,9 @@ class ArmoryWalletFile(object):
             self.ekeyMap[we.ekeyID] = we
          elif we.FILECODE=='KDFOBJCT':
             self.kdfMap[we.kdfObjID] = we
-         elif we.FILECODE=='ARBDATA_':
-            we.insertIntoInfinimap(self.arbitraryDataMap, warnIfDup=True)
+         #elif we.FILECODE=='ARBDATA_':
+            # Everything needed for Arbitrary data objects is in linkEntries()
+            #we.insertIntoInfinimap(self.arbitraryDataMap, warnIfDup=True)
          else:
             LOGERROR('Unhandled WalletEntry type: %s' % we.FILECODE)
             self.unrecognizedList.append(we)

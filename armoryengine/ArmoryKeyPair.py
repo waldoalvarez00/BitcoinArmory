@@ -73,29 +73,6 @@ def ChildIndexToStr(cIdx):
 class ChildDeriveError(Exception): pass
 
 
-# DECORATOR
-# Use this for AEK functions that assume ekey is available and unlocked.  
-# This not only checks that the key is unlocked, it sets a flag that prevents 
-# another thread from locking the Ekey
-def EkeyMustBeUnlocked(func):
-
-   def wrappedFunc(*args, **kwargs):
-      aekSelf = args[0]
-      if aekSelf.masterEkeyRef is None:
-         return func(*args, **kwargs)
-         
-      if aekSelf.masterEkeyRef.isLocked():
-         raise WalletLockError('Ekey locked when calling %s' % func.__name__)
-
-      try:
-         aekSelf.masterEkeyRef.markKeyInUse()
-         return func(*args, **kwargs)
-      finally:
-         aekSelf.masterEkeyRef.finishedWithKey()
-         
-   return wrappedFunc
-
-
 
 
 ################################################################################
@@ -369,7 +346,7 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def resolveNextUnlockFlag(self, fsync=True):
       if not self.privKeyNextUnlock:
          return
@@ -665,7 +642,7 @@ class ArmoryKeyPair(WalletEntry):
 
          
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def getSerializedPrivKey(self, serType='hex'):
       """
       The various private key serializations: "bin", hex", "sipa", "xprv", "bip38"
@@ -832,7 +809,7 @@ class ArmoryKeyPair(WalletEntry):
                                                             
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def getPlainPrivKeyCopy(self, verifyPublic=True):
       """
       This is the only way to get the private key out of an AKP object.
@@ -877,7 +854,7 @@ class ArmoryKeyPair(WalletEntry):
 
       
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def __signData(self, dataToSign, deterministicSig=False, normSig='Dontcare'):
       """
       This returns the raw data, signed using the CryptoECDSA module.  This 
@@ -920,14 +897,14 @@ class ArmoryKeyPair(WalletEntry):
       
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def signTransaction(self, serializedTx, deterministicSig=False):
       rBin,sBin = self.__signData(serializedTx, deterministicSig)
       return createSigScriptFromRS(rBin, sBin)
 
       
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def signMessage(self, msg, deterministicSig=False):
       """
       Returns just raw (r,s) pair instead of a sigscript because this is 
@@ -1131,7 +1108,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def getPlainSeedCopy(self):
       """
       NOTE:  This returns an SBD object which needs to be .destroy()ed by
@@ -1565,7 +1542,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       return ch
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    def getPlainSeedCopy(self):
       """
       NOTE:  This returns an SBD object which needs to be .destroy()ed by
@@ -1582,7 +1559,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
 
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    @VerifyArgTypes(sbdPlainSeed=SecureBinaryData)
    def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True):
       """
@@ -1980,7 +1957,7 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    @VerifyArgTypes(sbdPlainSeed=SecureBinaryData)
    def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True):
       """
@@ -2027,7 +2004,7 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
 
    #############################################################################
-   @EkeyMustBeUnlocked
+   @EkeyMustBeUnlocked('masterEkeyRef')
    @VerifyArgTypes(extraEntropy=SecureBinaryData)
    def createNewSeed(self, seedSize, extraEntropy, fillPool=True):
       """
@@ -2616,6 +2593,8 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
             LOGERROR('Sibling DNE in wallet file: %s' % binary_to_hex(ssa))
             self.isDisabled = True
             return
+
+      self.isDisabled = False
       
 
    #############################################################################
