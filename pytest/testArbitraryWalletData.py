@@ -13,7 +13,8 @@ sys.path.append('..')
 import textwrap
 
 from armoryengine.ArmoryUtils import *
-from armoryengine.Infinimap import *
+from armoryengine.ArbitraryWalletData import *
+from armoryengine.ArmoryEncryption import *
 
 
 
@@ -34,7 +35,7 @@ class InfinimapTests(unittest.TestCase):
       inf.setData(['123','456','ab3'], 'hexnumbers')
       inf.setData(['123'], 'lessnumbers')
 
-      #inf.pprint()
+      inf.pprint()
 
 
       self.assertEqual(inf.getData(['123']), 'lessnumbers')
@@ -58,7 +59,7 @@ class InfinimapTests(unittest.TestCase):
 
       # Get node from in the inf via key list, then check getKeyList matches
       for lst in listlist:
-         self.assertEqual(inf.root.getPathNodeRecurse(lst).keyList, lst)
+         self.assertEqual(inf.root.getNodeRecurse(lst).keyList, lst)
 
    #############################################################################
    def testRecurseApply(self):
@@ -70,10 +71,11 @@ class InfinimapTests(unittest.TestCase):
 
       countRef = [0]
       def anotherCheck(node):
-         countRef[0] += 0 if node.getAwdData() is None else len(node.getAwdData())
+         if not node.isEmpty():
+            countRef[0] += len(node.getPlainDataCopy())
 
       def justPrint(node):
-         print str(node.getKeyList()) + ' : ' + node.getAwdData()
+         print str(node.getKeyList()) + ' : ' + node.getPlainDataCopy()
       
       inf = Infinimap()
       inf.setData(['a','b','c'],       'Helloabc')
@@ -137,6 +139,82 @@ class InfinimapTests(unittest.TestCase):
       self.assertEqual(inf.countNodes(), 4)
       self.assertEqual(inf.countLeaves(), 2)
       self.assertEqual(inf.countNonEmpty(), 2)
+
+
+   #############################################################################
+   def testEncrypted(self):
+      # This test data was copied from the testEncryptInfo.py tests
+
+      SampleKdfAlgo   = 'ROMIXOV2'
+      SampleKdfMem    = 4194304
+      SampleKdfIter   = 3
+      SampleKdfSalt   = SecureBinaryData(hex_to_binary( \
+            '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
+      SamplePasswd    = SecureBinaryData('TestPassword')
+      SampleKdfOutKey = SecureBinaryData(hex_to_binary( \
+            'affc2dbe749a9f5b3c01b4a88fb150fcdb7b10187555e9009265eec911108e8b'))
+      SampleKdfID     = hex_to_binary('92c130cd7399b061')
+      SamplePlainStr  = SecureBinaryData('test_encrypt____')  
+      SampleCryptAlgo = 'AE256CBC'
+      SampleCryptIV8  = 'randomIV'
+      SampleCryptIV16 = stretchIV(SecureBinaryData(SampleCryptIV8), 16)
+      SampleCryptStr  = SecureBinaryData(hex_to_binary( \
+            '467450aeb63bbe83d9758cb4ae44477e'))
+      SampleMasterEKey = SecureBinaryData('samplemasterkey0' + '\xfa'*16)
+      SampleMasterCrypt = SecureBinaryData(hex_to_binary( \
+            '5ab2e112def50f0e1f4fd7e5d81a3af37c6754f28bc7533c2db9f779ba0a79b8'))
+      SampleMasterEkeyID = hex_to_binary('0524acc0d96da57f')
+
+      self.kdf = KdfObject(SampleKdfAlgo, memReqd=SampleKdfMem, 
+                                          numIter=SampleKdfIter, 
+                                          salt=SampleKdfSalt)
+
+      self.ekey = EncryptionKey()
+      self.ekey.createNewMasterKey(self.kdf, SampleCryptAlgo, SamplePasswd,
+                           preGenKey=SampleMasterEKey, preGenIV8=SampleCryptIV8)
+
+      aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, self.ekey.ekeyID, SampleCryptIV8)
+      computeCrypt = aci.encrypt(SamplePlainStr, 
+                                 SamplePasswd,
+                                 kdfObj=self.kdf,
+                                 ekeyObj=self.ekey)
+
+      expectCrypt = CryptoAES().EncryptCBC(SamplePlainStr, 
+                                           SampleMasterEKey, 
+                                           SampleCryptIV16)
+
+      # Just doing a sanity check here that the endecrypt working correctly
+      self.assertEqual(computeCrypt, expectCrypt)
+
+
+      inf = Infinimap()
+      inf.setData(['a','b','c'],       'Helloabc')
+      inf.setData(['a','b'],           '')
+      inf.setData(['a','z'],           'skipped a few')
+      inf.setData(['123','456','789'], 'numbers')
+      inf.setData(['123'],             'lessnumbers')
+      inf.setData(['123', '3', 'a'],   'something different')
+      inf.setData(['123', '3', 'ab'],  'and simple')
+
+      nodeabc = inf.getNode(['a','b','c'])
+      nodeabc.enableEncryption(aci, self.ekey)
+
+      self.ekey.lock()
+      self.assertRaises(WalletLockError, nodeabc.setPlaintextToEncrypt, SamplePlainStr)
+
+      self.ekey.unlock(SamplePasswd)
+      nodeabc.setPlaintextToEncrypt(SamplePlainStr)
+
+      self.assertEqual(len(nodeabc.dataStr), ArbitraryWalletData.CRYPTPADDING)
+      self.assertEqual(SamplePlainStr.toBinStr(), nodeabc.getPlainDataCopy())
+      
+      countEncrypt = [0]
+      def countFunc(node):
+         if node.useEncryption():
+            countEncrypt[0] += 1
+
+      inf.applyToMap(countFunc)
+      self.assertEqual(countEncrypt[0], 1)
 
 
 

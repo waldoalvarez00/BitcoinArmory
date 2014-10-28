@@ -46,6 +46,7 @@ from ArmoryEncryption import *
 
 class MaxDepthExceeded(Exception): pass
 
+
 ################################################################################
 # Used to be called "InfinimapNode"
 class ArbitraryWalletData(WalletEntry):
@@ -54,10 +55,40 @@ class ArbitraryWalletData(WalletEntry):
    def __init__(self, klist=None, data=None, cryptInfo=None):
       super(ArbitraryWalletData, self).__init__()
       self.keyList   = klist[:] if klist else []
-      self.cryptInfo = ArmoryCryptInfo(None)
-      self.dataStr   = data if data else ''
+      self.cryptInfo = cryptInfo.copy() if cryptInfo else NULLCRYPTINFO()
+      self.dataStr   = data
       self.ekeyRef   = None
 
+   #############################################################################
+   def isEmpty(self):
+      return self.dataStr is None or len(self.dataStr)==0
+
+   #############################################################################
+   def useEncryption(self):
+      if self.cryptInfo is None:
+         raise UninitializedError('cryptInfo is None, this should not happen')
+      return self.cryptInfo.useEncryption()
+
+
+   #############################################################################
+   def noEncryption(self):
+      return not self.useEncryption()
+
+   #############################################################################
+   def enableEncryption(self, cryptInfo, ekeyRef):
+      if not self.isEmpty():
+         LOGWARN('Enabling encryption on an AWD object that already has data')
+
+      self.cryptInfo = cryptInfo.copy()
+      self.ekeyRef   = ekeyRef
+
+   #############################################################################
+   def disableEncryption(self):
+      if not self.isEmpty():
+         LOGWARN('Disabling encryption on an AWD object that already has data')
+
+      self.cryptInfo = NULLCRYPTINFO()
+      self.ekeyRef   = None
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
@@ -77,6 +108,9 @@ class ArbitraryWalletData(WalletEntry):
       the data as a python string (unlike other get*Copy() methods in other
       classes).
       """
+      if self.isEmpty():
+         return ''
+
       if self.cryptInfo.noEncryption(): 
          return self.dataStr
       else:
@@ -93,7 +127,7 @@ class ArbitraryWalletData(WalletEntry):
       if self.cryptInfo.useEncryption():
          LOGERROR('Made a regular setData call on encrypted InfNode.')
 
-      self.cryptInfo = ArmoryCryptInfo(None)
+      self.cryptInfo = NULLCRYPTINFO()
       self.ekeyRef = None
       self.dataStr = plainData[:]
 
@@ -119,7 +153,7 @@ class ArbitraryWalletData(WalletEntry):
 
    #############################################################################
    @EkeyMustBeUnlocked('ekeyRef')
-   def setPlainDataToEncrypt(self, plainData):
+   def setPlaintextToEncrypt(self, plainData):
       """
       self.cryptInfo and self.ekeyRef must be set and the ekey must be
       unlocked before calling this method.
@@ -132,22 +166,24 @@ class ArbitraryWalletData(WalletEntry):
       else: 
          sbdPlain = SecureBinaryData(plainData)
          lenPlain = sbdPlain.getSize()
-         paddedLen = roundUpMod(lenPlain+4, CRYPTPADDING)
+         paddedLen = roundUpMod(lenPlain+4, ArbitraryWalletData.CRYPTPADDING)
          zeroBytes = '\x00'*(paddedLen - (lenPlain+4))
          bp = BinaryPacker()
          bp.put(UINT32, lenPlain)
          bp.put(BINARY_CHUNK, sbdPlain.toBinStr())
          bp.put(BINARY_CHUNK, zeroBytes)
 
-         self.dataStr = self.cryptInfo.encrypt(bp.getBinaryString(), 
-                                            ekeyObj=self.ekeyRef)
+         sbdPlain = SecureBinaryData(bp.getBinaryString())
+
+         self.dataStr = self.cryptInfo.encrypt(sbdPlain, ekeyObj=self.ekeyRef)
+         self.dataStr = self.dataStr.toBinStr()
 
          sbdPlain.destroy()
 
    
    #############################################################################
    def prettyData(self):
-      if len(self.dataStr) == 0:
+      if self.dataStr is None:
          return ''
       elif self.cryptInfo.useEncryption():
          return '<encrypted:%s>' % binary_to_hex(self.dataStr)[:16]
@@ -158,95 +194,12 @@ class ArbitraryWalletData(WalletEntry):
    def prettyString(self, indent=0):
       return '%s%s: "%s"' % (indent*' ', str(self.keyList), self.prettyData())
 
-
-
-
-
-
-
-################################################################################
-################################################################################
-class InfinimapNode(object):
-   def __init__(self, klist=None, parent=None):
-      super(InfinimapNode, self).__init__()
-      self.keyList   = klist[:] if klist else []
-      self.awdObj    = None
-      self.parent    = parent
-      self.children  = {}
-
-
-   #############################################################################
-   def getSelfKey(self):
-      return '' if len(self.keyList) == 0 else self.keyList[-1]
-
-
-   
-   #############################################################################
-   def getAwdData(self):
-      if self.awdObj is None:
-         return ''
-      else:
-         return awdObj.dataStr
-      
-      
-   #############################################################################
-   def pprintRecurse(self, indentCt=0, indentSz=3):
-      print self.prettyString(indentCt * indentSz)
-      for key,child in self.children.iteritems():
-         child.pprintRecurse(indentCt+1, indentSz)
-
-
-   #############################################################################
-   def getPathNodeRecurse(self, keyList, doCreate=False):
-      # If size is zero, we're at the requested node
-      if len(keyList) == 0:
-         return self
-
-      key = keyList[0]
-      childKeyList = self.keyList[:] + [key]
-
-      if doCreate:
-         # Always creating the next child seems inefficient, but the 
-         # alternative is doing two map lookups.  We will revisit this
-         # if there's a reason to make this container high-performance
-         nextMaybeChild = InfinimapNode(childKeyList, self)
-         nextNode = self.children.setdefault(key, nextMaybeChild)
-         return nextNode.getPathNodeRecurse(keyList[1:], doCreate)
-      else:
-         nextNode = self.children.get(key)
-         if nextNode is None:
-            return None
-         else: 
-            return nextNode.getPathNodeRecurse(keyList[1:], doCreate)
-
-
-   #############################################################################
-   def applyToAllNodesRecurse(self, funcInputNode, topFirst=True):
-      if topFirst:
-         funcInputNode(self)
-
-      for key,child in self.children.iteritems():
-         child.applyToAllNodesRecurse(funcInputNode, topFirst)
-      
-      if not topFirst:
-         funcInputNode(self)
-
-
-   #############################################################################
-   def recurseDelete(self):
-      keysToDelete = []
-      for key,child in self.children.iteritems():
-         child.recurseDelete()
-         keysToDelete.append(key)
-
-      for key in keysToDelete:
-         del self.children[key]
-
    #############################################################################
    def serialize(self):
-      bp = BinaryPacker()
       if self.dataStr is None:
-         raise UninitializedError
+         raise UninitializedError('Cannot serialize uninit AWD object')
+
+      bp = BinaryPacker()
 
       flags = BitSet(8)
       flags.setBit(0, self.cryptInfo.useEncryption())
@@ -273,17 +226,137 @@ class InfinimapNode(object):
       nkeys = bu.get(VAR_INT)
       for k in nkeys:
          klist.append( bu.get(VAR_STR) )
+
+      flags = bu.get(BITSET, 1)
+      useEncryption = flags.getBit(0)
+      if useEncryption:
+         serACI = bu.get(BINARY_CHUNK, 32)
+
       data = bu.get(VAR_STR)
 
-      self.initialize(klist, data)
+      
+      self.__init__()
+      self.keyList   = klist[:]
+      self.dataStr   = data[:]
+      self.ekeyRef   = None
+      if self.useEncryption:
+         self.cryptInfo = ArmoryCryptInfo().unserialize(serACI)
+      else: 
+         self.cryptInfo = NULLCRYPTINFO()
+
       return self
          
 
 
+
+
+
+
+################################################################################
+#
+# NOTE:  We override __getattr__ to pass through unrecognized attribute reqs
+#        to the underlying awdObj member.  This is very similar to inheriting
+#        from that class, but instead we store an instance of that class as
+#        a member.
+#
+#
+# We keep InfinimapNode separate from ArbitraryWalletData because I'd like to
+# later reuse this class to work with other data types.  i.e. simply replace
+# self.awdObj with another datatype.
+
+################################################################################
+class InfinimapNode(object):
+   def __init__(self, klist=None, parent=None):
+      super(InfinimapNode, self).__init__()
+      self.keyList   = klist[:] if klist else []
+      self.awdObj    = ArbitraryWalletData()
+      self.parent    = parent
+      self.children  = {}
+
+      self.awdObj.keyList = self.keyList[:]
+
+
+   #############################################################################
+   def __getattr__(self, attr):
+      if self.awdObj is None:
+         raise AttributeError('awdObj is None, cannot resolve attr: %s' % attr)
+
+      return getattr(self.awdObj, attr)
+
+
+   #############################################################################
+   def getSelfKey(self):
+      return '' if len(self.keyList) == 0 else self.keyList[-1]
+
+   #############################################################################
+   def getKeyList(self):
+      return self.keyList[:]
+   
+   #############################################################################
+   def getNodeRecurse(self, keyList, doCreate=False):
+      # If size is zero, we're at the requested node
+      if len(keyList) == 0:
+         return self
+
+      key = keyList[0]
+      childKeyList = self.keyList[:] + [key]
+
+      if doCreate:
+         # Always creating the next child seems inefficient, but the 
+         # alternative is doing two map lookups.  We will revisit this
+         # if there's a reason to make this container high-performance
+         nextMaybeChild = InfinimapNode(childKeyList, self)
+         nextNode = self.children.setdefault(key, nextMaybeChild)
+         return nextNode.getNodeRecurse(keyList[1:], doCreate)
+      else:
+         nextNode = self.children.get(key)
+         if nextNode is None:
+            return None
+         else: 
+            return nextNode.getNodeRecurse(keyList[1:], doCreate)
+
+
+      
+   #############################################################################
+   def pprintRecurse(self, indentCt=0, indentSz=3):
+      print self.prettyString(indentCt * indentSz)
+      for key,child in self.children.iteritems():
+         child.pprintRecurse(indentCt+1, indentSz)
+
+
+
+   #############################################################################
+   def applyToBranchRecurse(self, funcInputNode, topFirst=True):
+      if topFirst:
+         funcInputNode(self)
+
+      for key,child in self.children.iteritems():
+         child.applyToBranchRecurse(funcInputNode, topFirst)
+      
+      if not topFirst:
+         funcInputNode(self)
+
+
+   #############################################################################
+   def recurseDelete(self):
+      keysToDelete = []
+      for key,child in self.children.iteritems():
+         child.recurseDelete()
+         keysToDelete.append(key)
+
+      for key in keysToDelete:
+         del self.children[key]
+
+
+   #############################################################################
+   def isEmpty(self):
+      return self.awdObj is None or self.awdObj.isEmpty()
+
+
    #############################################################################
    def insertIntoInfinimap(self, infmap, warnIfDup=True):
-      node = infmap.getPathNodeRecurse(self.keyList, doCreate=True)
-      if not node.awdObj is None and warnIfDup:
+      node = infmap.getNodeRecurse(self.keyList, doCreate=True)
+      if not self.isEmpty() and warnIfDup:
          LOGWARN('Node "%s" already has data; overwriting.' % str(self.keyList))
          
       if not node.keyList == self.keyList:
@@ -292,6 +365,8 @@ class InfinimapNode(object):
       node.awdObj = self
 
       
+
+
 
 ################################################################################
 class Infinimap(object):
@@ -319,26 +394,52 @@ class Infinimap(object):
 
 
    #############################################################################
-   def getData(self, keyList):
-      node = self.root.getPathNodeRecurse(keyList)
-      return None if node is None else node.data
-      
+   def getNode(self, keyList, doCreate=False):
+      self.checkKeyList(keyList)
+      return self.root.getNodeRecurse(keyList, doCreate=doCreate)
+
    #############################################################################
+   # Shortcut function to directly get AWD data in the map
+   def getData(self, keyList):
+      node = self.getNode(keyList)
+      return None if node is None else node.getPlainDataCopy()
+
+
+   #############################################################################
+   # Shortcut function to directly set AWD data in the map
+   # If the AWD object uses encryption, the ekey needs to be unlocked before
+   # calling this method
    def setData(self, keyList, theData, doCreate=True, warnIfDup=False):
       # By default we create the key path
-      self.checkKeyList(keyList, theData)
-      node = self.root.getPathNodeRecurse(keyList, doCreate=doCreate)
+      node = self.getNode(keyList, doCreate=doCreate)
       if node is None:
-         raise KeyError('Key path does not exist: %s' % keyList)
+         raise KeyError('Key path does not exist to be set: %s' % keyList)
 
       if not isinstance(theData, str):
          raise TypeError('Data for infinimap must be reg string (no unicode)')
 
-      if warnIfDup and len(node.data)>0:
-         LOGWARN('Infinimap entry already has a value: %s,%s' % \
-                                                (str(keyList0), node.data))
+      if warnIfDup and node.awdObj.dataStr and len(node.awdObj.dataStr)>0:
+         LOGWARN('Infinimap entry already has a value: %s' % str(keyList))
 
-      node.data = theData if theData is not None else ''
+      node.awdObj.keyList = node.keyList[:]
+
+      if node.useEncryption():
+         node.awdObj.setPlaintextToEncrypt(theData)
+      else:
+         node.awdObj.setPlaintextData(theData if theData is not None else '')
+
+
+   #############################################################################
+   def clearData(self, keyList):
+      self.checkKeyList(keyList)
+      node = self.root.getNodeRecurse(keyList, doCreate=False)
+      if node is None:
+         LOGWARN('Trying to clear a node that does not exist')
+
+      node.awdObj.dataStr = ''
+
+
+   
 
    #############################################################################
    def pprint(self):
@@ -347,7 +448,7 @@ class Infinimap(object):
    #############################################################################
    def applyToMap(self, funcInputNode, topFirst=True, withRoot=False):
       if withRoot:
-         self.root.applyToAllNodesRecurse(funcInputNode, topFirst)
+         self.root.applyToBranchRecurse(funcInputNode, topFirst)
       else:
          for key,child in self.root.children.iteritems():
             self.applyToBranch([key], funcInputNode, topFirst)
@@ -355,11 +456,11 @@ class Infinimap(object):
    #############################################################################
    def applyToBranch(self, keyList, funcInputNode, topFirst=True):
       self.checkKeyList(keyList)
-      node = self.root.getPathNodeRecurse(keyList, doCreate=False)
+      node = self.root.getNodeRecurse(keyList, doCreate=False)
       if node is None:
          raise KeyError('Key path does not exist:  %s' % str(keyList))
 
-      node.applyToAllNodesRecurse(funcInputNode, topFirst)
+      node.applyToBranchRecurse(funcInputNode, topFirst)
          
    #############################################################################
    def clearMap(self):
@@ -368,7 +469,7 @@ class Infinimap(object):
    #############################################################################
    def clearBranch(self, keyList, andBranchPoint=True):
       self.checkKeyList(keyList)
-      node = self.root.getPathNodeRecurse(keyList, doCreate=False)
+      node = self.root.getNodeRecurse(keyList, doCreate=False)
       if node is None:
          raise KeyError('Key path does not exist:  %s' % str(keyList))
 
@@ -412,7 +513,9 @@ class Infinimap(object):
    def countNonEmpty(self, keyList=None):
       ct = [0]
       def ctfunc(node):
-         ct[0] += 0 if len(node.data)==0 else 1
+         if not node.isEmpty():
+            ct[0] += 1 
+      
 
       if keyList is None:
          self.applyToMap(ctfunc)
