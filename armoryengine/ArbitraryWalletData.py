@@ -408,8 +408,10 @@ class Infinimap(object):
    #############################################################################
    # Shortcut function to directly set AWD data in the map
    # If the AWD object uses encryption, the ekey needs to be unlocked before
-   # calling this method
-   def setData(self, keyList, theData, doCreate=True, warnIfDup=False):
+   # calling this method.  theData should always be unencrypted, and this
+   # method will encrypt it on the way into the map.
+   def setData(self, keyList, theData, doCreate=True, warnIfDup=False,
+                     useEncryption_Info=None, useEncryption_Ekey=None):
       # By default we create the key path
       node = self.getNode(keyList, doCreate=doCreate)
       if node is None:
@@ -423,11 +425,29 @@ class Infinimap(object):
 
       node.awdObj.keyList = node.keyList[:]
 
+      if (useEncryption_Info is None) != (useEncryption_Ekey is None):
+         raise EncryptionError('Must supply both/neither ekey and cryptInfo')
+
+      if useEncryption_Info:
+         node.awdObj.cryptInfo = useEncryption_Info.copy()
+         node.awdObj.ekeyRef   = useEncryption_Ekey
+
       if node.useEncryption():
          node.awdObj.setPlaintextToEncrypt(theData)
       else:
          node.awdObj.setPlaintextData(theData if theData is not None else '')
 
+   #############################################################################
+   def createEncryptedEntry(self, keyList, cryptInfo, ekeyRef, warnIfDup=True):
+      node = self.getNode(keyList, doCreate=True)
+      if not node.isEmpty() and warnIfDup:
+         LOGWARN('Attempted to create node that exists: %s' % str(keyList))
+         
+
+      node.enableEncryption(cryptInfo, ekeyRef)
+      return node
+      
+   
 
    #############################################################################
    def clearData(self, keyList):

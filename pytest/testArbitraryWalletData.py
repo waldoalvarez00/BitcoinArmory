@@ -35,7 +35,7 @@ class InfinimapTests(unittest.TestCase):
       inf.setData(['123','456','ab3'], 'hexnumbers')
       inf.setData(['123'], 'lessnumbers')
 
-      inf.pprint()
+      #inf.pprint()
 
 
       self.assertEqual(inf.getData(['123']), 'lessnumbers')
@@ -216,6 +216,7 @@ class InfinimapTests(unittest.TestCase):
       inf.applyToMap(countFunc)
       self.assertEqual(countEncrypt[0], 1)
 
+      inf.pprint()
 
 
 
