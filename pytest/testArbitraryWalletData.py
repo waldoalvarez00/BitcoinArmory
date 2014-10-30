@@ -206,7 +206,7 @@ class InfinimapTests(unittest.TestCase):
       nodeabc.setPlaintextToEncrypt(SamplePlainStr)
 
       self.assertEqual(len(nodeabc.dataStr), ArbitraryWalletData.CRYPTPADDING)
-      self.assertEqual(SamplePlainStr.toBinStr(), nodeabc.getPlainDataCopy())
+      self.assertEqual(SamplePlainStr, nodeabc.getPlainDataCopy())
       
       countEncrypt = [0]
       def countFunc(node):
@@ -219,6 +219,28 @@ class InfinimapTests(unittest.TestCase):
       inf.pprint()
 
 
+      node = inf.getNode(['a','b','c'])
+      self.assertRaises(EncryptionError, node.setPlaintext, 'AAAA')
 
+      node = inf.getNode(['123','3','ab'])
+      self.assertRaises(EncryptionError, node.setPlaintextToEncrypt, 'Plain')
+
+      self.ekey.lock()
+      sbdNew = SecureBinaryData('NewSecret')
+      self.assertRaises(WalletLockError, inf.setData, ['a','b','c'], sbdNew)
+
+      self.ekey.unlock(SamplePasswd)
+      inf.setData(['a','b','c'], sbdNew)
+
+      self.ekey.lock()
+      self.assertRaises(WalletLockError, inf.getData, ['a','b','c'])
+
+      self.ekey.unlock(SamplePasswd)
+      self.assertEqual(inf.getData(['a','b','c']), sbdNew)
+
+
+
+
+################################################################################
 if __name__ == "__main__":
    unittest.main()

@@ -22,13 +22,17 @@
 #        inf.setData(['Settings','Defaults','A'], 'True')
 #        inf.setData(['Settings','Defaults','B'], 'False')
 #        inf.setData(['Settings','Defaults','C'], '/media/b39f-881a')
-#        inf.setData(['APIKeys','Exchange1'], '<encryptedkey>', cryptInfo=aci)
-#        inf.setData(['APIKeys','Exchange2'], '<encryptedkey>', cryptInfo=aci)
 #
-#    To avoid recursion limit issues, the max depth is limited to 32.
-#    The last two show us putting encrypted data into the map.  The map nodes
-#    track ACI (ArmoryCryptInfo) objects, and will serialize them along with
-#    the encrypted data, if necessary.
+#        inf.createEncryptedEntry(['APIKeys', 'Exchange1'], aci, ekey))
+#        inf.setData(['APIKeys','Exchange1'], SecureBinaryData('PlainKey1'))
+#
+#        inf.createEncryptedEntry(['APIKeys', 'Exchange2'], aci, ekey))
+#        inf.setData(['APIKeys','Exchange2'], SecureBinaryData('PlainKey2'))
+#
+#    To avoid recursion limit issues, the max key depth is limited to 32.
+#
+#    The last two examples show us putting encrypted data into the map.  We
+#    always get and set plaintext data and rely on the ekey to be unlocked.
 #
 #    Note an important feature of this map type, which is shared by BIP32
 #    wallets but is not obvious:  any node can hold both data, not just the
@@ -111,7 +115,7 @@ class ArbitraryWalletData(WalletEntry):
       if self.isEmpty():
          return ''
 
-      if self.cryptInfo.noEncryption(): 
+      if self.noEncryption(): 
          return self.dataStr
       else:
          sbdCrypt = SecureBinaryData(self.dataStr)
@@ -119,13 +123,13 @@ class ArbitraryWalletData(WalletEntry):
 
          bu = BinaryUnpacker(sbdPlain.toBinStr())
          lenData = bu.get(UINT32)
-         return bu.get(BINARY_CHUNK, lenData)
+         return SecureBinaryData(bu.get(BINARY_CHUNK, lenData))
        
       
    #############################################################################
-   def setPlaintextData(self, plainData):
+   def setPlaintext(self, plainData):
       if self.cryptInfo.useEncryption():
-         LOGERROR('Made a regular setData call on encrypted InfNode.')
+         raise EncryptionError('Made a plain setData call on encrypted node')
 
       self.cryptInfo = NULLCRYPTINFO()
       self.ekeyRef = None
@@ -134,6 +138,7 @@ class ArbitraryWalletData(WalletEntry):
 
 
    #############################################################################
+   '''
    def setEncryptedData(self, cryptData, newACI=None, ekey=None):
       if newACI:
          self.cryptInfo = newACI.copy()
@@ -148,6 +153,7 @@ class ArbitraryWalletData(WalletEntry):
          self.dataStr = cryptData[:]
       else:
          self.dataStr = cryptData.toBinStr()
+   '''
 
 
 
@@ -156,29 +162,27 @@ class ArbitraryWalletData(WalletEntry):
    def setPlaintextToEncrypt(self, plainData):
       """
       self.cryptInfo and self.ekeyRef must be set and the ekey must be
-      unlocked before calling this method.
+      unlocked before calling this method.  This method only destroys a copy
+      of the plaintext data.  The caller is responsible for handling the 
+      destruction of the input. argument. 
       """
-      if self.cryptInfo.noEncryption():
-         if isinstance(plainData, basestring):
-            self.dataStr = plainData[:]
-         else:
-            self.dataStr = plainData.toBinStr()
-      else: 
-         sbdPlain = SecureBinaryData(plainData)
-         lenPlain = sbdPlain.getSize()
-         paddedLen = roundUpMod(lenPlain+4, ArbitraryWalletData.CRYPTPADDING)
-         zeroBytes = '\x00'*(paddedLen - (lenPlain+4))
-         bp = BinaryPacker()
-         bp.put(UINT32, lenPlain)
-         bp.put(BINARY_CHUNK, sbdPlain.toBinStr())
-         bp.put(BINARY_CHUNK, zeroBytes)
+      if self.noEncryption():
+         raise EncryptionError('Attempted to set encrypted data to plain node')
+      sbdPlain = SecureBinaryData(plainData)
+      lenPlain = sbdPlain.getSize()
+      paddedLen = roundUpMod(lenPlain+4, ArbitraryWalletData.CRYPTPADDING)
+      zeroBytes = '\x00'*(paddedLen - (lenPlain+4))
+      bp = BinaryPacker()
+      bp.put(UINT32, lenPlain)
+      bp.put(BINARY_CHUNK, sbdPlain.toBinStr())
+      bp.put(BINARY_CHUNK, zeroBytes)
 
-         sbdPlain = SecureBinaryData(bp.getBinaryString())
+      sbdPlain = SecureBinaryData(bp.getBinaryString())
 
-         self.dataStr = self.cryptInfo.encrypt(sbdPlain, ekeyObj=self.ekeyRef)
-         self.dataStr = self.dataStr.toBinStr()
+      self.dataStr = self.cryptInfo.encrypt(sbdPlain, ekeyObj=self.ekeyRef)
+      self.dataStr = self.dataStr.toBinStr()
 
-         sbdPlain.destroy()
+      sbdPlain.destroy()
 
    
    #############################################################################
@@ -410,32 +414,28 @@ class Infinimap(object):
    # If the AWD object uses encryption, the ekey needs to be unlocked before
    # calling this method.  theData should always be unencrypted, and this
    # method will encrypt it on the way into the map.
-   def setData(self, keyList, theData, doCreate=True, warnIfDup=False,
-                     useEncryption_Info=None, useEncryption_Ekey=None):
+   def setData(self, keyList, theData, doCreate=True, warnIfDup=False):
       # By default we create the key path
       node = self.getNode(keyList, doCreate=doCreate)
       if node is None:
          raise KeyError('Key path does not exist to be set: %s' % keyList)
 
-      if not isinstance(theData, str):
-         raise TypeError('Data for infinimap must be reg string (no unicode)')
+      if node.noEncryption():
+         if not isinstance(theData, str):
+            raise TypeError('Data for infinimap must be reg string (no unicode)')
+      else:
+         if not isinstance(theData, SecureBinaryData):
+            raise TypeError('Data for encrypted entry must be SecureBinaryData')
 
       if warnIfDup and node.awdObj.dataStr and len(node.awdObj.dataStr)>0:
          LOGWARN('Infinimap entry already has a value: %s' % str(keyList))
 
       node.awdObj.keyList = node.keyList[:]
 
-      if (useEncryption_Info is None) != (useEncryption_Ekey is None):
-         raise EncryptionError('Must supply both/neither ekey and cryptInfo')
-
-      if useEncryption_Info:
-         node.awdObj.cryptInfo = useEncryption_Info.copy()
-         node.awdObj.ekeyRef   = useEncryption_Ekey
-
       if node.useEncryption():
          node.awdObj.setPlaintextToEncrypt(theData)
       else:
-         node.awdObj.setPlaintextData(theData if theData is not None else '')
+         node.awdObj.setPlaintext(theData if theData is not None else '')
 
    #############################################################################
    def createEncryptedEntry(self, keyList, cryptInfo, ekeyRef, warnIfDup=True):
@@ -450,13 +450,17 @@ class Infinimap(object):
    
 
    #############################################################################
-   def clearData(self, keyList):
+   def clearData(self, keyList, andEncryptionInfo=False):
       self.checkKeyList(keyList)
       node = self.root.getNodeRecurse(keyList, doCreate=False)
       if node is None:
          LOGWARN('Trying to clear a node that does not exist')
 
       node.awdObj.dataStr = ''
+
+      if andEncryptionInfo:
+         node.cryptInfo = NULLCRYPTINFO()
+         node.ekeyRef   = None
 
 
    
