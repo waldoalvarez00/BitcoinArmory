@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <pthread.h>
 #include <mutex>
+#include <memory>
 
 struct MDB_env;
 struct MDB_txn;
@@ -54,7 +55,7 @@ public:
 class LMDBEnv;
 
 //one mother-txn per thread
-struct LMDBThreadTxInfo;
+class LMDBThreadTxInfo;
 
 
 class LMDB
@@ -82,7 +83,8 @@ public:
    {
       friend class LMDBEnv;
       friend class LMDB;
-      
+      friend class LMDBThreadTxInfo;
+
       LMDB *db_=nullptr;
       mutable MDB_cursor *csr_=nullptr;
       
@@ -227,13 +229,18 @@ private:
    LMDB(const LMDB &nocopy);
 };
 
-struct LMDBThreadTxInfo
+class LMDBThreadTxInfo
 {
+public:
    MDB_txn *txn_=nullptr;
 
    std::vector<LMDB::Iterator*> iterators_;
    unsigned transactionLevel_=0;
    LMDB::Mode mode_;
+   std::shared_ptr<LMDBThreadTxInfo> child_;
+   std::shared_ptr<LMDBThreadTxInfo> parent_;
+   
+   LMDBThreadTxInfo::~LMDBThreadTxInfo(void);
 };
 
 
@@ -246,7 +253,7 @@ private:
    MDB_env *dbenv=nullptr;
 
    std::mutex threadTxMutex_;
-   std::unordered_map<pthread_t, LMDBThreadTxInfo> txForThreads_;
+   std::unordered_map<pthread_t, std::shared_ptr<LMDBThreadTxInfo> > txForThreads_;
    
    friend class LMDB;
 

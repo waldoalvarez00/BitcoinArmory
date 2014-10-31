@@ -1038,69 +1038,76 @@ void* BlockWriteBatcher::commitThread(void *argPtr)
    // Check for any SSH objects that are now completely empty.  If they exist,
    // they should be removed from the DB, instead of simply written as empty
    // objects
-//   TIMER_START("commitToDB");
+   //   TIMER_START("commitToDB");
 
    {
+      //create a dedicated child tx
+      LMDBEnv::Transaction tx(&bwbPtr->iface_->dbEnv_, LMDB::ReadWrite);
+         
       for (auto& sshPair : bwbPtr->sshToModify_)
          bwbPtr->iface_->putStoredScriptHistorySummary(sshPair.second);
-      
+   }
+
+   {
+      LMDBEnv::Transaction tx(&bwbPtr->iface_->dbEnv_, LMDB::ReadWrite);
+
       for (auto subSshPtr : bwbPtr->subSshToApply_)
       {
          //only apply if subssh wasnt modified
          while (subSshPtr->accessing_.test_and_set(memory_order_relaxed) == true);
-            //if (subSshPtr->commitId_ == bwbPtr->commitId_)
+         //if (subSshPtr->commitId_ == bwbPtr->commitId_)
          bwbPtr->iface_->putStoredSubHistory(*subSshPtr);
-         
+
          subSshPtr->accessing_.clear(memory_order_relaxed);
       }
-      
-      bwbPtr->txn_.commit();
-      bwbPtr->txn_.begin();
-      
+   }
+
+   {
+      LMDBEnv::Transaction tx(&bwbPtr->iface_->dbEnv_, LMDB::ReadWrite);
+
       for (auto& stxPair : bwbPtr->stxToModify_)
          bwbPtr->iface_->updateStoredTx(*stxPair.second);
-      
-      bwbPtr->txn_.commit();
-      bwbPtr->txn_.begin();
+   }
+
+   {
+      LMDBEnv::Transaction tx(&bwbPtr->iface_->dbEnv_, LMDB::ReadWrite);
 
       for (auto& sbh : bwbPtr->sbhToUpdate_)
          updateBlkDataHeader(bwbPtr->config_, bwbPtr->iface_, *sbh);
+   }
 
-      bwbPtr->txn_.commit();
-      bwbPtr->txn_.begin();
+
+   {   
+      LMDBEnv::Transaction tx(&bwbPtr->iface_->dbEnv_, LMDB::ReadWrite);
 
       for (auto& toDel : bwbPtr->keysToDelete_)
          bwbPtr->iface_->deleteValue(BLKDATA, toDel);
-      
-      bwbPtr->txn_.commit();
-      bwbPtr->txn_.begin();
-
-
-      if (bwbPtr->mostRecentBlockApplied_ != 0 && bwbPtr->updateSDBI_ == true)
-      {
-         StoredDBInfo sdbi;
-         bwbPtr->iface_->getStoredDBInfo(BLKDATA, sdbi);
-         if (!sdbi.isInitialized())
-            LOGERR << "How do we have invalid SDBI in applyMods?";
-         else
-         {
-            //save top block height
-            sdbi.appliedToHgt_ = bwbPtr->mostRecentBlockApplied_;
-
-            //save top block hash
-            if (bwbPtr->sbhToUpdate_.size() > 0)
-            {
-               auto topBlockHeader = bwbPtr->sbhToUpdate_.rbegin();
-               sdbi.topScannedBlkHash_ = (*topBlockHeader)->getBlockHeaderCopy().getThisHash();
-            }
-            bwbPtr->iface_->putStoredDBInfo(BLKDATA, sdbi);
-         }
-      }
-
-      //final commit
-      bwbPtr->clearTransactions();
    }
-   
+
+   if (bwbPtr->mostRecentBlockApplied_ != 0 && bwbPtr->updateSDBI_ == true)
+   {
+      StoredDBInfo sdbi;
+      bwbPtr->iface_->getStoredDBInfo(BLKDATA, sdbi);
+      if (!sdbi.isInitialized())
+         LOGERR << "How do we have invalid SDBI in applyMods?";
+      else
+      {
+         //save top block height
+         sdbi.appliedToHgt_ = bwbPtr->mostRecentBlockApplied_;
+
+         //save top block hash
+         if (bwbPtr->sbhToUpdate_.size() > 0)
+         {
+            auto topBlockHeader = bwbPtr->sbhToUpdate_.rbegin();
+            sdbi.topScannedBlkHash_ = (*topBlockHeader)->getBlockHeaderCopy().getThisHash();
+         }
+         bwbPtr->iface_->putStoredDBInfo(BLKDATA, sdbi);
+      }
+   }
+
+   //final commit
+   bwbPtr->clearTransactions();
+
    BlockWriteBatcher* bwbParent = bwbPtr->parent_;
    
    //signal the transaction reset

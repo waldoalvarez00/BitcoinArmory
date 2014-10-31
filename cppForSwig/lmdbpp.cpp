@@ -20,6 +20,26 @@ static std::string errorString(int rc)
    return mdb_strerror(rc);
 }
 
+LMDBThreadTxInfo::~LMDBThreadTxInfo(void)
+{
+   //drop the shared_ptr reference to the child so it recuresively
+   //deletes all related transactions.
+   child_.reset();
+
+   int rc = mdb_txn_commit(txn_);
+
+   for (LMDB::Iterator *i : iterators_)
+   {
+      i->hasTx = false;
+      i->csr_ = nullptr;
+   }
+
+   if (rc != MDB_SUCCESS)
+   {
+      throw LMDBException("Failed to close env tx (" + errorString(rc) + ")");
+   }
+}
+
 inline void LMDB::Iterator::checkHasDb() const
 {
    if (!db_)
@@ -64,10 +84,7 @@ void LMDB::Iterator::openCursor()
    
    lock.unlock();
    
-   if (txnIter->second.transactionLevel_ == 0)
-      throw std::runtime_error("Iterator must be created within Transaction");
-   
-   txnPtr_ = &txnIter->second;
+   txnPtr_ = txnIter->second.get();
   
    int rc = mdb_cursor_open(txnPtr_->txn_, db_->dbi, &csr_);
    if (rc != MDB_SUCCESS)
@@ -365,28 +382,54 @@ void LMDBEnv::Transaction::begin()
    const pthread_t tID = pthread_self();
    
    std::unique_lock<std::mutex> lock(env->threadTxMutex_);
-   LMDBThreadTxInfo& thTx = env->txForThreads_[tID];
+   std::shared_ptr<LMDBThreadTxInfo>& newThTx = env->txForThreads_[tID];
+   if (newThTx.get() == nullptr)
+      newThTx = std::shared_ptr<LMDBThreadTxInfo>(new LMDBThreadTxInfo);
+   
    lock.unlock();
    
-   if (thTx.transactionLevel_ != 0 && mode_ == LMDB::ReadWrite && thTx.mode_ == LMDB::ReadOnly)
+   if (mode_ == LMDB::ReadWrite && newThTx->mode_ == LMDB::ReadOnly)
       throw LMDBException("Cannot access ReadOnly Transaction in ReadWrite mode");
-   
-   if (thTx.transactionLevel_++ != 0)
-      return;
-      
+
    if (!env->dbenv)
       throw LMDBException("Cannot start transaction without db env");
+   
+   MDB_txn* parentMdbTxn = nullptr;
+
+   if (mode_ == LMDB::ReadOnly)
+   {
+      if (newThTx->transactionLevel_ > 0)
+      {
+         //no nested RO tx
+         ++newThTx->transactionLevel_;
+         return;
+      }
+   }
+
+   std::shared_ptr<LMDBThreadTxInfo> parentThTx(newThTx);
+
+   if (newThTx->transactionLevel_ != 0)
+   {
+      parentMdbTxn = newThTx->txn_;
+      newThTx.reset(new LMDBThreadTxInfo);
+      parentThTx->child_ = newThTx;
+      newThTx->parent_ = parentThTx;
+   }
+   else
+      newThTx->parent_ = newThTx;
+   
+   newThTx->transactionLevel_++;
       
    int modef = MDB_RDONLY;
-   thTx.mode_ = LMDB::ReadOnly;
+   newThTx->mode_ = LMDB::ReadOnly;
    
    if (mode_ == LMDB::ReadWrite)
    {
       modef = 0;
-      thTx.mode_ = LMDB::ReadWrite;
+      newThTx->mode_ = LMDB::ReadWrite;
    }
 
-   int rc = mdb_txn_begin(env->dbenv, nullptr, modef, &thTx.txn_);
+   int rc = mdb_txn_begin(env->dbenv, parentMdbTxn, modef, &newThTx->txn_);
    if (rc != MDB_SUCCESS)
    {
       lock.lock();
@@ -425,24 +468,18 @@ void LMDBEnv::Transaction::commit()
       throw LMDBException("Transaction bound to unknown thread");
    lock.unlock();
 
-   LMDBThreadTxInfo& thTx = txnIter->second;
+   if (--txnIter->second->transactionLevel_ > 0)
+      return;
 
-   if (thTx.transactionLevel_-- == 1)
+   if (txnIter->second->parent_.get() != txnIter->second.get())
    {
-      int rc = mdb_txn_commit(thTx.txn_);
-      
-      for (LMDB::Iterator *i : thTx.iterators_)
-      {
-         i->hasTx=false;
-         i->csr_=nullptr;
-      }
-      
-      if (rc != MDB_SUCCESS)
-      {
-         throw LMDBException("Failed to close env tx (" + errorString(rc) +")");
-      }
-      
+      txnIter->second = txnIter->second->parent_;
+      txnIter->second->child_.reset();
+   }
+   else
+   {
       lock.lock();
+      txnIter->second->parent_.reset();
       env->txForThreads_.erase(txnIter);
    }
 }
@@ -501,7 +538,7 @@ void LMDB::open(LMDBEnv *env, const std::string &name)
       throw LMDBException("Failed to insert: need transaction");
    lock.unlock();
       
-   int rc = mdb_dbi_open(txnIter->second.txn_, name.c_str(), MDB_CREATE, &dbi);
+   int rc = mdb_dbi_open(txnIter->second->txn_, name.c_str(), MDB_CREATE, &dbi);
    if (rc != MDB_SUCCESS)
    {
       // cleanup here
@@ -527,7 +564,7 @@ void LMDB::insert(
       throw LMDBException("Failed to insert: need transaction");
    lock.unlock();
    
-   int rc = mdb_put(txnIter->second.txn_, dbi, &mkey, &mval, 0);
+   int rc = mdb_put(txnIter->second->txn_, dbi, &mkey, &mval, 0);
    if (rc != MDB_SUCCESS)
       throw LMDBException("Failed to insert (" + errorString(rc) + ")");
 }
@@ -543,7 +580,7 @@ void LMDB::erase(const CharacterArrayRef& key)
    lock.unlock();
       
    MDB_val mkey = { key.len, const_cast<char*>(key.data) };
-   int rc = mdb_del(txnIter->second.txn_, dbi, &mkey, 0);
+   int rc = mdb_del(txnIter->second->txn_, dbi, &mkey, 0);
    if (rc != MDB_SUCCESS && rc != MDB_NOTFOUND)
       throw LMDBException("Failed to erase (" + errorString(rc) + ")");
 }
@@ -573,7 +610,7 @@ CharacterArrayRef LMDB::get_NoCopy(const CharacterArrayRef& key) const
    MDB_val mkey = { key.len, const_cast<char*>(key.data) };
    MDB_val mdata = { 0, 0 };
 
-   int rc = mdb_get(txnIter->second.txn_, dbi, &mkey, &mdata);
+   int rc = mdb_get(txnIter->second->txn_, dbi, &mkey, &mdata);
    if (rc == MDB_NOTFOUND)
       return CharacterArrayRef(0, (char*)nullptr);
    
