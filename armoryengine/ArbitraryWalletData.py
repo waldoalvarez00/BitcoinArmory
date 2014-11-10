@@ -138,7 +138,8 @@ class ArbitraryWalletData(WalletEntry):
 
 
    #############################################################################
-   '''
+   '''  I don't think this is needed anymore... it breaks the encouraged access
+        patterns for encrypted infinimap entries.
    def setEncryptedData(self, cryptData, newACI=None, ekey=None):
       if newACI:
          self.cryptInfo = newACI.copy()
@@ -159,7 +160,7 @@ class ArbitraryWalletData(WalletEntry):
 
    #############################################################################
    @EkeyMustBeUnlocked('ekeyRef')
-   def setPlaintextToEncrypt(self, plainData):
+   def setPlaintextToEncrypt(self, sbdPlain):
       """
       self.cryptInfo and self.ekeyRef must be set and the ekey must be
       unlocked before calling this method.  This method only destroys a copy
@@ -168,7 +169,7 @@ class ArbitraryWalletData(WalletEntry):
       """
       if self.noEncryption():
          raise EncryptionError('Attempted to set encrypted data to plain node')
-      sbdPlain = SecureBinaryData(plainData)
+      sbdPlain = SecureBinaryData(sbdPlain)
       lenPlain = sbdPlain.getSize()
       paddedLen = roundUpMod(lenPlain+4, ArbitraryWalletData.CRYPTPADDING)
       zeroBytes = '\x00'*(paddedLen - (lenPlain+4))
@@ -250,6 +251,18 @@ class ArbitraryWalletData(WalletEntry):
 
       return self
          
+   #############################################################################
+   def insertIntoInfinimap(self, infmap, errorIfDup=True):
+      node = infmap.getNode(self.keyList, doCreate=True)
+      if not node.isEmpty() and errorIfDup:
+         raise KeyError('Node "%s" already has data' % str(self.keyList))
+         
+      if not node.keyList == self.keyList:
+         raise ShouldNotGetHereError('Somehow returned key list does not match!?')
+
+      node.awdObj = self
+
+      
 
 
 
@@ -357,18 +370,6 @@ class InfinimapNode(object):
       return self.awdObj is None or self.awdObj.isEmpty()
 
 
-   #############################################################################
-   def insertIntoInfinimap(self, infmap, warnIfDup=True):
-      node = infmap.getNodeRecurse(self.keyList, doCreate=True)
-      if not self.isEmpty() and warnIfDup:
-         LOGWARN('Node "%s" already has data; overwriting.' % str(self.keyList))
-         
-      if not node.keyList == self.keyList:
-         raise ShouldNotGetHereError('Somehow returned key list does not match!?')
-
-      node.awdObj = self
-
-      
 
 
 
@@ -414,7 +415,7 @@ class Infinimap(object):
    # If the AWD object uses encryption, the ekey needs to be unlocked before
    # calling this method.  theData should always be unencrypted, and this
    # method will encrypt it on the way into the map.
-   def setData(self, keyList, theData, doCreate=True, warnIfDup=False):
+   def setData(self, keyList, theData, doCreate=True, errorIfDup=False):
       # By default we create the key path
       node = self.getNode(keyList, doCreate=doCreate)
       if node is None:
@@ -427,8 +428,8 @@ class Infinimap(object):
          if not isinstance(theData, SecureBinaryData):
             raise TypeError('Data for encrypted entry must be SecureBinaryData')
 
-      if warnIfDup and node.awdObj.dataStr and len(node.awdObj.dataStr)>0:
-         LOGWARN('Infinimap entry already has a value: %s' % str(keyList))
+      if errorIfDup and node.awdObj.dataStr and len(node.awdObj.dataStr)>0:
+         raise KeyError('Infinimap entry already has a value: %s' % str(keyList))
 
       node.awdObj.keyList = node.keyList[:]
 
@@ -438,10 +439,10 @@ class Infinimap(object):
          node.awdObj.setPlaintext(theData if theData is not None else '')
 
    #############################################################################
-   def createEncryptedEntry(self, keyList, cryptInfo, ekeyRef, warnIfDup=True):
+   def createEncryptedEntry(self, keyList, cryptInfo, ekeyRef, errorIfDup=True):
       node = self.getNode(keyList, doCreate=True)
-      if not node.isEmpty() and warnIfDup:
-         LOGWARN('Attempted to create node that exists: %s' % str(keyList))
+      if not node.isEmpty() and errorIfDup:
+         raise KeyError('Attempted create node that exists: %s' % str(keyList))
          
 
       node.enableEncryption(cryptInfo, ekeyRef)

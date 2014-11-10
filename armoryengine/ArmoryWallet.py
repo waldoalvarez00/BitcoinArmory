@@ -4,9 +4,16 @@ from WalletEntry import *
 from ArmoryKeyPair import *
 from Timer import *
 
-
+DEFAULT_COMPUTE_TIME_TARGET  = 0.25
+DEFAULT_MAXMEM_LIMIT         = 32*MEGABYTE
          
+################################################################################
 def CheckFsyncArgument(func):
+   """
+   This applies a default fsync argument based on whether the wallet was opened
+   in read-only.  It also throws an error if the caller attempted to call with
+   fsync=True on a wallet in RO mode.
+   """
 
    aspec = inspect.getargspec(func)
 
@@ -139,7 +146,7 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    @CheckFsyncArgument
-   def createNewKDFObject(self, kdfAlgo, fsync=True, **kdfCreateArgs):
+   def createNewKDFObject(self, kdfAlgo, fsync=None, **kdfCreateArgs):
       """
       ROMixOv2 is ROMix-over-2 -- it's the ROMix algorithm as described by 
       Colin Percival, but using only 1/2 of the number of LUT ops, in order
@@ -883,7 +890,7 @@ class ArmoryWalletFile(object):
                    extraEntropy=[SecureBinaryData, None])
    def generateNewSinglePwdSeedEkeyKDF(self, 
          rootClass, securePwd, extraEntropy, kdfAlgo='ROMIXOV2', 
-         kdfTargSec=0.25, kdfMaxMem=32*MEGABYTE, encrAlgo='AES256CBC',
+         kdfTargSec=0.25, kdfMaxMem=32*MEGABYTE, encrAlgo='AE256CBC',
          fillPool=True, fsync=None):
       
    
@@ -1033,16 +1040,24 @@ class ArmoryWalletFile(object):
          ekeyObj.checkLockTimeout()
 
 
-   #############################################################################
-   def writeFreshWalletFile(self, newPath, newName=None, newDescr=None, 
-                                 withOpaque=True,
-                                 withDisabled=True,
-                                 withUnrecognized=True,
-                                 withUnrecoverable=True):
-                                 withOrphan=True):
 
-      if newName is not None:
-         self.
+   #############################################################################
+   def writeFreshWalletFile_BASE(self, weFilterFunc,
+                                       newPath, 
+                                       newName=None
+                                       withOpaque=True,
+                                       withDisabled=True,
+                                       withUnrecognized=True,
+                                       withUnrecoverable=True,
+                                       withOrphan=True):
+
+      """
+      weFilterFunc should return None if we don't want to write the entry
+      to the wallet file at all.  Otherwise it should return a WE object
+      that can be serialized directly into the file.  
+
+      It's not just a filter, because 
+      """
       
       pathdir = os.path.dirname(newPath)
       pathfn  = os.path.basename(newPath)
@@ -1054,30 +1069,125 @@ class ArmoryWalletFile(object):
          raise FileExistsError('File already exists, will not overwrite')
 
 
-      weListList = [self.allWalletEntries]
-      if withOpaque:
-         weListList.append(self.opaqueList)
-      if withDisabled:
-         weListList.append(self.disabledList)
-      if withUnrecognized:
-         weListList.append(self.unrecognizedList)
-      if withOrphan:
-         weListList.append(self.wltParentMissing)
+      weListList = self.allWalletEntries[:]
+      if withOpaque:        weListList.append(self.opaqueList)
+      if withDisabled:      weListList.append(self.disabledList)
+      if withUnrecognized:  weListList.append(self.unrecognizedList)
+      if withOrphan:        weListList.append(self.wltParentMissing)
 
       with open(newPath, 'wb') as newWltFile:
-         newWltFile.write(self.fileHeader.serializeHeaderData())
-         if withOpaque: 
-            for we in self.opaqueList:
-               newWltFile.write(we.serializeEntry()) 
-            
-            
+         newWltFile.write(self.fileHeader.serializeHeaderData(altName=newName))
          for we in self.allWalletEntries:
-            newWltFile.write(we.serializeEntry())
+            newWE = weFilterFunc(we)
+            if not newWE is None:
+               newWltFile.write(newWE.serializeEntry())
 
 
-      for adb in self.arbitraryDataMap:
-         newWltFile
+   #############################################################################
+   def writeFreshWalletFile(self, rootList='ALL',
+                                  newPath, 
+                                  newName=None
+                                  withOpaque=True,
+                                  withDisabled=True,
+                                  withUnrecognized=True,
+                                  withUnrecoverable=True,
+                                  withOrphan=True):
 
+      """
+      Can pass in a list of entryIDs for "rootList" and only WalletEntry objs
+      with that wallet parent will be written into the new wallet file.
+      """
+      
+      def rootFilter(we):
+         if rootList=='ALL':
+            return we
+
+         inclID = we.getEntryID() if we.isRootRoot() else we.parEntryID
+         if inclID in rootList:
+            return we
+         else:
+            return None
+      
+
+      writeFreshWalletFile_BASE(rootFilter, newPath, newName, withOpaque, 
+               withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
+
+
+   
+   #############################################################################
+   def writeWatchOnlyCopy(self, newPath, 
+                                newName=None, 
+                                rootList='ALL',
+                                withOpaque=True,
+                                withDisabled=True,
+                                withUnrecognized=True,
+                                withUnrecoverable=True,
+                                withOrphan=True):
+
+      
+      def filterAndWipe(we):
+         inclID = we.getEntryID() if we.isRootRoot() else we.parEntryID
+         if not inclID in rootList:
+            return None
+
+         if isinstance(we, ArmoryKeyPair):
+            newWE = we.copy()
+            newWE.wipePrivateData()
+            return newWE
+         else:
+            return we
+            
+            
+      writeFreshWalletFile_BASE(filterAndWipe, newPath, newName, withOpaque, 
+               withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
+      
+
+
+   #############################################################################
+   @CheckFsyncArgument
+   def addArbitraryWalletData(self, parentRef, keyList, plainStr, fsync=None):
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
+
+      node.setPlaintext(plainStr)
+      node.awdObj.wltFileRef = self
+      node.awdObj.parEntryID = parentRef.getEntryID()
+      node.awdObj.wltParentRef = parentRef
+
+      if fsync:
+         node.awdObj.fsyncUpdates()
+      
+   #############################################################################
+   @CheckFsyncArgument
+   def addArbitraryWalletData_Encrypted(self, parentRef, keyList, plainStr, 
+                                                            ekeyID, fsync=None):
+      ekey = self.ekeyMap.get(ekeyID)
+      if ekey is None:
+         raise EncryptionError('Cannot set encrypted data without ekey')
+
+      if ekey.isLocked():
+         raise WalletLockError('Ekey %s is locked, cannot encrypt data')
+
+      randIV = SecureBinaryData().GenerateRandom(8).toBinStr()
+      awdCryptInfo = ArmoryCryptInfo(NULLKDF, 'AE256CBC', ekeyID, randIV)
+
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
+      node.awdObj.enableEncryption(awdCryptInfo, ekey)
+
+      # If we got here, the node was created, encryption was set
+      node.setPlaintextToEncrypt(plainStr)
+      node.awdObj.wltFileRef = self
+      node.awdObj.parEntryID = parentRef.getEntryID()
+      node.awdObj.wltParentRef = parentRef
+      
+      if fsync:
+         node.awdObj.fsyncUpdates()
+
+   #############################################################################
+   @CheckFsyncArgument
+   def updateArbitraryWalletData(self, keyList, plainStr):
+      # If node is encrypted, expect SBD plainstr, else regular python str
+      self.arbitraryDataMap.setData(keyList, plainStr, doCreate=False)
+      
 
    #############################################################################
    # 
@@ -1256,7 +1366,7 @@ class ArmoryFileHeader(object):
       # of Armory don't attempt to load the 2.0 wallets
       LOGDEBUG('Creating file header')
       self.flags         = BitSet(32)
-      self.wltFileName   = None
+      self.wltUserName   = u''
       self.createTime    = UINT64_MAX
       self.createBlock   = UINT32_MAX
       self.rsecParity    = RSEC_PARITY_BYTES
@@ -1274,7 +1384,7 @@ class ArmoryFileHeader(object):
    #############################################################################
    def initialize(self, flags, wltName, timeCreate=0, blkCreate=0):
       self.flags = flags
-      self.wltFileName = flags
+      self.wltUserName = wltName
       self.createTime = timeCreate
       self.createBlock = blkCreate
 
@@ -1283,7 +1393,7 @@ class ArmoryFileHeader(object):
 
 
    #############################################################################
-   def serializeHeaderData(self):
+   def serializeHeaderData(self, altName=None):
       """
       We leave a lot of extra space in header for future expansion, since
       header data is always up front, it's always got to be the same size.
@@ -1297,7 +1407,9 @@ class ArmoryFileHeader(object):
       self.flags.setBit(1, self.isSupplemental)
 
 
-      wltNameTruncPad = toBytes(unicode_truncate(self.wltFileName, 64))
+      wltNameTruncPad = toBytes(unicode_truncate(self.wltUserName, 64))
+      if altName:
+         wltNameTruncPad = toBytes(unicode_truncate(altName, 64))
       
       
       hdata = BinaryPacker()

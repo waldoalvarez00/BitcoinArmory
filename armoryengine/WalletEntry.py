@@ -66,7 +66,6 @@ class WalletEntry(object):
    RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
                  'Check':  ReedSolomonWrapper.checkRSECCode}
 
-   NOPARENT = 'ROOTROOT'
 
    #############################################################################
    @staticmethod
@@ -192,14 +191,11 @@ class WalletEntry(object):
    def getEntryID(self):
       raise NotImplementedError('This must be overriden by derived class!')
 
-   #############################################################################
-   def isRootRoot(self):
-      return self.parEntryID == WalletEntry.NOPARENT
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
-      if self.isRootRoot():
-         self.wltParentRef = None
+      if self.isRootRoot:
+         self.wltParentRef = self
          return
          
 

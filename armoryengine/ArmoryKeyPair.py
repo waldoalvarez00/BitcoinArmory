@@ -104,7 +104,7 @@ class ArmoryKeyPair(WalletEntry):
       self.privKeyNextUnlock = False
       self.akpParScrAddr   = None
       self.childIndex      = None
-      self.isRootRoot      = False
+      self.isAkpRootRoot   = False
 
       # Used for the recursive fill-keypool call
       self.childPoolSize   = DEFAULT_CHILDPOOLSIZE[self.getName()]
@@ -244,7 +244,7 @@ class ArmoryKeyPair(WalletEntry):
       self.masterEkeyRef = wltFileRef.ekeyMap.get(self.privCryptInfo.keySource)
       self.masterKdfRef  = wltFileRef.kdfMap.get(self.privCryptInfo.kdfObjID)
 
-      if not self.isRootRoot:
+      if not self.isAkpRootRoot:
          foundParent = wltFileRef.allKeyPairObjects.get(self.akpParScrAddr)
          if foundParent is None:
             self.isDisabled = True
@@ -308,6 +308,12 @@ class ArmoryKeyPair(WalletEntry):
       return self.getScrAddr()
 
    #############################################################################
+   def copy(self):
+      newAKP = self.__class__()
+      newAKP.copyFromAKP(self)
+      return newAKP
+
+   #############################################################################
    def copyFromAKP(self, other):
       """
       Note:  This copies just the base class AKP members.  It doesn't copy
@@ -327,6 +333,7 @@ class ArmoryKeyPair(WalletEntry):
       self.keyBornTime     = other.keyBornTime
       self.keyBornBlock    = other.keyBornBlock
       self.privKeyNextUnlock = other.privKeyNextUnlock
+      self.isAkpRootRoot   = other.isAkpRootRoot
 
       self.akpParScrAddr   = other.akpParScrAddr
       self.childIndex      = other.childIndex
@@ -398,7 +405,7 @@ class ArmoryKeyPair(WalletEntry):
 
    #############################################################################
    def initializeAKP(self, isWatchOnly,
-                           isRootRoot,
+                           isAkpRootRoot,
                            privCryptInfo,
                            sbdPrivKeyData,
                            sbdPublicKey33,
@@ -414,15 +421,8 @@ class ArmoryKeyPair(WalletEntry):
 
       self.__init__()
 
-      if isRootRoot:
-         akpParScrAddr = None
-         childIndex = None
-
-      # Convert '' to None
-      akpParScrAddr = akpParScrAddr if akpParScrAddr else None
-
       self.isWatchOnly     = isWatchOnly
-      self.isRootRoot      = isRootRoot
+      self.isAkpRootRoot   = isAkpRootRoot
       self.privCryptInfo   = privCryptInfo
       self.sbdPrivKeyData  = SecureBinaryData(sbdPrivKeyData)
       self.sbdPublicKey33  = SecureBinaryData(sbdPublicKey33)
@@ -439,16 +439,18 @@ class ArmoryKeyPair(WalletEntry):
       if self.sbdPublicKey33.getSize() == 65:
          self.sbdPublicKey33 = CryptoECDSA().CompressPoint(self.sbdPublicKey33)
 
-      if isRootRoot:
-         self.akpParScrAddr = None
-         self.childIndex    = None
-      
 
       self.recomputeScript()
       self.recomputeScrAddr()
       self.recomputeUniqueIDBin()
       self.recomputeUniqueIDB58()
 
+      if isAkpRootRoot:
+         # If parentless root (aka root-root), then set itself as parent
+         self.akpParScrAddr = self.getScrAddr()
+         self.akpParentRef  = self
+         self.childIndex    = None
+      
 
    
       
@@ -461,19 +463,18 @@ class ArmoryKeyPair(WalletEntry):
 
       flags = BitSet(16)
       flags.setBit(0, self.isWatchOnly)
-      flags.setBit(1, self.isRootRoot)
+      flags.setBit(1, self.isAkpRootRoot)
       flags.setBit(2, self.useCompressPub)
       flags.setBit(3, self.privKeyNextUnlock)
       flags.setBit(4, self.isUsed)
       flags.setBit(5, self.notForDirectUse)
 
+      akpParSA = self.akpParScrAddr
+      childIdx = self.childIndex
+      if self.isAkpRootRoot or self.akpParScrAddr is None:
+         akpParSA = '' 
+         childIdx = 0 
       
-      parScrAddr = self.akpParScrAddr
-      childIndex = self.childIndex
-      if self.isRootRoot or parScrAddr is None:
-         parScrAddr = '' 
-         childIndex = 0 
-
       # We are not committed to fixed-width wallet entries.  Might as well
       # Save space if fields are empty by using VAR_STRs
       bp = BinaryPacker()
@@ -486,8 +487,8 @@ class ArmoryKeyPair(WalletEntry):
       bp.put(VAR_STR,       self.sbdChaincode.toBinStr())
       bp.put(UINT64,        self.keyBornTime)
       bp.put(UINT32,        self.keyBornBlock)
-      bp.put(VAR_STR,       parScrAddr)
-      bp.put(UINT32,        childIndex)
+      bp.put(VAR_STR,       akpParSA)
+      bp.put(UINT32,        childIdx)
 
       # Add Reed-Solomon error correction 
       akpData = bp.getBinaryString()
@@ -549,19 +550,15 @@ class ArmoryKeyPair(WalletEntry):
          return we
       
       isWatchOnly       = flags.getBit(0)
-      isRootRoot        = flags.getBit(1)
+      isAkpRootRoot     = flags.getBit(1)
       useCompressPub    = flags.getBit(2)
       privKeyNextUnlock = flags.getBit(3)
       isUsed            = flags.getBit(4)
       notForDirectUse   = flags.getBit(5)
 
 
-      if isRootRoot:
-         akpParScrAddr = None
-         childIndex = None
-
       self.initializeAKP( isWatchOnly,
-                          isRootRoot,
+                          isAkpRootRoot,
                           pcryptInfo, 
                           SecureBinaryData(privk),
                           SecureBinaryData(pubk),
@@ -1091,12 +1088,21 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       self.seedCryptInfo  = NULLCRYPTINFO()
       self.seedNumBytes   = 0
       self.sbdSeedData    = SecureBinaryData(0)
-      self.isRootRoot     = True
 
-      # This root has no key data.  Mainly for JBOK
+      # This root has no key data.  Mainly for JBOK.
       self.isFakeRoot    = False  
+   
+      # Might be used only to generate deposit addresses, don't show balances
       self.isDepositOnly = False  
+
+      # This might be used for, say, backups of phone wallets.  We can hold
+      # the key data on this device/computer, watch the funds, refill it, etc.
+      # But we don't want to give the ability to move the funds unless the 
+      # user, loses their phone, and needs to sweep the funds immediately.
       self.isRestricted  = False  
+
+      # We make this AKP object its own parent, so that methods which look
+      # for all WEs/AKPs with a given parent will also grab the parent itself
       self.wltParentRef  = self
 
 
@@ -1106,6 +1112,17 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
                                                              self.getName())
 
 
+   #############################################################################
+   def copy(self):
+      newAKP = super(ArmorySeededKeyPair, self).copy()
+      newAKP.seedCryptInfo = self.seedCryptInfo.copy()
+      newAKP.seedNumBytes  = self.seedNumBytes  
+      newAKP.sbdSeedData   = self.sbdSeedData.copy()
+      newAKP.isFakeRoot    = self.isFakeRoot    
+      newAKP.isDepositOnly = self.isDepositOnly 
+      newAKP.isRestricted  = self.isRestricted  
+      newAKP.wltParentRef  = newAKP
+      return newAKP
 
    #############################################################################
    @EkeyMustBeUnlocked('masterEkeyRef')
@@ -1229,7 +1246,7 @@ class Armory135KeyPair(ArmoryKeyPair):
       self.root135Ref = None
       self.root135ScrAddr = None
       self.maxChildren = 1
-      self.isRootRoot  = False
+      self.isAkpRootRoot  = False
 
 
    
@@ -1238,6 +1255,14 @@ class Armory135KeyPair(ArmoryKeyPair):
    def getChildClass(self):
       return Armory135KeyPair
       
+   #############################################################################
+   def copy(self):
+      newAKP = super(Armory135KeyPair, self).copy()
+      newAKP.chainIndex      = self.chainIndex 
+      newAKP.childIndex      = self.childIndex 
+      newAKP.root135Ref      = self.root135Ref 
+      newAKP.root135ScrAddr  = self.root135ScrAddr 
+      return newAKP
 
    #############################################################################
    def getAddrObjByPath(self, pathList, privSpawnReqd=False):
@@ -1259,7 +1284,8 @@ class Armory135KeyPair(ArmoryKeyPair):
                               
 
    #############################################################################
-   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, linkToParent=True, forIDCompute=False, currBlk=0):
+   def spawnChild(self, childID=0, privSpawnReqd=False, fsync=True, 
+                           linkToParent=True, forIDCompute=False, currBlk=0):
       """
       Spawn an Armory135KeyPair from another one.
       """
@@ -1500,12 +1526,21 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       self.rootNextToCalc    = 0
       self.root135Ref        = self
       self.root135ScrAddr    = self.getScrAddr()
-      self.isRootRoot        = False
+      self.isAkpRootRoot     = True
 
 
    #############################################################################
    def getChildClass(self):
       return Armory135KeyPair
+
+   #############################################################################
+   def copy(self):
+      newAKP = super(Armory135Root, self).copy()
+      newAKP.root135ChainMap   = self.root135ChainMap.copy()
+      newAKP.root135ScrAddrMap = self.root135ScrAddrMap.copy()
+      newAKP.rootLowestUnused  = self.rootLowestUnused 
+      newAKP.rootNextToCalc    = self.rootNextToCalc 
+      return newAKP
 
    #############################################################################
    def fillKeyPool(self, fsync=True):
@@ -1760,7 +1795,8 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
 
 
    #############################################################################
-   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, linkToParent=True, forIDCompute=False, currBlk=0):
+   def spawnChild(self, childID, privSpawnReqd=False, fsync=True, 
+                           linkToParent=True, forIDCompute=False, currBlk=0):
       """
       Derive a child extended key from this one. 
 
@@ -1953,8 +1989,13 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
    def __init__(self):
       ArmoryBip32ExtendedKey.__init__(self)
       ArmorySeededKeyPair.__init__(self)
-      self.isRootRoot  = True
+      self.isAkpRootRoot  = True
 
+   #############################################################################
+   def copy(self):
+      # We actually inherit from two different classes, but the ABEK class 
+      # doesn't have any special copy method, so we just use ASKP.copy()
+      return ArmorySeededKeyPair.copy(self)
 
    #############################################################################
    @EkeyMustBeUnlocked('masterEkeyRef')
@@ -2089,7 +2130,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
    def __init__(self):
       super(ArmoryImportedRoot, self).__init__()
       self.isFakeRoot = True
-      self.isRootRoot = True
+      self.isAkpRootRoot = True
       self.childIndex = None
       self.maxChildren = 0
       self.privCryptInfo = NULLCRYPTINFO()
@@ -2116,7 +2157,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
       pubk = CryptoECDSA().ComputePublicKey(priv)
       chain = NULLSBD()
       self.initializeAKP(isWatchOnly=False,
-                         isRootRoot=True,
+                         isAkpRootRoot=True,
                          privCryptInfo=aci,
                          sbdPrivKeyData=priv,
                          sbdPublicKey33=pubk,
@@ -2433,20 +2474,32 @@ class MultisigMetaData(WalletEntry):
       self.preferredSibID = None
 
 
+
+
+
+
 ################################################################################
 class MultisigABEK(ArmoryBip32ExtendedKey):
    """
-   "KeyPair" is a misnomer in this class name, but it behaves like (and derives
-   from) the ArmoryKeyPair class.  It can be used almost identically to the
-   other AKP objects, but instead of storing keydata, it references N different
-   AKP objects to be used as part of a multisig.  
-
-   For instance, "spawnChild" simply calls "spawnChild" of all the multisig
-   "siblings", and then combines the result into an M-of-N script.
+   Theoretically, we could've made this an instance of the ScriptTemplateABEK
+   class, but the details of that class were not fully defined, whereas the
+   funcationality of this class is.
    """
    #############################################################################
    def __init__(self):
       super(MultisigABEK, self).__init__()
+
+      # Template multisig 
+      self.M = None
+      self.N = None
+      self.maxChildren = None
+      self.sibScrAddrs = None
+
+      # These will be set later to reference other stuff in the wallet file
+      self.isComplete  = False
+      self.sibLookup   = None
+      self.prefSibling = None  # for determining internal/external chain pair
+      self.siblingRefs = None
 
    #############################################################################
    def initializeMBEK(M=None, N=None, sibScrAddrList=None, lblList=None):
@@ -2840,6 +2893,42 @@ class MBEK_Generic(MultisigABEK):
 
    def getChildClass(self, index): 
       return ABEK_Generic
+
+
+
+
+################################################################################
+class ScriptTemplateABEK(ArmoryBip32ExtendedKey):
+   """
+   Here we define a mechanism to create a wallet based on any arbitrary
+   script.  The "wallet" will store a script template that includes N public
+   key slots, and reference N "notForDirectUse" public key chains to be used 
+   to fill those slots.  
+   """
+
+   def __init__(self):
+      super(ScriptTemplateABEK, self).__init__()
+
+      # Template multisig 
+      self.scriptTemplate = ScriptTemplate()
+      self.N =  None
+      self.maxChildren = None
+      self.sibScrAddrs = None
+
+      # These will be set later to reference other stuff in the wallet file
+      self.isComplete  = False
+      self.sibLookup   = None
+      self.prefSibling = None  # for determining internal/external chain pair
+      self.siblingRefs = None
+
+
+   #############################################################################
+   def initializeSTBEK(M=None, N=None, sibScrAddrList=None, lblList=None):
+      self.M = M if M else 0
+      self.N = N if N else 0
+      self.maxChildren = 2*N
+      self.sibScrAddrs = []
+   
 
 
 

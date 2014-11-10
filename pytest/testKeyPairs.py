@@ -188,16 +188,18 @@ def runSerUnserRoundTripTest(tself, akp):
       if hasattr(a, prop) and hasattr(b, prop):
          tself.assertEqual(getattr(a, prop), getattr(b, prop))
 
-   CLASSAKP = akp.__class__
-   ser1     = akp.serialize()  
-   akpNew   = CLASSAKP().unserialize(ser1)
-   ser2     = akpNew.serialize()
-   akpNew2  = CLASSAKP().unserialize(ser2)
+   # We test serialize, unserialize and copy, all at once
+   CLASSAKP   = akp.__class__
+   ser1       = akp.serialize()  
+   akpNew     = CLASSAKP().unserialize(ser1)
+   akpNewCopy = akpNew.copy()
+   ser2       = akpNewCopy.serialize()
+   akpNew2    = CLASSAKP().unserialize(ser2)
    
 
    # Now check that all the properties are identical
    cmpprop(akpNew, akpNew2, 'isWatchOnly')
-   cmpprop(akpNew, akpNew2, 'isRootRoot')
+   cmpprop(akpNew, akpNew2, 'isAkpRootRoot')
    cmpprop(akpNew, akpNew2, 'sbdPrivKeyData')
    cmpprop(akpNew, akpNew2, 'sbdPublicKey33')
    cmpprop(akpNew, akpNew2, 'sbdChaincode')
@@ -590,7 +592,7 @@ class ABEK_Tests(unittest.TestCase):
 
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
-                         isRootRoot=False,
+                         isAkpRootRoot=False,
                          privCryptInfo=NULLCRYPTINFO(),
                          sbdPrivKeyData=sbdPriv,
                          sbdPublicKey33=sbdPubk,
@@ -664,7 +666,7 @@ class ABEK_Tests(unittest.TestCase):
       # Do this both for priv-key-based derivation and WO-based deriv
       for testWatchOnly in [True,False]:
          echain.initializeAKP(isWatchOnly=testWatchOnly,
-                              isRootRoot=False,
+                              isAkpRootRoot=False,
                               privCryptInfo=NULLCRYPTINFO(),
                               sbdPrivKeyData=sbdPriv,
                               sbdPublicKey33=sbdPubk,
@@ -725,7 +727,7 @@ class ABEK_Tests(unittest.TestCase):
 
       for testWatchOnly in [True,False]:
          awlt.initializeAKP(  isWatchOnly=testWatchOnly,
-                              isRootRoot=False,
+                              isAkpRootRoot=False,
                               privCryptInfo=NULLCRYPTINFO(),
                               sbdPrivKeyData=sbdPriv,
                               sbdPublicKey33=sbdPubk,
@@ -925,7 +927,7 @@ class ABEK_Tests(unittest.TestCase):
 
       t = long(RightNow())
       abek.initializeAKP(isWatchOnly=False,
-                         isRootRoot=False,
+                         isAkpRootRoot=False,
                          privCryptInfo=self.privACI,
                          sbdPrivKeyData=privCrypt,
                          sbdPublicKey33=sbdPubk,
@@ -1173,7 +1175,7 @@ class ABEK_Tests(unittest.TestCase):
 
       t = long(RightNow())
       echain.initializeAKP(isWatchOnly=False,
-                           isRootRoot=False,
+                           isAkpRootRoot=False,
                            privCryptInfo=self.privACI,
                            sbdPrivKeyData=privCrypt,
                            sbdPublicKey33=sbdPubk,
@@ -1246,7 +1248,7 @@ class ABEK_Tests(unittest.TestCase):
 
       t = long(RightNow())
       awlt.initializeAKP(isWatchOnly=False,
-                         isRootRoot=False,
+                         isAkpRootRoot=False,
                          privCryptInfo=self.privACI,
                          sbdPrivKeyData=privCrypt,
                          sbdPublicKey33=sbdPubk,
@@ -2924,6 +2926,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
       
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testImportedInit(self):
 
       for i in range(2):
@@ -2984,6 +2987,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testImportedCompressed(self):
 
       for i in range(2):
@@ -3003,7 +3007,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
          uniqID  = '' if i==0 else hash256(sbdPubkCompr.toBinStr())[:6]
    
          aikp.initializeAKP(isWatchOnly=False,
-                            isRootRoot=False,
+                            isAkpRootRoot=False,
                             privCryptInfo=NULLCRYPTINFO(),
                             sbdPrivKeyData=sbdPriv,
                             sbdPublicKey33=sbdPubk,
@@ -3020,7 +3024,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
    
                               
          self.assertEqual(aikp.isWatchOnly, False)
-         self.assertEqual(aikp.isRootRoot, False)
+         self.assertEqual(aikp.isAkpRootRoot, False)
          self.assertEqual(aikp.sbdPrivKeyData, sbdPriv)
          self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
          self.assertEqual(aikp.sbdPublicKey33, sbdPubkCompr)
@@ -3052,6 +3056,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skipIf(skipFlagExists(), '')
    def testImportedUncompressed(self):
       for i in range(2):
          aikp    =  ArmoryImportedKeyPair() if i==0 else  ArmoryImportedRoot()
@@ -3066,7 +3071,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
          uniqID  = '' if i==0 else hash256(sbdPubk.toBinStr())[:6]
    
          aikp.initializeAKP(isWatchOnly=False,
-                           isRootRoot=False,
+                           isAkpRootRoot=False,
                            privCryptInfo=NULLCRYPTINFO(),
                            sbdPrivKeyData=sbdPriv,
                            sbdPublicKey33=sbdPubk,
@@ -3083,7 +3088,7 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
    
                               
          self.assertEqual(aikp.isWatchOnly, False)
-         self.assertEqual(aikp.isRootRoot, False)
+         self.assertEqual(aikp.isAkpRootRoot, False)
          self.assertEqual(aikp.sbdPrivKeyData, sbdPriv)
          self.assertEqual(aikp.getPlainPrivKeyCopy(), sbdPriv)
          self.assertEqual(aikp.sbdPublicKey33, sbdPubkCompr)
@@ -3135,20 +3140,22 @@ class Imported_NoCrypt_Tests(unittest.TestCase):
       airt.createNewRoot(pregenRoot=sbdPrivRoot, currBlk=10)
       uniqID = hash256(sbdPubRtCompr.toBinStr())[:6]
 
-      self.assertEqual(airt.isRootRoot, True)
+
+      self.assertEqual(airt.isAkpRootRoot, True)
       self.assertEqual(airt.sbdPrivKeyData, sbdPrivRoot)
       self.assertEqual(airt.sbdPublicKey33, sbdPubRtCompr)
       self.assertEqual(airt.sbdChaincode, NULLSBD())
       self.assertEqual(airt.useCompressPub, True)
       self.assertEqual(airt.keyBornBlock, 10)
-      self.assertEqual(airt.akpParScrAddr, None)
+      self.assertEqual(airt.akpParScrAddr, airt.getScrAddr())
+      #self.assertEqual(airt.akpParScrAddr, scrAddrRoot) #scraddr is for uncompr
       self.assertEqual(airt.childIndex, None)
       self.assertEqual(airt.maxChildren, 0)
       self.assertEqual(airt.uniqueIDBin, uniqID)
       self.assertEqual(airt.uniqueIDB58, binary_to_base58(uniqID))
 
       aikp.initializeAKP(isWatchOnly=False,
-                         isRootRoot=False,
+                         isAkpRootRoot=False,
                          privCryptInfo=NULLCRYPTINFO(),
                          sbdPrivKeyData=sbdPrivAikp,
                          sbdPublicKey33=sbdPubkAikp,

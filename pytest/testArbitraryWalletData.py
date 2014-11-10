@@ -239,6 +239,25 @@ class InfinimapTests(unittest.TestCase):
       self.assertEqual(inf.getData(['a','b','c']), sbdNew)
 
 
+   #############################################################################
+   def testInsertObject(self):
+      inf = Infinimap()
+      inf.setData(['a','b','c'],       'Helloabc')
+      inf.setData(['a','b'],           '')
+      inf.setData(['a','z'],           'skipped a few')
+      inf.setData(['123','456','789'], 'numbers')
+      inf.setData(['123'],             'lessnumbers')
+      inf.setData(['123', '3', 'a'],   'something different')
+      inf.setData(['123', '3', 'ab'],  'and simple')
+
+      newStr = 'test insert!'
+      awd = ArbitraryWalletData(['123','4'], newStr)
+      self.assertEqual(inf.countNonEmpty(), 6)
+      awd.insertIntoInfinimap(inf)
+      self.assertEqual(inf.countNonEmpty(), 7)
+      self.assertEqual(inf.getData(['123','4']), newStr)
+
+
 
 
 ################################################################################
