@@ -17,11 +17,15 @@ def createRSECCode(data, rsecBytes=RSEC_PARITY_BYTES,
    parity, 16 for the first 1024, 16 for the next 1024, and 16 for
    the last 452.
    """
+
+   LOGERROR('TODO: TEMPORARILY DISABLED RS ERROR CORRECTION.  FIXME')
+
    parity = []
-   nChunk = (data-1)/perDataBytes + 1
+   nChunk = (len(data)-1)/perDataBytes + 1
    for i in range(nChunk):
       byte0, byte1 = i*perDataBytes, (i+1)*perDataBytes
-      parity.append(Cpp.GetParityBytes(data[byte0:byte1], rsecBytes))
+      #parity.append(Cpp.GetParityBytes(data[byte0:byte1], rsecBytes))
+      parity.append('\x00'*RSEC_PARITY_BYTES)
    return ''.join(parity)
 
 
@@ -36,12 +40,14 @@ def checkRSECCode(data, parity):
    If parity is all zero bytes, then we ignore it and return the data as-is.
    """
 
+   LOGERROR('TODO: TEMPORARILY DISABLED RS ERROR CORRECTION.  FIXME')
+
    if len(parity)==parity.count('\x00'):
       # Parity is NULL, ignore it and return the input
       return data, False, False
    else:
       # Parity bytes are non-zero, check for (and correct) errors, if possible
-      correctData = CheckRSErrorCorrect(data, parity)
+      correctData = Cpp.CheckRSErrorCorrect(data, parity)
       if len(correctData) == 0:
          return '', True, False
       elif correctData==data:

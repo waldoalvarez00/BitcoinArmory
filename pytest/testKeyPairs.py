@@ -181,6 +181,10 @@ def skipFlagExists():
 def runSerUnserRoundTripTest(tself, akp):
    """
    Can be run with "self" as the first arg from inside a TestCase subclass
+
+   This started out as just a serialize-unserialize round-trip test to be
+   run on AKP objects all over the place, but it has turned into a much more
+   exhaustive test, now checking key encodings, and variable consistency.
    """
    # Compare all properties for all classes, this function ignores a call 
    # properties that don't exist for the input objects
@@ -258,6 +262,10 @@ def runSerUnserRoundTripTest(tself, akp):
       tself.assertEqual(akpNew.getSerializedPrivKey('sipa'), sipaPriv)
       tself.assertEqual(akpNew.getSerializedPrivKey('sipa'), 
             encodePrivKeyBase58(sbdPriv.toBinStr(), isCompressed=akpNew.useCompressPub))
+
+   # Check that if rootroot, it is marked as its own parent
+   if akpNew2.isAkpRootRoot:
+      tself.assertEqual(akpNew2.getScrAddr(), akpNew2.akpParScrAddr)
 
 
 

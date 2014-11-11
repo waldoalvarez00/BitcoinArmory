@@ -13,20 +13,24 @@ from ArmoryKeyPair import *
 from Timer import *
 
 ################################################################################
-class AddressLabel(WalletEntry):
+class ScrAddrLabel(WalletEntry):
   
    FILECODE = 'ADDRLABL' 
 
+   #############################################################################
    def __init__(self):
-      super(AddressLabel, self).__init__()
+      super(ScrAddrLabel, self).__init__()
       self.scrAddr = None
       self.label   = None
+      self.akpRef  = None
 
+   #############################################################################
    def initialize(self, scrAddrStr=None, lbl=None):
       self.scrAddr = scrAddrStr
       self.label   = toUnicode(lbl)
       
 
+   #############################################################################
    def serialize(self):
       if self.scrAddrStr is None:
          raise UninitializedError('AddrLabel not initialized')
@@ -36,12 +40,22 @@ class AddressLabel(WalletEntry):
       bp.put(VAR_UNICODE, self.label)
       return bp.getBinaryString()
 
+   #############################################################################
    def unserialize(self, theStr):
       bu = makeBinaryUnpacker(theStr)
       scraddr = bu.get(VAR_STR)
       lbl     = bu.get(VAR_UNICODE)
       self.__init__(scraddr, lbl)
       return self
+
+   #############################################################################
+   def linkWalletEntries(self, wltRef):
+      akp = wltRef.masterScrAddrMap.get(self.scrAddr)
+      if akp:
+         self.akpRef = akp
+         akp.scrAddrLabelRef = self
+         
+      
 
 
 ################################################################################
@@ -91,11 +105,13 @@ class TxLabel(WalletEntry):
       self.uComment = bu.get(VAR_UNICODE)
       return self
 
+   #############################################################################
+   def linkWalletEntries(self, wltRef):
+      pass
 
 
 
 
-WalletEntry.RegisterWalletStorageClass(AddressLabel)
+WalletEntry.RegisterWalletStorageClass(ScrAddrLabel)
 WalletEntry.RegisterWalletStorageClass(TxLabel)
-WalletEntry.RegisterWalletStorageClass(ArbitraryDataBlob)
 

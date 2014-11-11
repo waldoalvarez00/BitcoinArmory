@@ -79,6 +79,82 @@ def skipFlagExists():
 
 
 #############################################################################
+def compareWalletObjs(tself, wlt1, wlt2):
+   
+   def cmpLen(a,b,prop):
+      if hasattr(a, prop) and hasattr(b, prop):
+         tself.assertEqual(len(getattr(a, prop)), len(getattr(b, prop)))
+
+
+   cmpLen(wlt1, wlt2, 'allWalletEntries')
+   cmpLen(wlt1, wlt2, 'allKeyPairObjects')
+   cmpLen(wlt1, wlt2, 'displayableWalletsMap')
+   cmpLen(wlt1, wlt2, 'allRootRoots')
+   cmpLen(wlt1, wlt2, 'lockboxMap')
+   cmpLen(wlt1, wlt2, 'ekeyMap')
+   cmpLen(wlt1, wlt2, 'kdfMap')
+   cmpLen(wlt1, wlt2, 'masterScrAddrMap')
+   cmpLen(wlt1, wlt2, 'opaqueList')
+   cmpLen(wlt1, wlt2, 'unrecognizedList')
+   cmpLen(wlt1, wlt2, 'unrecoverableList')
+   cmpLen(wlt1, wlt2, 'wltParentMissing')
+   cmpLen(wlt1, wlt2, 'disabledRootIDs')
+   cmpLen(wlt1, wlt2, 'disabledList')
+   tself.assertEqual(wlt1.arbitraryDataMap.countNodes(), 
+                     wlt2.arbitraryDataMap.countNodes())
+
+   def cmpMapKeys(a,b,prop):
+      if hasattr(a, prop) and hasattr(b, prop):
+         mapA = getattr(a, prop)
+         mapB = getattr(b, prop)
+         if not isinstance(mapA, dict) or not isinstance(mapB, dict):
+            raise KeyError('Supplied property is not a map: %s' % prop)
+         for key in mapA:
+            self.assertTrue(key in mapB)
+
+   cmpMapKeys(wlt1, wlt2, 'allKeyPairObjects')
+   cmpMapKeys(wlt1, wlt2, 'displayableWalletsMap')
+   cmpMapKeys(wlt1, wlt2, 'allRootRoots')
+   cmpMapKeys(wlt1, wlt2, 'lockboxMap')
+   cmpMapKeys(wlt1, wlt2, 'ekeyMap')
+   cmpMapKeys(wlt1, wlt2, 'kdfMap')
+   cmpMapKeys(wlt1, wlt2, 'masterScrAddrMap')
+      
+   def cmpprop(a,b,prop):
+      if hasattr(a, prop) and hasattr(b, prop):
+         tself.assertEqual(getattr(a, prop), getattr(b, prop))
+
+
+
+#############################################################################
+def writeReadWalletRoundTripTest(tself, wlt):
+   wltDir = 'tempwallets'
+   if not os.path.exists(wltDir):
+      os.makedirs(wltDir)
+
+   tstr = str(RightNow())
+   fnameA = os.path.join(wltDir, 'testWltRW_%s_A.wallet' % tstr)
+   fnameB = os.path.join(wltDir, 'testWltRW_%s_B.wallet' % tstr)
+   fnameC = os.path.join(wltDir, 'testWltRW_%s_C.wallet' % tstr)
+
+   for f in [fnameA, fnameB, fnameC]:
+      if os.path.exists(f):
+         raise FileExistsError('Temporary wallet file already exists')
+      
+
+   try:
+      wlt.writeFreshWalletFile(fname)
+      wlt2 = ArmoryWallet.ReadWalletFile(fname)
+      compareWalletObjs(wlt, wlt2)
+   finally:
+      for f in [fnameA, fnameB, fnameC]:
+         if os.path.exists(f):
+            os.remove(f)
+            
+   
+   
+
+#############################################################################
 def runSerUnserRoundTripTest(tself, obj):
    """
    Can be run with "self" as the first arg from inside a TestCase subclass
@@ -145,13 +221,45 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       
 
    #############################################################################
+   def roundTripTest(self, afh):
+      afhSer  = afh.serializeHeaderData()
+      afh2    = ArmoryFileHeader.Unserialize(afhSer)
+      afhSer2 = afh2.serializeHeaderData()
+      afh3    = ArmoryFileHeader.Unserialize(afhSer2)
+      self.assertEqual(afhSer, afhSer2)
+      
+      def cmpAFH(prop):
+         self.assertEqual(getattr(afh, prop), getattr(afh3, prop))
+
+      cmpAFH('wltUserName')
+      cmpAFH('createTime')
+      cmpAFH('createBlock')
+      cmpAFH('rsecParity')
+      cmpAFH('rsecPerData')
+      cmpAFH('isDisabled')
+      cmpAFH('headerSize')
+      cmpAFH('isTransferWallet')
+      cmpAFH('isSupplemental')
+
+
+
+   #############################################################################
    def test_CreateAFH(self):
+      
       afh = ArmoryFileHeader()
       
       afh.isTransferWallet = True
       afh.isSupplemental = False
 
-      afh.createTime(
+      afh.createTime  = long(1.4e9)
+      afh.createBlock = 320000
+      afh.wltUserName = u''
+      afh.rsecParity  = RSEC_PARITY_BYTES
+      afh.rsecPerData = RSEC_PER_DATA_BYTES
+      afh.isDisabled  = False
+      afh.headerSize  = ArmoryFileHeader.DEFAULTSIZE
+
+      self.roundTripTest(afh)
 
 
 
@@ -162,6 +270,7 @@ class SimpleWalletTests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
+      pass
 
       
 
@@ -175,3 +284,9 @@ class SimpleWalletTests(unittest.TestCase):
    def test_InitABEK(self):
       abek = ABEK_Generic()
 
+
+
+
+
+if __name__ == "__main__":
+   unittest.main()

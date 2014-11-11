@@ -124,6 +124,7 @@ class ArmoryKeyPair(WalletEntry):
       self.akpParentRef       = None
       self.masterEkeyRef      = None
       self.masterKdfRef       = None
+      self.scrAddrLabelRef    = None
 
 
 
@@ -245,11 +246,12 @@ class ArmoryKeyPair(WalletEntry):
       self.masterKdfRef  = wltFileRef.kdfMap.get(self.privCryptInfo.kdfObjID)
 
       if not self.isAkpRootRoot:
-         foundParent = wltFileRef.allKeyPairObjects.get(self.akpParScrAddr)
+         foundParent = wltFileRef.masterScrAddrMap.get(self.akpParScrAddr)
          if foundParent is None:
             self.isDisabled = True
          else:
-            self.akpParentRef = foundParent.addChildRef(self)
+            self.akpParentRef = foundParent
+            self.akpParentRef.addChildRef(self)
 
 
       
@@ -2576,11 +2578,6 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
       self.scrAddrStr = script_to_scrAddr(self.rawScript)
 
 
-   #############################################################################
-   def getEntryID(self):
-      return self.getScrAddr()
-
-      
    #############################################################################
    def getWalletChainIndex(self, chainType="External"):
       # We have two chains for each sibling.  Pick the 

@@ -194,11 +194,8 @@ class WalletEntry(object):
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
-      if self.isRootRoot:
-         self.wltParentRef = self
-         return
-         
-
+      # All parents will be ArmorySeededKeyPair objects
+      self.wltFileRef = wltFileRef
       parent = wltFileRef.masterScrAddrMap.get(self.parEntryID)
       if parent is None:
          self.isOrphan = True
@@ -206,7 +203,9 @@ class WalletEntry(object):
          return
 
       self.wltParentRef = parent
-      parent.wltChildRefs.append(self)
+      if not parent==self:
+         parent.wltChildRefs.append(self)
+
 
    #############################################################################
    def serializeEntry(self, doDelete=False, **encryptKwargs):

@@ -3,6 +3,7 @@ from ArmoryEncryption import *
 from WalletEntry import *
 from ArmoryKeyPair import *
 from Timer import *
+from ReedSolomonWrapper import *
 
 DEFAULT_COMPUTE_TIME_TARGET  = 0.25
 DEFAULT_MAXMEM_LIMIT         = 32*MEGABYTE
@@ -26,6 +27,170 @@ def CheckFsyncArgument(func):
       
       func(*args, **kwargs)
 
+
+
+################################################################################
+################################################################################
+class ArmoryFileHeader(object):
+  
+   WALLETMAGIC = '\xffARMORY\xff'
+   DEFAULTSIZE = 200
+
+   #############################################################################
+   def __init__(self):
+      # Note, we use a different fileID than wallet 1.35 so that older versions
+      # of Armory don't attempt to load the 2.0 wallets
+      LOGDEBUG('Creating file header')
+      self.flags         = BitSet(32)
+      self.wltUserName   = u''
+      self.createTime    = UINT64_MAX
+      self.createBlock   = UINT32_MAX
+      self.rsecParity    = RSEC_PARITY_BYTES
+      self.rsecPerData   = RSEC_PER_DATA_BYTES
+      self.isDisabled    = False
+      self.headerSize    = self.DEFAULTSIZE
+
+      # Identifies whether this file is intended to be used as a full wallet,
+      # or perhaps holds metadata or transient data for some other operation
+      self.isTransferWallet = False
+      self.isSupplemental = False
+
+
+   
+   #############################################################################
+   def initialize(self, flags, wltName, timeCreate=0, blkCreate=0):
+      if isinstance(wltName, str):
+         LOGWARN('Name argument supplied as plain str, converting to unicode')
+
+      self.__init__()
+      self.flags = flags
+      self.wltUserName = toUnicode(wltName)
+      self.createTime = timeCreate
+      self.createBlock = blkCreate
+
+      self.isTransferWallet = self.flags.getBit(0)
+      self.isSupplemental   = self.flags.getBit(1)
+
+
+   #############################################################################
+   def serializeHeaderData(self, altName=None):
+      """
+      We leave a lot of extra space in header for future expansion, since
+      header data is always up front, it's always got to be the same size.
+
+      We hardcode RSEC sizes here, because we can't have the RSEC size vars
+      protected by an RSEC code specified by that size (circular reference).
+      So we use a blanket 16 bytes of parity for 1024 bytes of data.
+      """
+      self.flags.reset()
+      self.flags.setBit(0, self.isTransferWallet)
+      self.flags.setBit(1, self.isSupplemental)
+
+
+      wltNameTruncPad = toBytes(unicode_truncate(self.wltUserName, 64))
+      if altName:
+         wltNameTruncPad = toBytes(unicode_truncate(altName, 64))
+      
+
+      hdataMid = BinaryPacker()
+      hdataMid.put(UINT32,          getVersionInt(ARMORY_WALLET_VERSION))
+      hdataMid.put(BINARY_CHUNK,    MAGIC_BYTES,                 width=4)
+      hdataMid.put(BITSET,          self.flags,                  width=4)
+      hdataMid.put(UINT8,           len(wltNameTruncPad))
+      hdataMid.put(BINARY_CHUNK,    wltNameTruncPad,             width=64)
+      hdataMid.put(UINT64,          self.createTime)      
+      hdataMid.put(UINT32,          self.createBlock)      
+      hdataMid.put(UINT32,          self.rsecParity)
+      hdataMid.put(UINT32,          self.rsecPerData)
+
+      sizeRemaining = self.headerSize - hdataMid.getSize()
+      hdataMid.put(BINARY_CHUNK, '\x00'*sizeRemaining)
+      midParity = createRSECCode(hdataMid.getBinaryString(), 16, 1024)
+      
+      hdata = BinaryPacker()
+      hdata.put(BINARY_CHUNK,    ArmoryFileHeader.WALLETMAGIC, width=8)
+      hdata.put(UINT32,          self.headerSize)
+      hdata.put(BINARY_CHUNK,    hdataMid.getBinaryString())
+      hdata.put(BINARY_CHUNK,    midParity,  16)
+   
+      return hdata.getBinaryString()
+
+
+   #############################################################################
+   @staticmethod
+   def Unserialize(theStr):
+      """
+      The header data is not substantial in and of itself, so much as it is
+      simply reading it and checking that this is really an 2.0 wallet, for
+      the correct network, of the correct version.
+      """
+      afh = ArmoryFileHeader()
+      toUnpack = makeBinaryUnpacker(theStr)
+
+      wltMagic  = toUnpack.get(BINARY_CHUNK, 8)
+      headSize  = toUnpack.get(UINT32)
+      hdataMid  = toUnpack.get(BINARY_CHUNK, headSize)
+      midParity = toUnpack.get(BINARY_CHUNK, 16)
+
+      hdataMid,failFlag,modFlag = checkRSECCode(hdataMid, midParity)
+      if failFlag:
+         LOGERROR('Header data was corrupted, or not an Armory wallet')
+         afh.isDisabled = True
+         return afh
+
+      if not wltMagic==ArmoryFileHeader.WALLETMAGIC:
+         if not fileID=='\xbaWALLET\x00':
+            LOGERROR('The wallet file does not have the correct magic bytes')
+            raise FileExistsError('This does not appear to be an Armory wallet')
+         else:
+            LOGERROR('You attempted to load an Armory 1.35 wallet!  Must use'
+                     'Armory version 0.92 or ealier to do this, or use the '
+                     'migration tool to convert it to the new format.')
+            raise FileExistsError('Old Armory wallet, it must be migrated!')
+         
+   
+      hunpack = makeBinaryUnpacker(hdataMid)
+      versionInt = hunpack.get(UINT32)
+      netMagic   = hunpack.get(BINARY_CHUNK, 4)
+      wltFlags   = hunpack.get(BITSET,       4)
+      nameLen    = hunpack.get(UINT8)
+      wltNamePad = hunpack.get(BINARY_CHUNK, 64)
+      timeCreate = hunpack.get(UINT64)
+      blkCreate  = hunpack.get(UINT32)
+      rsecParity = hunpack.get(UINT32)
+      rsecPerData= hunpack.get(UINT32)
+
+      # These last two vars tell us what all the OTHER wallet entries will be
+      # using for RS error correction.  For the header entry itself, it's
+      # hardcoded to be 16 bytes per 1024.
+
+
+      if not netMagic==MAGIC_BYTES:
+         LOGERROR('This wallet is for the wrong network!')
+         LOGERROR('   Wallet is for:  %s ', BLOCKCHAINS[netMagic])
+         LOGERROR('   You are on:     %s ', BLOCKCHAINS[MAGIC_BYTES])
+         raise NetworkIDError('Wallet is for wrong network!')
+
+      if not versionInt==getVersionInt(ARMORY_WALLET_VERSION):
+         LOGWARN('This wallet is for an older version of Armory!')
+         LOGWARN('Wallet version: %d', armoryVer)
+         LOGWARN('Armory version: %d', getVersionInt(ARMORY_WALLET_VERSION))
+
+
+      if [rsecParity, rsecPerData] != [RSEC_PARITY_BYTES, RSEC_PER_DATA_BYTES]:
+         # Technically, we could make all wallet code accommodate dynamic
+         # RSEC parameters, but it would add some complexity for something
+         # that shouldn't be necessary.  TODO: Maybe one day...
+         LOGERROR('This wallet uses different Reed-Solomon error correction'
+                  'parameters than this version of Armory')
+         afh.isDisabled = True
+         return afh
+
+      wltName = toUnicode(wltNamePad[:nameLen])
+
+      afh.initialize(wltFlags, wltName, timeCreate, blkCreate)
+      return afh
+     
 
 ################################################################################
 ################################################################################
@@ -59,9 +224,6 @@ class ArmoryWalletFile(object):
 
       # Everything in the wallet 
       self.allWalletEntries  = []
-
-      # Anything that derives from AKP
-      self.allKeyPairObjects = {}  
 
       # List of branches to display as "wallets"
       self.displayableWalletsMap  = {}  
@@ -142,6 +304,14 @@ class ArmoryWalletFile(object):
 
       # Wallet operations are not threadsafe.  Detect multiple access
       self.wltFileUpdateLock = threading.Lock()
+
+
+
+
+   #############################################################################
+   def getAkpObjectByScrAddr(self, scrAddr):
+      return self.masterScrAddrMap.get(scrAddr)
+
 
 
    #############################################################################
@@ -324,7 +494,7 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    @staticmethod
-   def ReadWalletFile(wltPath, openReadOnly=False, **outerCryptArgs):
+   def ReadWalletFile(wltPath, openReadOnly=False):
       """
       This reads an Armory wallet 2.0 wallet file, which contains a constant-
       size header, and then a collection of IFF/RIFF-like WalletEntry objects.
@@ -333,7 +503,7 @@ class ArmoryWalletFile(object):
       object references a KDF object that is in the same wallet file, we never
       assume that the KDF object has been read yet.  While we may enforce
       reasonable ordering when we create the wallet, there are certain wallet
-      operations (like mergine wallets) which may leave them out of order.  
+      operations (like merging wallets) which may leave them out of order.  
 
       For that reason, this method has two phases: 
          (1) Read and organize all the WalletEntry objects into maps/lists
@@ -353,7 +523,7 @@ class ArmoryWalletFile(object):
       if len(ArmoryWalletFile.AKP_WALLET_TYPES)==0:
          LOGERROR('No AKP types are registered to be displayed as wallets')
          LOGERROR('This message is to remind you that you should register')
-         LOGERROR('your wallet types with ArmoryWalletFile class before'
+         LOGERROR('your wallet types with ArmoryWalletFile class before')
          LOGERROR('loading any wallet files.  This makes sure that all ')
          LOGERROR('wallet files know what the "base" entries are to track')
          raise UnserializeError
@@ -406,7 +576,13 @@ class ArmoryWalletFile(object):
       # set references between related objects, disable things as needed, etc
       wlt.addEntriesToWallet(allEntries)
 
+      # The wallet is now ready for use
+      return wlt
 
+
+   #############################################################################
+   def unlockOuterEncryption(self, **outerCryptArgs):
+      raise NotImplementedError('This has never been tried/tested!')
       # If outer encryption was used on any entries, decrypt & add, if possible
       # (needed to add previous entries, because one is probably the decryption
       # key and/or KDF needed to unlock outer encryption)
@@ -429,8 +605,6 @@ class ArmoryWalletFile(object):
             wlt.addEntriesToWallet(newWEList)
          
 
-      # The wallet is now ready for use
-      return wlt
 
 
 
@@ -441,9 +615,8 @@ class ArmoryWalletFile(object):
       This operates in two steps:  
          (1) Filter the list of WalletEntry objects into the right lists/maps
          (2) Go back through everything and set references between them and 
-             apply any operations that requires having all WE objects avail 
-             (such as disabling parents of unrecognized-but-critical children,
-             linking multi-sig roots based on relationship objects, etc)
+             apply any operations that requires having all WE objects avail.
+             Each WalletEntry object should have a linkWalletEntries method.
              
       Everything that will be accessed by ID is stored in a map indexed by
       ID.  For now, we will assume that all parent references are ArmoryRootKey
@@ -457,14 +630,20 @@ class ArmoryWalletFile(object):
          if we.isDeleted:  
             continue
 
+         if fsync:
+            # In case the Reed-Solomon error correction actually finds an error
+            if we.needRewrite:
+               self.addFileOperationToQueue('UpdateEntry', we)
+
+            if we.wltByteLoc in [0, None]:
+               self.addFileOperationToQueue('AddEntry', we)
+
+
          if we.isDisabled:
-            if we.isRootRoot():
+            if we.isRootRoot:
                self.disabledRootIDs.add(we.getEntryID())
             continue
 
-         # In case the Reed-Solomon error correction actually finds an error
-         if we.needRewrite and not openReadOnly:
-            self.addFileOperationToQueue('UpdateEntry', we)
 
          # If WE is unrecognized, ignore, if also critical, disable parent
          if we.isUnrecognized:
@@ -497,13 +676,12 @@ class ArmoryWalletFile(object):
          # Everything else goes in the master list of entries
          self.allWalletEntries.append(we)
 
-         # We explicitly don't use isinstance here, because it's easy to
-         # mess up derived classes, which will fall into conditional
-         # branches you weren't expecting
          if issubclass(we.__class__, ArmoryKeyPair):
             if we.getScrAddr() in self.masterScrAddrMap:
                LOGWARN('ScrAddr is in wallet file multiple times!')
+
             self.masterScrAddrMap[we.getScrAddr()] = we
+
             if we.FILECODE in ArmoryWalletFile.AKP_WALLET_TYPES:
                if we.notForDirectUse:
                   # This is most likely a part of a multisig wallet
@@ -513,7 +691,7 @@ class ArmoryWalletFile(object):
                   if wltID in self.displayableWalletsMap:
                      LOGWARN('WltID=%s added to displayable wlts twice' % wltID)
                   self.displayableWalletsMap[wltID] = we
-         elif we.FILECODE=='ADRRLABL':
+         elif we.FILECODE=='ADDRLABL':
             self.allLabels[we.scrAddr] = we
          elif we.FILECODE=='TXLABEL_':
             if we.txidFull: 
@@ -534,11 +712,11 @@ class ArmoryWalletFile(object):
             self.unrecognizedList.append(we)
          
 
-
       # This calls each WE's linkWalletEntries() method, which will reach
-      # into this wallet file and find the data it needs to link.
+      # into this wallet file and find the data it needs to link.  This is 
+      # performed on ALL entries, not just the ones added, as the ones that
+      # were added may have been missing links for some of them.
       self.linkAllEntries()
-         
          
       if fsync:
          self.fsyncUpdates()
@@ -576,8 +754,9 @@ class ArmoryWalletFile(object):
           
 
    #############################################################################
-   @VerifyArgTypes(operationType=str, wltEntry=[WalletEntry, ArmoryFileHeader])
-   def addFileOperationToQueue(self, operationType, wltEntry)
+   @VerifyArgTypes(operationType=str, 
+                   wltEntry=[WalletEntry, ArmoryFileHeader])
+   def addFileOperationToQueue(self, operationType, wltEntry):
       """
       This will queue up an add/update/delete op for wallet entry.
 
@@ -659,7 +838,7 @@ class ArmoryWalletFile(object):
       if not gotLock:
          LOGERROR( 'Attempted to call fsync while currently fsync\'ing.  '
                    'This is probably a multithreading collision.  Wallet '
-                   'operations were not intended to be threadsafe!')
+                   'operations were not intended to be threadsafe!'
                    'Will wait until we can safely fsync')
          
       
@@ -678,7 +857,7 @@ class ArmoryWalletFile(object):
          for opType,weObj in self.updateQueue:
             if weObj.wltByteLoc in fileLocToUpdate:
                LOGERROR('Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
-                           binary_to_hex(weObj.uniqueID, weObj.wltByteLoc)
+                           binary_to_hex(weObj.uniqueID, weObj.wltByteLoc))
                raise WalletUpdateError('Multiple updates to same ID in batch')
             fileLocToUpdate.add(weObj.wltByteLoc)
    
@@ -888,10 +1067,15 @@ class ArmoryWalletFile(object):
    @CheckFsyncArgument
    @VerifyArgTypes(securePwd=SecureBinaryData,
                    extraEntropy=[SecureBinaryData, None])
-   def generateNewSinglePwdSeedEkeyKDF(self, 
-         rootClass, securePwd, extraEntropy, kdfAlgo='ROMIXOV2', 
-         kdfTargSec=0.25, kdfMaxMem=32*MEGABYTE, encrAlgo='AE256CBC',
-         fillPool=True, fsync=None):
+   def generateNewSinglePwdSeedEkeyKDF(self, rootClass, 
+                                             securePwd, 
+                                             extraEntropy, 
+                                             kdfAlgo='ROMIXOV2', 
+                                             kdfTargSec=0.25, 
+                                             kdfMaxMem=32*MEGABYTE, 
+                                             encrAlgo='AE256CBC',
+                                             fillPool=True, 
+                                             fsync=None):
       
    
       LOGINFO('Creating new single-password wallet seed')
@@ -923,7 +1107,11 @@ class ArmoryWalletFile(object):
       # Create a root that will be encrypted with the above masterkey.
       # Ekey must be unlocked before creating the root with it.
       newEkey.unlock(securePwd)
-      newRoot = self.createNewRoot(rootClass, extraEntropy, newCryptInfo, newEkey)
+      try:
+         newEkey.markKeyInUse()
+         newRoot = self.createNewRoot(rootClass, extraEntropy, newCryptInfo, newEkey)
+      finally:
+         newEkey.finishedWithKey()
 
       # Recursively fill the keypool
       if fillPool:
@@ -948,16 +1136,7 @@ class ArmoryWalletFile(object):
       If this new master seed is being protected with encryption that isn't
       already defined in the wallet, then the new Ekey & KDF objects needs 
       to be created and added to the wallet before calling this function.  
-      The **cryptKwArgs will be passed to the ACI:
-         
-         encryptInfo.encrypt(newSeed, **cryptKwArgs)
-   
-      Thus, it should contain everything that is needed to do the master 
-      seed encryption.  If it's password encryption only, then it should
-      include a KDF and a password.  If it's master-key encryption, should 
-      include the master ekeyObj and password(s) with which it is encrypted.
-      In the latter case, you can simply unlock the ekeyObj first, then 
-      pass it in with no other args.
+      Additioanlly, the ekey needs to be unlocked.
       
       "extraEntropy" is a required argument here, because we should *always*
       be sending extra entropy into the secure (P)RNG for seed creation.  
@@ -992,7 +1171,8 @@ class ArmoryWalletFile(object):
          newRoot.privCryptInfo = encryptInfo.copy()
          newRoot.masterEkeyRef = unlockedEkey
          newRoot.initializeFromSeed(newSeed)
-         newRoot.parEntryID = WalletEntry.NOPARENT
+         newRoot.parEntryID = newRoot.getScrAddr()
+         newRoot.wltParentRef = newRoot
          return newRoot
 
       finally:
@@ -1044,7 +1224,7 @@ class ArmoryWalletFile(object):
    #############################################################################
    def writeFreshWalletFile_BASE(self, weFilterFunc,
                                        newPath, 
-                                       newName=None
+                                       newName=None,
                                        withOpaque=True,
                                        withDisabled=True,
                                        withUnrecognized=True,
@@ -1084,9 +1264,9 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   def writeFreshWalletFile(self, rootList='ALL',
-                                  newPath, 
-                                  newName=None
+   def writeFreshWalletFile(self, newPath, 
+                                  rootList='ALL',
+                                  newName=None,
                                   withOpaque=True,
                                   withDisabled=True,
                                   withUnrecognized=True,
@@ -1099,11 +1279,7 @@ class ArmoryWalletFile(object):
       """
       
       def rootFilter(we):
-         if rootList=='ALL':
-            return we
-
-         inclID = we.getEntryID() if we.isRootRoot() else we.parEntryID
-         if inclID in rootList:
+         if rootList=='ALL' or we.parEntryID in rootList:
             return we
          else:
             return None
@@ -1126,8 +1302,7 @@ class ArmoryWalletFile(object):
 
       
       def filterAndWipe(we):
-         inclID = we.getEntryID() if we.isRootRoot() else we.parEntryID
-         if not inclID in rootList:
+         if not rootList=='ALL' and not we.parEntryID in rootList:
             return None
 
          if isinstance(we, ArmoryKeyPair):
@@ -1146,6 +1321,10 @@ class ArmoryWalletFile(object):
    #############################################################################
    @CheckFsyncArgument
    def addArbitraryWalletData(self, parentRef, keyList, plainStr, fsync=None):
+      """
+      Since we are "adding" data to the map, we error out if it already exists.
+      Clear the entry and call this method if you want to change the encryption.
+      """
       node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
 
       node.setPlaintext(plainStr)
@@ -1160,6 +1339,10 @@ class ArmoryWalletFile(object):
    @CheckFsyncArgument
    def addArbitraryWalletData_Encrypted(self, parentRef, keyList, plainStr, 
                                                             ekeyID, fsync=None):
+      """
+      Since we are "adding" data to the map, we error out if it already exists.
+      Clear the entry and call this method if you want to change the encryption.
+      """
       ekey = self.ekeyMap.get(ekeyID)
       if ekey is None:
          raise EncryptionError('Cannot set encrypted data without ekey')
@@ -1353,155 +1536,6 @@ class ArmoryWalletFile(object):
 
 
 
-################################################################################
-################################################################################
-class ArmoryFileHeader(object):
-  
-   WALLETMAGIC = '\xffARMORY\xff'
-   HEADERSIZE  = 200
-
-   #############################################################################
-   def __init__(self):
-      # Note, we use a different fileID than wallet 1.35 so that older versions
-      # of Armory don't attempt to load the 2.0 wallets
-      LOGDEBUG('Creating file header')
-      self.flags         = BitSet(32)
-      self.wltUserName   = u''
-      self.createTime    = UINT64_MAX
-      self.createBlock   = UINT32_MAX
-      self.rsecParity    = RSEC_PARITY_BYTES
-      self.rsecPerData   = RSEC_PER_DATA_BYTES
-      self.isDisabled    = True
-
-
-      # Identifies whether this file is intended to be used as a full wallet,
-      # or perhaps holds metadata or transient data for some other operation
-      self.isTransferWallet = False
-      self.isSupplemental = False
-
-
-   
-   #############################################################################
-   def initialize(self, flags, wltName, timeCreate=0, blkCreate=0):
-      self.flags = flags
-      self.wltUserName = wltName
-      self.createTime = timeCreate
-      self.createBlock = blkCreate
-
-      self.isTransferWallet = self.flags.getBit(0)
-      self.isSupplemental   = self.flags.getBit(1)
-
-
-   #############################################################################
-   def serializeHeaderData(self, altName=None):
-      """
-      We leave a lot of extra space in header for future expansion, since
-      header data is always up front, it's always got to be the same size.
-
-      We hardcode RSEC sizes here, because we can't have the RSEC size vars
-      protected by an RSEC code specified by that size (circular reference).
-      So we use a blanket 16 bytes of parity for 1024 bytes of data.
-      """
-      self.flags.reset()
-      self.flags.setBit(0, self.isTransferWallet)
-      self.flags.setBit(1, self.isSupplemental)
-
-
-      wltNameTruncPad = toBytes(unicode_truncate(self.wltUserName, 64))
-      if altName:
-         wltNameTruncPad = toBytes(unicode_truncate(altName, 64))
-      
-      
-      hdata = BinaryPacker()
-      hdata.put(BINARY_CHUNK,    ArmoryFileHeader.WALLETMAGIC, width=8)
-      hdata.put(UINT32,          getVersionInt(ARMORY_WALLET_VERSION))
-      hdata.put(BINARY_CHUNK,    MAGIC_BYTES,                  width=4)
-      hdata.put(BITSET,          self.flags,                  width=4)
-      hdata.put(UINT8,           len(wltNameTruncPad))
-      hdata.put(BINARY_CHUNK,    wltNameTruncPad,             width=64)
-      hdata.put(UINT64,          self.createTime)      
-      hdata.put(UINT32,          self.createBlock)      
-      hdata.put(UINT32,          self.rsecParity)
-      hdata.put(UINT32,          self.rsecPerData)
-
-      sizeRemaining = ArmoryFileHeader.HEADERSIZE - hdata.getSize()
-      hdata.put(BINARY_CHUNK,    '\x00'*sizeRemaining)
-
-      rsparity = createRSECCode(hdata.getBinaryString(), 16, 1024)
-      hdata.put(BINARY_CHUNK, rsparity,  16)
-
-
-   #############################################################################
-   @staticmethod
-   def Unserialize(theStr):
-      """
-      The header data is not so important for being stored, as much as it is
-      simply reading it and checking that this is really an 2.0 wallet, for
-      the correct network, of the correct version.
-      """
-      afh = ArmoryFileHeader()
-      toUnpack = makeBinaryUnpacker(theStr)
-      hdata   = toUnpack.read(ArmoryFileHeader.HEADERSIZE)
-      rsecPar = toUnpack.read(16)
-
-      hunpack = makeBinaryUnpacker(hdata)
-      wltMagic   = hunpack.get(BINARY_CHUNK, 8)
-      versionInt = hunpack.get(UINT32)
-      netMagic   = hunpack.get(BINARY_CHUNK, 4)
-      wltFlags   = hunpack.get(BITSET,       4)
-      nameLen    = hunpack.get(UINT8)
-      wltNamePad = hunpack.get(BINARY_CHUNK, 64)
-      timeCreate = hunpack.get(UINT64)
-      blkCreate  = hunpack.get(UINT32)
-      rsecParity = hunpack.get(UINT32)
-      rsecPerData= hunpack.get(UINT32)
-      # These last two vars tell us what all the OTHER wallet entries will be
-      # using for RS error correction.  For the header entry itself, it's
-      # hardcoded to be 16 bytes per 1024.
-
-      if not fileID==ArmoryFileHeader.WALLETMAGIC:
-         if not fileID=='\xbaWALLET\x00':
-            LOGERROR('The wallet file does not have the correct magic bytes')
-            raise FileExistsError('This does not appear to be an Armory wallet')
-         else:
-            LOGERROR('You attempted to load an Armory 1.35 wallet!  Must use'
-                     'Armory version 0.92 or ealier to do this, or use the '
-                     'migration tool to convert it to the new format.')
-            raise FileExistsError('Old Armory wallet, it must be migrated!')
-         
-   
-      hdata,failFlag,modFlag = checkRSECCode(hdata, rsecCode)
-      if failFlag:
-         LOGERROR('Header data was corrupted, or not an Armory wallet')
-         afh.isDisabled = True
-         return afh
-
-      if not magicbytes==MAGIC_BYTES:
-         LOGERROR('This wallet is for the wrong network!')
-         LOGERROR('   Wallet is for:  %s ', BLOCKCHAINS[magicbytes])
-         LOGERROR('   You are on:     %s ', BLOCKCHAINS[MAGIC_BYTES])
-         raise NetworkIDError('Wallet is for wrong network!')
-
-      if not armoryVer==getVersionInt(ARMORY_WALLET_VERSION):
-         LOGWARN('This wallet is for an older version of Armory!')
-         LOGWARN('Wallet version: %d', armoryVer)
-         LOGWARN('Armory version: %d', getVersionInt(ARMORY_WALLET_VERSION))
-
-
-      if [rsecParity, rsecPerData] != [RSEC_PARITY_BYTES, RSEC_PER_DATA_BYTES]:
-         # Technically, we could make all wallet code accommodate dynamic
-         # RSEC parameters, but it would add some complexity for something
-         # that shouldn't be necessary.  TODO: Maybe one day...
-         LOGERROR('This wallet uses different Reed-Solomon error correction'
-                  'parameters than this version of Armory')
-         afh.isDisabled = True
-         return afh
-
-      wltName = toUnicode(wltNamePad[:nameLen])
-
-      afh.initialize(flags, wltName, timeCreate, blkCreate)
-      return afh
-     
 
 
 
