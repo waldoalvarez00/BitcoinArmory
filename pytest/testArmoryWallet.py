@@ -228,19 +228,22 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       afh3    = ArmoryFileHeader.Unserialize(afhSer2)
       self.assertEqual(afhSer, afhSer2)
       
-      def cmpAFH(prop):
-         self.assertEqual(getattr(afh, prop), getattr(afh3, prop))
+      self.cmp2afh(afh, afh3)
 
-      cmpAFH('wltUserName')
-      cmpAFH('createTime')
-      cmpAFH('createBlock')
-      cmpAFH('rsecParity')
-      cmpAFH('rsecPerData')
-      cmpAFH('isDisabled')
-      cmpAFH('headerSize')
-      cmpAFH('isTransferWallet')
-      cmpAFH('isSupplemental')
+   #############################################################################
+   def cmp2afh(self, afh1, afh2):
+      def cmp(prop):
+         self.assertEqual(getattr(afh1, prop), getattr(afh2, prop))
 
+      cmp('wltUserName')
+      cmp('createTime')
+      cmp('createBlock')
+      cmp('rsecParity')
+      cmp('rsecPerData')
+      cmp('isDisabled')
+      cmp('headerSize')
+      cmp('isTransferWallet')
+      cmp('isSupplemental')
 
 
    #############################################################################
@@ -250,7 +253,6 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       
       afh.isTransferWallet = True
       afh.isSupplemental = False
-
       afh.createTime  = long(1.4e9)
       afh.createBlock = 320000
       afh.wltUserName = u''
@@ -262,8 +264,53 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       self.roundTripTest(afh)
 
 
+      fl = BitSet(32)
+      fl.setBit(0, True)
+      fl.setBit(1, False)
+      afh2 = ArmoryFileHeader()
+      afh2.initialize(fl, u'', long(1.4e9), 320000)
+
+      self.cmp2afh(afh, afh2)
+      self.roundTripTest(afh)
 
 
+      fl = BitSet(32)
+      fl.setBit(0, True)
+      fl.setBit(1, True)
+      afh3 = ArmoryFileHeader()
+      afh3.initialize(fl, u'Armory Wallet Test\u2122', 0, 0)
+
+      fl = BitSet(32)
+      fl.setBit(0, True)
+      fl.setBit(1, True)
+      afh4 = ArmoryFileHeader()
+      afh4.initialize(fl, u'', 0, 0)
+
+      self.assertEqual( afh3.serializeHeaderData(), 
+                        afh4.serializeHeaderData(altName=u'Armory Wallet Test\u2122'))
+
+
+   #############################################################################
+   def test_MagicFail(self):
+      fl = BitSet(32)
+      fl.setBit(0, True)
+      fl.setBit(1, False)
+      afh = ArmoryFileHeader()
+      afh.initialize(fl, u'Armory Wallet Test\u2122', long(1.4e9), 320000)
+
+      mgcC = '\xffARMORY\xff'
+      mgcW = '\xbaWALLET\x00'
+      afhSer1 = afh.serializeHeaderData()
+      afhSer2 = mgcW + afhSer1[8:]
+      afhSer3 = '\x00'*8 + afhSer1[8:]
+      self.assertRaises(FileExistsError, ArmoryFileHeader.Unserialize, afhSer2)
+      self.assertRaises(FileExistsError, ArmoryFileHeader.Unserialize, afhSer3)
+
+      MAINBYTES = '\xf9\xbe\xb4\xd9'
+      TESTBYTES = '\x0b\x11\x09\x07'
+      afhSer4 = afhSer1[:16] + TESTBYTES + afhSer1[20:]
+      self.assertRaises(NetworkIDError, ArmoryFileHeader.Unserialize, afhSer4)
+      
 
 ################################################################################
 class SimpleWalletTests(unittest.TestCase):

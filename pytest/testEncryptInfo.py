@@ -730,6 +730,9 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
          self.pfrags = [SecureBinaryData(pair[1]) for pair in xypairs]
          self.pfrags2 = [[MPEK_FRAG_TYPE.PLAINFRAG, pf.copy()] for pf in self.pfrags]
 
+      for i in range(3):
+         self.fragKeys = [self.kdfs[i].execKDF(self.passwds[i]) for i in range(3)]
+         self.fragKeys2 = [[MPEK_FRAG_TYPE.FRAGKEY, pf.copy()] for fk in self.fragKeys]
 
 
    def tearDown(self):
@@ -879,6 +882,58 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       self.assertFalse(mkey.verifyPassphrase(badPwdList))
       self.assertTrue(mkey.verifyPassphrase(goodLists[0]))
 
+
+   #############################################################################
+   def testMkeyUnlockRelock_FragKeys(self):
+      M,N = 2,3
+      mkey = MultiPwdEncryptionKey()
+      mkey.createNewMasterKey(self.kdfs, SampleCryptAlgo, 
+                                M, self.passwds, self.labels,
+                                preGenKey=SampleMasterEKey)
+
+
+      NULLPASSWD = [MPEK_FRAG_TYPE.NONE, NULLSBD()]
+
+      goodLists = []
+      goodLists.append([NULLPASSWD,        self.passwds2[1],  self.pfrags2[2]])
+      goodLists.append([self.pfrags2[0],   NULLPASSWD,        self.passwds2[2]])
+      goodLists.append([self.pfrags2[0],   self.pfrags2[1],   NULLPASSWD,     ])
+      goodLists.append([self.passwds2[0],  self.pfrags2[1],   self.pfrags2[2]])
+      goodLists.append([self.pfrags2[0],   self.pfrags2[1],   self.pfrags2[2]])
+
+      goodLists.append([NULLPASSWD,        self.fragKeys2[1], self.fragKeys2[2]])
+      goodLists.append([self.fragKeys2[0], NULLPASSWD,        self.passwds2[2]])
+      goodLists.append([self.fragKeys2[0], self.pfrags2[1],   NULLPASSWD,     ])
+      goodLists.append([self.passwds2[0],  self.pfrags2[1],   self.fragKeys2[2]])
+      goodLists.append([self.pfrags2[0],   self.fragKeys2[1], self.pfrags2[2]])
+
+      badLists = []
+      badLists.append([NULLPASSWD,       NULLPASSWD,       NULLPASSWD,    ])
+      badLists.append([NULLPASSWD,       self.fragKeys2[1],  NULLPASSWD,    ])
+      badLists.append([self.pfrags2[0],  self.fragKeys2[1]])  # short list, good pwds
+      badLists.append([self.fragKeys2[0],self.fragKeys2[1]])  # short list, good pwds
+      ###########
+
+      for gl in goodLists:
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         self.assertTrue(mkey.unlock(gl))
+         self.assertTrue(mkey.masterKeyPlain.getSize() > 0)
+         self.assertEqual(mkey.masterKeyPlain, SampleMasterEKey)
+         self.assertTrue(mkey.lock())
+         self.assertTrue(mkey.isLocked())
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+
+      for bl in badLists:
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         self.assertRaises(PassphraseError, mkey.unlock, bl)
+         self.assertTrue(mkey.isLocked())
+         self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
+         
+
+      pwdpair = lambda s: [MPEK_FRAG_TYPE.PLAINFRAG, SecureBinaryData(s)]
+      badPwdList = [pwdpair('\x03'*32), pwdpair('\x83'*32), NULLPASSWD]
+      self.assertFalse(mkey.verifyPassphrase(badPwdList))
+      self.assertTrue(mkey.verifyPassphrase(goodLists[0]))
 
    #############################################################################
    @unittest.skipIf(skipFlagExists(),'')

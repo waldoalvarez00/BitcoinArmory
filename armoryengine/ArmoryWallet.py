@@ -139,7 +139,7 @@ class ArmoryFileHeader(object):
          return afh
 
       if not wltMagic==ArmoryFileHeader.WALLETMAGIC:
-         if not fileID=='\xbaWALLET\x00':
+         if not wltMagic=='\xbaWALLET\x00':
             LOGERROR('The wallet file does not have the correct magic bytes')
             raise FileExistsError('This does not appear to be an Armory wallet')
          else:
@@ -206,6 +206,7 @@ class ArmoryWalletFile(object):
       ArmoryWalletFile.AKP_WALLET_TYPES.add(ccode)
       
 
+   #############################################################################
    def __init__(self, filepath, createNew=False):
 
       if not os.path.exists(filepath) and not createNew:
@@ -1367,30 +1368,38 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    @CheckFsyncArgument
-   def updateArbitraryWalletData(self, keyList, plainStr):
+   def updateArbitraryWalletData(self, keyList, plainStr, fsync=None):
       # If node is encrypted, expect SBD plainstr, else regular python str
       self.arbitraryDataMap.setData(keyList, plainStr, doCreate=False)
+
+      if fsync:
+         node = self.arbitraryDataMap.getNode(keyList)
+         node.awdObj.fsyncUpdates()
       
 
    #############################################################################
    # 
    def CreateNewWalletFile(self, 
-                           createNewRoot=True, \
-                           securePassphrase=None, \
-                           kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET, \
-                           kdfMaxMem=DEFAULT_MAXMEM_LIMIT, \
-                           defaultInnerEncrypt=None, \
-                           defaultOuterEncrypt=None, \
-                           doRegisterWithBDM=True, \
-                           ):
-                             #newWalletFilePath=None, \
-                             #plainRootKey=None, \
-                             ##withEncrypt=True, securePassphrase=None, \
-                             #kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET, \
-                             #kdfMaxMem=DEFAULT_MAXMEM_LIMIT, \
-                             #shortLabel='', longLabel='', isActuallyNew=True, \
-                             #doRegisterWithBDM=True):
-      raise NotImplementedError
+                           createType,
+                           walletName=u'',
+                           encryptAlgo='AE256CBC',
+                           securePassphrase=None, 
+                           kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET, 
+                           kdfMaxMem=DEFAULT_MAXMEM_LIMIT, 
+                           newRootClass=ABEK_BIP44Seed,
+                           extraEntropy=None,
+                           sbdSeedData=None)
+
+      """
+      Valid createType values:
+         NewEncryptedWallet:      Creates new ekey, new kdf, and new seed
+         RestoreEncryptedWallet:  Creates new ekey, new kdf, supplied seed
+         RestorePlainWallet:      Supplied seed is PrivKey (no ekey, kdf)
+         RestoreWatchOnlyWallet:  Supplied seed is WO data (no ekey, kdf)
+         EmptyWallet:             Just create the header, nothing else
+                                  (perhaps WE objs injected after creation)
+      """
+      
 
       """
 
