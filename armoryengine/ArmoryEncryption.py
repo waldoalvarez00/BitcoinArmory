@@ -1374,7 +1374,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
                                              kdfObj=kdfObjList[i])
                origFrags.append(ysbd)
             elif unlockObjType==MPEK_FRAG_TYPE.PLAINFRAG:
-               origFrags.append(unlockData)
+               origFrags.append(unlockData.copy())
             elif unlockObjType==MPEK_FRAG_TYPE.FRAGKEY:
                # This object is the output of the KDF(password)
                # This requires us to sidestep the einfo object, which
@@ -1385,6 +1385,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
                                         self.einfos[i].ivSource)
                pfrag = rawACI.decrypt(self.efrags[i], unlockData, kdfObjList[i])
                origFrags.append(pfrag)
+
          
          ###########
          # Re-frag the master key 
@@ -1433,7 +1434,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
                                   self.einfos[fragIndex].encryptAlgo,
                                   'RAWKEY32', 
                                   self.einfos[fragIndex].ivSource)
-         recryptFrag = rawACI.encrypt(self.plainFrags[fragIndex], fkey)
+         recryptFrag = rawACI.encrypt(plainFrags[fragIndex], fkey)
 
          if not recryptFrag == self.efrags[fragIndex]:
             raise EncryptionError('Re-encrypted fragment does not match')

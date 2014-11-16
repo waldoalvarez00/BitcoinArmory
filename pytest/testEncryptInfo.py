@@ -732,7 +732,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
 
       for i in range(3):
          self.fragKeys = [self.kdfs[i].execKDF(self.passwds[i]) for i in range(3)]
-         self.fragKeys2 = [[MPEK_FRAG_TYPE.FRAGKEY, pf.copy()] for fk in self.fragKeys]
+         self.fragKeys2 = [[MPEK_FRAG_TYPE.FRAGKEY, fk.copy()] for fk in self.fragKeys]
 
 
    def tearDown(self):
@@ -895,26 +895,43 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       NULLPASSWD = [MPEK_FRAG_TYPE.NONE, NULLSBD()]
 
       goodLists = []
-      goodLists.append([NULLPASSWD,        self.passwds2[1],  self.pfrags2[2]])
+      goodLists.append([NULLPASSWD,        self.passwds2[1],  self.pfrags2[2] ])
       goodLists.append([self.pfrags2[0],   NULLPASSWD,        self.passwds2[2]])
       goodLists.append([self.pfrags2[0],   self.pfrags2[1],   NULLPASSWD,     ])
-      goodLists.append([self.passwds2[0],  self.pfrags2[1],   self.pfrags2[2]])
-      goodLists.append([self.pfrags2[0],   self.pfrags2[1],   self.pfrags2[2]])
+      goodLists.append([self.passwds2[0],  self.pfrags2[1],   self.pfrags2[2] ])
+      goodLists.append([self.pfrags2[0],   self.pfrags2[1],   self.pfrags2[2] ])
 
+      fkeys = [None]*3
+      for i in range(3):
+         fkeys[i] = [MPEK_FRAG_TYPE.FRAGKEY, mkey.getFragEncryptionKey(i, self.passwds2)]
+
+      # Test the values that come directly out of the getFragEncryptionKey func
+      goodLists.append([NULLPASSWD,        fkeys[1],          fkeys[2]        ])
+      goodLists.append([fkeys[0],          NULLPASSWD,        self.passwds2[2]])
+      goodLists.append([fkeys[0],          self.pfrags2[1],   NULLPASSWD,     ])
+      goodLists.append([self.passwds2[0],  self.pfrags2[1],   fkeys[2]        ])
+      goodLists.append([self.pfrags2[0],   fkeys[1],          self.pfrags2[2] ])
+
+      # Also test the exact same ones precomputed from KDFs and passwds
       goodLists.append([NULLPASSWD,        self.fragKeys2[1], self.fragKeys2[2]])
-      goodLists.append([self.fragKeys2[0], NULLPASSWD,        self.passwds2[2]])
-      goodLists.append([self.fragKeys2[0], self.pfrags2[1],   NULLPASSWD,     ])
+      goodLists.append([self.fragKeys2[0], NULLPASSWD,        self.passwds2[2] ])
+      goodLists.append([self.fragKeys2[0], self.pfrags2[1],   NULLPASSWD,      ])
       goodLists.append([self.passwds2[0],  self.pfrags2[1],   self.fragKeys2[2]])
-      goodLists.append([self.pfrags2[0],   self.fragKeys2[1], self.pfrags2[2]])
+      goodLists.append([self.pfrags2[0],   self.fragKeys2[1], self.pfrags2[2]  ])
 
       badLists = []
-      badLists.append([NULLPASSWD,       NULLPASSWD,       NULLPASSWD,    ])
-      badLists.append([NULLPASSWD,       self.fragKeys2[1],  NULLPASSWD,    ])
-      badLists.append([self.pfrags2[0],  self.fragKeys2[1]])  # short list, good pwds
-      badLists.append([self.fragKeys2[0],self.fragKeys2[1]])  # short list, good pwds
+      badLists.append([NULLPASSWD,         NULLPASSWD,        NULLPASSWD,     ])
+      badLists.append([NULLPASSWD,         fkeys[1],          NULLPASSWD,     ])
+      badLists.append([self.pfrags2[0],    fkeys[1]])  # short list, good pwds
+      badLists.append([fkeys[0],           fkeys[1]])  # short list, good pwds
       ###########
 
-      for gl in goodLists:
+      # Quick test the getPlainFrags matches what we expect:
+      computedPFrags = mkey.getPlainFragList(goodLists[1])
+      for i in range(len(computedPFrags)):
+         self.assertEqual(computedPFrags[i], self.pfrags[i])
+
+      for i,gl in enumerate(goodLists):
          self.assertTrue(mkey.masterKeyPlain.getSize() == 0)
          self.assertTrue(mkey.unlock(gl))
          self.assertTrue(mkey.masterKeyPlain.getSize() > 0)
