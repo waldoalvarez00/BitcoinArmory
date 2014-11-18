@@ -833,7 +833,7 @@ class EncryptionKey(WalletEntry):
    #############################################################################
    @VerifyArgTypes(passphrase=SecureBinaryData)
    def unlock(self, passphrase, kdfObj=None, justVerify=False):
-      LOGDEBUG('Unlocking encryption key %s', self.ekeyID)
+      LOGDEBUG('Unlocking encryption key %s', binary_to_hex(self.ekeyID))
 
       if kdfObj is None:
          kdfObj = self.kdfRef
@@ -877,7 +877,7 @@ class EncryptionKey(WalletEntry):
          else:
             return False
 
-      LOGDEBUG('Locking encryption key %s', self.ekeyID)
+      LOGDEBUG('Locking encryption key %s', binary_to_hex(self.ekeyID))
       self.masterKeyPlain.destroy()
       if gotRLock:
          self.keyIsInUseRLock.release()
@@ -1107,143 +1107,6 @@ class EncryptionKey(WalletEntry):
                               
 
 
-   #############################################################################
-   def createKeyRecoveryChallenge(self, useremail, userhints):
-      """
-      If the encryption key was created with a test string, this function will
-      return all the information needed for someone to start brute-forcing it.
-      This is so that there is *SOME* recourse for users that were dumb enough
-      to not make any backups, and then forget their passphrase.  The guesses
-      still have to go through the KDf, but this recovery challenge can be 
-      distributed to hired computing resources without actually giving up their
-      wallet -- i.e. the people racing to help the user the unlock their wallet 
-      (and presumably get some portion/bounty), can know that they've found the
-      answer without actually getting access to the wallet.
-
-      Without the test strings, the user has to distribute the entire wallet
-      and hope that the person that finds the passphrase will be nice enough
-      to give them back any of the funds.  There's nothing stopping them
-      from just taking it.
-
-      Additionally, the brute-forcer can prove that they found the password
-      without actually revealing it.  This is because when they've found the
-      key, they will gain access to the [secret] second half of the test
-      string, which can be used as a shared secret for an HMAC, when they
-      contact the user to tell them they found the key.
-
-      I posted about this on Bitcointalk.org... let me find it...
-      """
-
-      raise NotImplementedError('Kinda implemented, but never tested')
-
-      # If the plain string is all zero-bytes, then this key was created 
-      # without the test strings
-      if self.testStringPlain.toBinStr() == '\x00'*32:
-         return ''
-
-      kdfid  = self.keyCryptInfo.kdfObjID
-      #kdfObj = KdfObject.getRegisteredKDF(kdfid)
-
-      if not kdfObj.kdfAlgo.upper()=='ROMIXOV2':
-         raise UnrecognizedCrypto('Unknown KDF')
-
-      encryptAlgo = self.keyCryptInfo.encryptAlgo
-      kdfAlgo   = kdfObj.kdfAlgo
-      memReqd   = kdfObj.memReqd
-      numIter   = kdfObj.numIter
-      kdfSalt1  = kdfObj.salt.toHexStr()[:32 ]
-      kdfSalt2  = kdfObj.salt.toHexStr()[ 32:]
-      cryptKey1 = self.masterKeyCrypt.toHexStr()[:32 ]
-      cryptKey2 = self.masterKeyCrypt.toHexStr()[ 32:]
-      testStr1  = binary_to_hex(self.testStringEncr)[:32 ]
-      testStr2  = binary_to_hex(self.testStringEncr)[ 32:]
-
-      hintBlock = textwrap.wrapText(' '.join(userhints))
-
-      challengeText = """
-      ------------------------------------------------------------
-      Armory Passphrase Recovery Challenge
-      ------------------------------------------------------------
-
-      The master key is encrypted in the following way:
-            Encryption:      %(encryptAlgo)s
-            KDF Algorithm:   %(kdfAlgo)s
-            KDF Mem Used:    %(memReqd)s
-            KDF NumIter:     %(numIter)s
-      
-            KDF Salt (32B):  %(kdfSalt1)s
-                             %(kdfSalt2)s
-     
-            Encrypted Key:   %(cryptKey1)s
-                             %(cryptKey2)s
-
-      The test string is 32 bytes, encrypted with the above key:
-         Encrypted Str:      %(testStr1)s
-                             %(testStr2)s
-      
-      The decrypted test string starts with the following:
-         First16 (ASCII): ARMORYENCRYPTION
-         First16 (HEX):   41524d4f5259454e4352595054494f4e
-
-      Once you have found the correct passphrase, you can 
-      use the second 16 bytes as proof that you have succeeded. 
-      Use the entire decrypted string as the secret key to 
-      send a message authentication code to the user with 
-      your email address and bounty-payment address (and any
-      other relevant information).
-      
-      The message authentication code is computed like this: 
-         mac = toHex(HMAC_SHA256(decrypted32, msg))
-     
-      ------------------------------------------------------------
-      The following information is supplied by the user to 
-      help you find the passphrase and submit your proof: 
-
-         User email:  %(useremail)s
-         User hints: 
-            %(hintBlock)s
-      ------------------------------------------------------------
-      """ % locals()
-
-      return challengeText
-      
-
-   #############################################################################
-   def testKeyRecoveryMAC(self, userstr, responseMacHex):
-      LOGINFO('Testing key recovery MAC:')
-
-      LOGINFO('   User Info :     %s', userstr)
-      userstr = SecureBinaryData(userstr)
-      hmac = HDWalletCrypto().HMAC_SHA256(self.testStringPlain, userstr)
-
-      LOGINFO('   MAC (given):    %s', responseMacHex)
-      LOGINFO('   MAC (correct):  %s', hmac.toHexStr())
-      return (hmac.toHexStr()==responseMacHex)
-
-   
-   #############################################################################
-   def createBountyRewardScript(self, claimAddrStr):
-      """
-      This is based on what I posted on bitcointalk.org a while back (that I 
-      can't seem to find again).  The idea is that we have the 
-      hash^3(masterKey) stored in the wallet file, so we can create a
-      tx script that requires both a signature, and the disclosure of a
-      piece of data that hashes to self.keyTripleHash.  
-      
-      To avoid people hijacking the bounty-claimed transaction, we don't post
-      a naked bounty from the start (requiring only the key to be disclosed).
-      Instead, we wait for the brute-forcer to prove they have found the key
-      and send us an HMAC with their bounty reward address using the decrypted
-      test string.  Once we have their payment address, we send coins to a
-      script that requires BOTH:  a signature from that address AND the 32
-      bytes that hashes to self.keyTripleHash
-      """
-      NotImplementedError('Not sure if we will ever implement this...')
-
-      if not addrStr_to_hash160(claimAddrStr)[0] == ADDRBYTE:
-         raise BadInputError('Can only use regular P2PKH for claim scripts')
-
-
          
 ################################################################################
 ################################################################################
@@ -1274,8 +1137,8 @@ class MultiPwdEncryptionKey(EncryptionKey):
    FILECODE = 'EKEYMOFN'
 
    #############################################################################
-   def __init__(self, keyID=None, M=None, einfoFrags=None, efragList=None, 
-                                                         keyLabelList=None):
+   def __init__(self, keyID=None, mkeyID=None, M=None, 
+                     einfoFrags=None, efragList=None, keyLabelList=None):
       """
       einfoMaster is the encryption used to encrypt the master key (raw AES key)
       einfoFrags is the encryption used for each fragment (password w/ KDF)
@@ -1284,6 +1147,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
       data from file.
       """
       self.ekeyID = keyID  if keyID  else NULLSTR()
+      self.mkeyID = mkeyID if mkeyID else NULLSTR()
       self.M      = M if M else 0
       self.N      = len(einfoFrags) if einfoFrags else 0
 
@@ -1448,6 +1312,24 @@ class MultiPwdEncryptionKey(EncryptionKey):
 
    
 
+   #############################################################################
+   def getFragID_X(self, i):
+      baseStr =  binary_to_base58(hash256(self.efrags[i].toBinStr()))[:5] 
+      return baseStr + '-%d' % (i+1)
+
+   #############################################################################
+   def getFragID_Y(self, i):
+      return binary_to_base58(self.mkeyID)[:5] + '-%d' % (i+1)
+
+   #############################################################################
+   def getKeyfileName(self, ftype, i, wltID=''):
+      if wltID:
+         wltID += '-'
+
+      if ftype.lower()=='x':
+         return 'X-keyfile-%s%s.xkey' % (wltID, self.getFragID_X(i))
+      else:
+         return 'Y-keyfile-%s%s.ykey' % (wltID, self.getFragID_Y(i))
 
 
    #############################################################################
@@ -1473,7 +1355,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
            [MPEK_FRAG_TYPE.PASSWORD,    SBD('password1')       ]
            [MPEK_FRAG_TYPE.PLAINFRAG,   SBD(<raw32bytefrag>)   ] ]
       """
-      LOGDEBUG('Unlocking multi-encrypt key %s', self.ekeyID)
+      LOGDEBUG('Unlocking multi-encrypt key %s', binary_to_hex(self.ekeyID))
 
       if self.M==0 or self.N==0:
          raise BadInputError('Multi-encrypt master key not initialized')
@@ -1570,7 +1452,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
 
    #############################################################################
    def lock(self):
-      LOGDEBUG('Locking encryption key %s', self.ekeyID)
+      LOGDEBUG('Locking encryption key %s', binary_to_hex(self.ekeyID))
       self.masterKeyPlain.destroy()
       return True
 
@@ -1580,6 +1462,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
    def serialize(self):
       bp = BinaryPacker()
       bp.put(BINARY_CHUNK, self.ekeyID, width= 8)
+      bp.put(BINARY_CHUNK, self.mkeyID, width= 8)
       bp.put(UINT8,        self.M)
       bp.put(UINT8,        self.N)
       for i in range(self.N):
@@ -1594,6 +1477,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
    def unserialize(self, strData):
       bu = makeBinaryUnpacker(strData)
       ekeyID = bu.get(BINARY_CHUNK,  8)
+      mkeyID = bu.get(BINARY_CHUNK,  8)
       M      = bu.get(UINT8)
       N      = bu.get(UINT8)
    
@@ -1605,7 +1489,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
          efrags.append(SecureBinaryData(bu.get(VAR_STR)))
          labels.append(bu.get(VAR_UNICODE))
          
-      self.__init__(ekeyID, M, einfos, efrags, labels)
+      self.__init__(ekeyID, mkeyID, M, einfos, efrags, labels)
       return self
 
 
@@ -1657,9 +1541,6 @@ class MultiPwdEncryptionKey(EncryptionKey):
          newMaster = preGenKey.copy()
 
 
-      # With our new 
-      self.ekeyID = calcEKeyID(newMaster)
-
       # Generate the IV to be used for encrypting the master key with pwd
       if preGenIV8List is None:
          new8bytes = lambda: SecureBinaryData().GenerateRandom(8).toBinStr()
@@ -1701,6 +1582,15 @@ class MultiPwdEncryptionKey(EncryptionKey):
       plainFrags = None
 
       self.ekeyID = calcEKeyID(newMaster)
+      self.mkeyID = calcEKeyID(SecureBinaryData(newMaster.toBinStr() + \
+                                                int_to_binary(M)))
+      # Technically, if we only increased N but nothing else, the original
+      # fragments of the MKEY would remain valid, hence the mkeyID should
+      # stay the same.  I suppose there could be a case where someone
+      # changes just the N-value, expecting to get a whole new set of
+      # fragments and end up thinking there's a bug because the old
+      # fragments are the same and still work... 
+
 
       # Make sure we keep refs to each kdf object
       self.setKdfObjectRefList(kdfList)
@@ -1752,6 +1642,8 @@ class MultiPwdEncryptionKey(EncryptionKey):
       They are calculated deterministically, but it doesn't hurt to add 
       some extra checks.
       """
+      if kdfList is None:
+         kdfList = self.kdfRefList
 
       sbdFragList = []
       try:

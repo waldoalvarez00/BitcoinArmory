@@ -904,6 +904,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       fkeys = [None]*3
       for i in range(3):
          fkeys[i] = [MPEK_FRAG_TYPE.FRAGKEY, mkey.getFragEncryptionKey(i, self.passwds2)]
+         self.assertEqual(fkeys[i][1], self.fragKeys[i])
 
       # Test the values that come directly out of the getFragEncryptionKey func
       goodLists.append([NULLPASSWD,        fkeys[1],          fkeys[2]        ])
@@ -912,12 +913,6 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       goodLists.append([self.passwds2[0],  self.pfrags2[1],   fkeys[2]        ])
       goodLists.append([self.pfrags2[0],   fkeys[1],          self.pfrags2[2] ])
 
-      # Also test the exact same ones precomputed from KDFs and passwds
-      goodLists.append([NULLPASSWD,        self.fragKeys2[1], self.fragKeys2[2]])
-      goodLists.append([self.fragKeys2[0], NULLPASSWD,        self.passwds2[2] ])
-      goodLists.append([self.fragKeys2[0], self.pfrags2[1],   NULLPASSWD,      ])
-      goodLists.append([self.passwds2[0],  self.pfrags2[1],   self.fragKeys2[2]])
-      goodLists.append([self.pfrags2[0],   self.fragKeys2[1], self.pfrags2[2]  ])
 
       badLists = []
       badLists.append([NULLPASSWD,         NULLPASSWD,        NULLPASSWD,     ])
@@ -965,6 +960,7 @@ class ArmoryMultiPwdKeyTests(unittest.TestCase):
       bp = BinaryPacker()
       aci = ArmoryCryptInfo(SampleKdfID, SampleCryptAlgo, 'PASSWORD', SampleCryptIV8)
       bp.put(BINARY_CHUNK, SampleMasterEkeyID)
+      bp.put(BINARY_CHUNK, mkey.mkeyID)
       bp.put(UINT8,        2)
       bp.put(UINT8,        3)
       for i in range(3):
