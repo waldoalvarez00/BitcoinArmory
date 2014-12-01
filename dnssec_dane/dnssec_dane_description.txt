@@ -24,7 +24,7 @@ file may be missing some of the packages!
 -Binaries are required by Expat - Can just install a pre-built package
 
 2)makeinfo  (https://www.gnu.org/software/texinfo/)
--Binaries are required by libcheck - Can just install a pre-built package -
+-Binaries are required by libcheck - Can just install a pre-built package
 -Package will probably be the "texinfo" package
 
 3)libexpat  (http://expat.sourceforge.net/)
@@ -90,7 +90,6 @@ Optional - Used only to run getdns tests
 -wget https://bootstrap.pypa.io/ez_setup.py -O - | sudo python
 
 14)M2Crypto  (http://chandlerproject.org/Projects/MeTooCrypto - https://github.com/martinpaljak/M2Crypto)
--Optional, although it does make OpenSSL functions easier to execute in Python
 -Edit setup.py such that "opensslIncludeDir" & "opensslLibraryDir" point to the correct directories.
 -sudo python setup.py install
 
