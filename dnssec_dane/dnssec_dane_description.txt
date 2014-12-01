@@ -41,7 +41,8 @@ Optional - Used only to run getdns tests
 -sudo make install
 
 5)OpenSSL  (https://www.openssl.org/)
--If building your own OpenSSL, placing everything in /usr/local instead of /usr/local/ssl may make things go more smoothly later
+-If building your own OpenSSL, placing everything in /usr/local instead of
+ /usr/local/ssl may make things go more smoothly later.
 -CFLAGS="-fPIC"
 -./config shared no-idea
 -make depend
@@ -90,14 +91,12 @@ Optional - Used only to run getdns tests
 -wget https://bootstrap.pypa.io/ez_setup.py -O - | sudo python
 
 14)M2Crypto  (http://chandlerproject.org/Projects/MeTooCrypto - https://github.com/martinpaljak/M2Crypto)
--Edit setup.py such that "opensslIncludeDir" & "opensslLibraryDir" point to the correct directories.
+-Edit setup.py such that "opensslIncludeDir" & "opensslLibraryDir" point to the
+ correct directories.
 -sudo python setup.py install
 
 15)getdns-python-bindings  (https://github.com/getdnsapi/getdns-python-bindings)
--Edit setup.py such that "include_dirs = [ '/usr/local/include', '/usr/local/ssl/include' ],"
--Edit fd_poller.c such that the following block of code is commented out or removed.
-    if ((fd = getdns_context_fd(context)) < 0)  {
-        PyErr_SetString(getdns_error, GETDNS_RETURN_INVALID_PARAMETER_TEXT);
-        return NULL;
-    }
+-Download the "develop" branch from Github.
+-If OpenSSL was compiled from source, edit setup.py such that
+ "include_dirs = [ '/usr/local/include', '/usr/local/ssl/include' ],"
 -sudo python setup.py install

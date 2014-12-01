@@ -39,17 +39,10 @@ sys.path.append("..")
 from CppBlockUtils import SecureBinaryData
 from armoryengine.ArmoryUtils import binary_to_hex, sha256, sha512
 
-# Proof-of-concept code that performs "Type 3" verification on DANE records.
-# (Anything more will require verification of the cert chain and will, hence,
-# require a lot more code.) Most of the code is taken from checkdanecert.py.
-
-# Compute the hash for an incoming string.
-def compute_hash(func, string):
-    """Compute hash of incoming string using a given hash function."""
-    h = func()
-    h.update(string)
-    return h.hexdigest()
-
+# Proof-of-concept code that performs "Usage Type 3" verification on DANE
+# records. (Anything more will require verification of the cert chain and will,
+# hence, require a lot more code.) Most of the code is taken from
+# checkdanecert.py.
 
 # Print the "RDATA" contents of a TLSA resource record (RR).
 def get_tlsa_rdata_set(replies):
@@ -68,7 +61,8 @@ def get_tlsa_rdata_set(replies):
                 cadata = rdata['certificate_association_data']
                 print 'cadata: %s' % binary_to_hex(str(cadata))
                 tlsa_rdata_set.append(
-                    (usage, selector, matching_type, str(cadata)) )
+                    (usage, selector, matching_type, str(cadata)))
+
     return tlsa_rdata_set
 
 
