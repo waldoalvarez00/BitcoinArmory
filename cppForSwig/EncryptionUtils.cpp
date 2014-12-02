@@ -511,6 +511,9 @@ SecureBinaryData CryptoAES::DecryptCBC(SecureBinaryData & data,
 
 // Create a new Crypto++ ECDSA private key based off 32 bytes of PRNG-generated
 // data.
+// INPUT:  32 bytes of entropy  (SecureBinaryData)
+// OUTPUT: None
+// RETURN: Crypto++ private key  (BTC_PRIVKEY)
 /////////////////////////////////////////////////////////////////////////////
 BTC_PRIVKEY CryptoECDSA::CreateNewPrivateKey(SecureBinaryData entropy)
 {
@@ -518,10 +521,11 @@ BTC_PRIVKEY CryptoECDSA::CreateNewPrivateKey(SecureBinaryData entropy)
 }
 
 
-
-
 // Create a new Crypto++ ECDSA private key using an incoming private key. The
 // incoming key must be 32 bytes long.
+// INPUT:  A 32 byte private key  (const SecureBinaryData&)
+// OUTPUT: None
+// RETURN: A Crypto++ private key  (BTC_PRIVKEY)
 /////////////////////////////////////////////////////////////////////////////
 BTC_PRIVKEY CryptoECDSA::ParsePrivateKey(SecureBinaryData const & privKeyData)
 {
@@ -537,6 +541,9 @@ BTC_PRIVKEY CryptoECDSA::ParsePrivateKey(SecureBinaryData const & privKeyData)
 
 // Create a new Crypto++ ECDSA public key using an incoming public key. The
 // incoming key must be 65 bytes long.
+// INPUT:  A 65 byte public key  (const SecureBinaryData&)
+// OUTPUT: None
+// RETURN: A Crypto++ public key  (BTC_PUBKEY)
 /////////////////////////////////////////////////////////////////////////////
 BTC_PUBKEY CryptoECDSA::ParsePublicKey(SecureBinaryData const & pubKey65B)
 {
@@ -549,6 +556,10 @@ BTC_PUBKEY CryptoECDSA::ParsePublicKey(SecureBinaryData const & pubKey65B)
 
 // Create a new Crypto++ ECDSA public key using incoming public X/Y coordinates.
 // The incoming coordinates must be 32 bytes long.
+// INPUT:  A 32 byte public key X-coordinate  (const SecureBinaryData&)
+//         A 32 byte public key Y-coordinate  (const SecureBinaryData&)
+// OUTPUT: None
+// RETURN: A Crypto++ public key  (BTC_PUBKEY)
 /////////////////////////////////////////////////////////////////////////////
 BTC_PUBKEY CryptoECDSA::ParsePublicKey(SecureBinaryData const & pubKeyX32B,
                                        SecureBinaryData const & pubKeyY32B)
@@ -575,6 +586,9 @@ BTC_PUBKEY CryptoECDSA::ParsePublicKey(SecureBinaryData const & pubKeyX32B,
 }
 
 // Serialize a Crypto+ ECDSA private key. The result will be 32 bytes long.
+// INPUT:  A Crypto++ private key  (const BTC_PRIVKEY&)
+// OUTPUT: None
+// RETURN: A 32 byte buffer with the private key  (SecureBinaryData)
 /////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::SerializePrivateKey(BTC_PRIVKEY const & privKey)
 {
@@ -585,6 +599,9 @@ SecureBinaryData CryptoECDSA::SerializePrivateKey(BTC_PRIVKEY const & privKey)
 }
    
 // Serialize a Crypto+ ECDSA private key. The result will be 65 bytes long.
+// INPUT:  A Crypto++ public key  (const BTC_PUBKEY&)
+// OUTPUT: None
+// RETURN: A 65 byte buffer with the public key  (SecureBinaryData)
 /////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::SerializePublicKey(BTC_PUBKEY const & pubKey)
 {
@@ -632,12 +649,11 @@ BTC_PUBKEY CryptoECDSA::ComputePublicKey(BTC_PRIVKEY const & cppPrivKey)
    return cppPubKey;
 }
 
-// Check to see if the public key generated from a private key matches an
-// incoming public key.
-// INPUT:  Crypto++ private key that will generate a pub key. (BTC_PRIVKEY)
-//         Crypto++ public key that will be compared. (BTC_PUBKEY)
+
+// Generate a private key from an entropy value.
+// INPUT:  32 bytes of entropy  (SecureBinaryData)
 // OUTPUT: None
-// RETURN: Bool indicating if there's a match (true) or not (false).
+// RETURN: A 32 byte buffer with the private key  (SecureBinaryData)
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::GenerateNewPrivateKey(SecureBinaryData entropy)
 {
@@ -645,6 +661,12 @@ SecureBinaryData CryptoECDSA::GenerateNewPrivateKey(SecureBinaryData entropy)
 }
 
 
+// Check to see if the public key generated from a private key matches an
+// incoming public key.
+// INPUT:  Crypto++ private key that will generate a pub key. (BTC_PRIVKEY)
+//         Crypto++ public key that will be compared. (BTC_PUBKEY)
+// OUTPUT: None
+// RETURN: Bool indicating if there's a match (true) or not (false).
 ////////////////////////////////////////////////////////////////////////////////
 bool CryptoECDSA::CheckPubPrivKeyMatch(BTC_PRIVKEY const & cppPrivKey,
                                        BTC_PUBKEY  const & cppPubKey)
@@ -684,7 +706,7 @@ bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
 
 
 // Verify that an incoming public key is on the secp256k1 curve.
-// INPUT:  A compressed or uncompressed public key
+// INPUT:  A compressed or uncompressed public key  (const SecureBinaryData&)
 // OUTPUT: None
 // RETURN: Bool indicating if the key's on the curve (true) or not (false).
 bool CryptoECDSA::VerifyPublicKeyValid(SecureBinaryData const & pubKey33or65)
@@ -753,10 +775,10 @@ SecureBinaryData CryptoECDSA::SignData(SecureBinaryData const & binToSign,
 
 
 // Function that takes a Crypto++ private key and signs an incoming buffer.
-// INPUT:  The incoming buffer.
-//         The Crypto++ private key used to sign the data.
+// INPUT:  The incoming buffer.  (const SecureBinaryData&)
+//         The Crypto++ private key used to sign the data.  (const BTC_PRIVKEY&)
 // OUTPUT: None
-// RETURN: A buffer with the signature.
+// RETURN: A buffer with the signature.  (SecureBinaryData)
 /////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::SignData(SecureBinaryData const & binToSign, 
                                        BTC_PRIVKEY const & cppPrivKey)
@@ -783,6 +805,7 @@ SecureBinaryData CryptoECDSA::SignData(SecureBinaryData const & binToSign,
    return SecureBinaryData(signature);
 }
 
+
 // Verification of a message and its signature.
 // INPUT:  The message to verify.
 //         The signature used to verify the message.
@@ -807,6 +830,7 @@ bool CryptoECDSA::VerifyData(SecureBinaryData const & binMessage,
    BTC_PUBKEY cppPubKey = ParsePublicKey(pubkey65B);
    return VerifyData(binMessage, binSignature, cppPubKey);
 }
+
 
 // Verification of a message and its signature.
 // INPUT:  The message to verify.
@@ -839,8 +863,10 @@ bool CryptoECDSA::VerifyData(SecureBinaryData const & binMessage,
                                               binSignature.getSize());
 }
 
+
 /////////////////////////////////////////////////////////////////////////////
-// Deterministically generate new private key using a chaincode
+// Deterministically generate new private key using a chaincode. (Used for
+// legacy (pre-2.0) wallets.)
 // Changed:  added using the hash of the public key to the mix
 //           b/c multiplying by the chaincode alone is too "linear"
 //           (there's no reason to believe it's insecure, but it doesn't
@@ -921,9 +947,11 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
 
    return newPrivData;
 }
-                            
+
+
 /////////////////////////////////////////////////////////////////////////////
-// Deterministically generate new public key using a chaincode
+// Deterministically generate new public key using a chaincode. (Used for
+// legacy (pre-2.0) wallets.)
 SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
                                 SecureBinaryData const & binPubKey,
                                 SecureBinaryData const & chaincode,
@@ -975,6 +1003,7 @@ SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
 }
 
 
+// Calculate the multiplicative inverse of the input modulo the secp256k1 order.
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData CryptoECDSA::InvMod(const SecureBinaryData& m)
 {
@@ -1013,7 +1042,8 @@ bool CryptoECDSA::ECVerifyPoint(BinaryData const & x,
 }
 
 
-// Function that returns the Crypto++ ECP object for the secp256k1 curve.
+// Function that returns the Crypto++ ECP object for the secp256k1 curve. This
+// object is used to perform math on the secp256k1 curve.
 ////////////////////////////////////////////////////////////////////////////////
 CryptoPP::ECP CryptoECDSA::Get_secp256k1_ECP(void)
 {
@@ -1028,6 +1058,7 @@ CryptoPP::ECP CryptoECDSA::Get_secp256k1_ECP(void)
 
    if(firstRun)
    {
+      // Data taken from SEC 2, Sect. 2.7.1.
       firstRun = false;
       N = BinaryData::CreateFromHex(
             "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f");
@@ -1678,15 +1709,19 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 }
 
 
-////////////////////////////////////////////////////////////////////////////////
-// In the HDWallet gist by Pieter, CKD takes two inputs:
-//    1.  Extended Key  (priv/pub key, chaincode)
-//    2.  Child number
-//
 // The ExtendedKey class accommodates full private-included ExtendedKey objects
 // or public-key-only.  You can pass in either one here, and it will derive the
-// child for whatever key data is there.
+// child for whatever key data is there. Note that thisfunction doesn't perform
+// private-to-public conversions. Such conversions will require the caller to
+// manually convert a private key to a public key. For example, in the case of
+// hardened public keys, a private-to-private derivation must occur, and the
+// derived private key is then converted to a public key.
 //
+// INPUT:  The parent key. (const ExtendedKey&)
+//         The child number. (uint32_t)
+// OUTPUT: If a buffer is sent in and the child isn't hardened, the code saves
+//         the multiplier used to find the child's pub key. (SecureBinaryData*)
+// RETURN: The child key. (ExtendedKey)
 ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
                                           uint32_t childNum,
                                           SecureBinaryData* multiplierOut)
@@ -1694,21 +1729,25 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
    // Can't compute a child with no parent!
    assert(extPar.isInitialized());
 
+   // Continue only if public-to-non-hardened-public derivation isn't requested.
    ExtendedKey derivKey;
    if(extPar.isPub() && isHardened(childNum))
    {
-      LOGERR << "Cannot perform hardened derivation on public key #" << childNum;
-      return derivKey;
+      LOGERR << "Cannot perform hardened derivation on public key #" << childNum
+         << ". You must have access to the private key.";
    }
    else
    {
-      // First, let's get ready for an HMAC-SHA512 call. The key will always be
-      // the parent's chain code. The data will depend on the parent key type
-      // and the type of derivation. (| = Concatenation)
-      // Prv par/Prv der - 0x00 | Prv par key | Incoming position
-      // Prv par/Pub der - Compressed pub par key | Incoming position
-      // Pub par/Prv der - NOT VALID  (Already handled above)
-      // Pub par/Pub der - Compressed pub par key | Incoming position
+      SecureBinaryData childKey;
+      bool derivSuccess = false;
+      bool keyIsPub = false;
+
+      // First, let's use HMAC-SHA512 to get some data. The key will always be
+      // the parent's chain code. The HMAC-SHA512 msg will depend on if the
+      // key's hardened. (| = Concatenation)
+      // Prv par (Hardened) - 0x00 | Prv par key | Incoming position
+      // Pub par (Hardened) - Compressed pub par key | Incoming position
+      // Prv or pub par (Non-hardened) - Compressed pub par key | Incoming pos
       SecureBinaryData binaryN = WRITE_UINT32_BE(childNum);
       SecureBinaryData hashData;
 
@@ -1729,7 +1768,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       SecureBinaryData leftHMAC = hVal.getSliceRef(0, 32);
       SecureBinaryData rightHMAC = hVal.getSliceRef(32, 32);
 
-      // Is our new key valid? (Almost impossible to fail, but just in case....)
+      // Curve order taken from SEC 2, Sect. 2.7.1.
       CryptoPP::Integer intLeft;
       CryptoPP::Integer ecOrder;
       SecureBinaryData CURVE_ORDER_BE = SecureBinaryData().CreateFromHex(
@@ -1738,92 +1777,112 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
                      UNSIGNED);
       intLeft.Decode(leftHMAC.getPtr(), leftHMAC.getSize(), UNSIGNED);
 
+      // If the caller wants to save a non-hardened child's multiplier, save it.
       if(multiplierOut != NULL && !isHardened(childNum))
       {
          multiplierOut->copyFrom(leftHMAC);
       }
 
+      // BIP32 requires the multiplier to be smaller than the curve order. BIP32
+      // requests that we try again w/ child#+1. We'll leave that to other code.
       if(intLeft >= ecOrder)
       {
-         LOGERR << "Derived private key #" << childNum << " is greater than the "
-            << "elliptic curve order!";
-         return derivKey;
-      }
-
-      // Now, let's build the key and chain code. The process depends on if the
-      // parent is public or private. (Child will share the parents' status.)
-      // PRV: Key = (1st 32 bytes of HMAC-SHA512 + Par prv key) % secp256k1 ord
-      //      Chain code = 2nd 32 bytes of HMAC-512
-      // PUB: Key = (1st 32 bytes of HMAC-SHA512 * secp256k1 gen) + par pub key
-      //      Chain code = 2nd 32 bytes of HMAC-512
-      SecureBinaryData childKey;
-      bool keyIsPub = false;
-      if(extPar.isPrv()) 
-      {
-         CryptoPP::Integer intKey;
-         CryptoPP::Integer check0;
-         SecureBinaryData prvKey = extPar.getKey().getSliceRef(1, 32);
-         intKey.Decode(prvKey.getPtr(), prvKey.getSize(), UNSIGNED);
-         check0 = (intLeft + intKey) % ecOrder;
-
-         // Highly doubtful the key hit the point of infinity. Just in case....
-         if(check0.IsZero())
-         {
-            LOGERR << "Addition derived the point at infinity for private key #"
-               << childNum;
-         }
-         else
-         {
-            // Finish child setup.
-            SecureBinaryData zeros = SecureBinaryData(PRIKEYSIZE - check0.ByteCount());
-            zeros.fill(0x00);
-            childKey.append(zeros);
-            SecureBinaryData check0Str(check0.ByteCount());
-            check0.Encode(check0Str.getPtr(), check0Str.getSize(), UNSIGNED);
-            childKey.append(check0Str);
-         }
+         LOGERR << "HMAC-SHA512 multiplier for child #" << childNum << " is "
+            << "larger than the curve order! Try again for child # "
+            << (childNum + 1) << ".";
       }
       else
       {
-         SecureBinaryData pubX = extPar.getPub().getSliceRef(1, 32);
-         SecureBinaryData pubY = extPar.getPub().getSliceRef(33, 32);
-         SecureBinaryData BASE_X = SecureBinaryData().CreateFromHex(
-            "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798");
-         SecureBinaryData BASE_Y = SecureBinaryData().CreateFromHex(
-            "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8");
-         SecureBinaryData newPub;
+         // Now, let's build the key and chain code. The process depends on if
+         // the parent is public or private. (Child will share parents' status.)
+         // PRV: Key = (1st 32 bytes of HMAC-SHA512 + Par prv key) % secp256k1 ord
+         //      Chain code = 2nd 32 bytes of HMAC-512
+         // PUB: Key = (1st 32 bytes of HMAC-SHA512 * secp256k1 base) + par pub key
+         //      Chain code = 2nd 32 bytes of HMAC-512
+         if(extPar.isPrv()) 
+         {
+            CryptoPP::Integer intKey;
+            CryptoPP::Integer check0;
+            SecureBinaryData prvKey = extPar.getKey().getSliceRef(1, 32);
+            intKey.Decode(prvKey.getPtr(), prvKey.getSize(), UNSIGNED);
+            check0 = (intLeft + intKey) % ecOrder;
 
-         // Calc the child key. Don't proceed if at the point of infinity.
-         if(!(CryptoECDSA().ECMultiplyPoint(leftHMAC, BASE_X, BASE_Y, newPub))) 
-         {
-            LOGERR << "Multiplication derived the point at infinity for public "
-               << "key #" << childNum;
-         }
-         else
-         {
-            // Finish child setup.
-            SecureBinaryData newX = newPub.getSliceRef(0, 32);
-            SecureBinaryData newY = newPub.getSliceRef(32, 32);
-            SecureBinaryData addRes;
-            if(!(CryptoECDSA().ECAddPoints(newX, newY, pubX, pubY, addRes)))
+            // BIP32 requires the child key to not be at the point of infinity.
+            // BIP32 also requests that we try again w/ child#+1. We'll leave
+            // that to other code.
+            if(check0.IsZero())
             {
-               LOGERR << "Addition derived the point at infinity for public "
-                  << "key #" << childNum;
+               LOGERR << "Addition derived the point at infinity for private "
+                  << "key #" << childNum << "! Try again for child #"
+                  << (childNum + 1) << ".";
             }
             else
             {
-               uint8_t pubHdr = 0x04;
-               childKey.append(pubHdr);
-               childKey.append(addRes);
-               keyIsPub = true;
+               // We have the child private key!
+               SecureBinaryData zeros = SecureBinaryData(PRIKEYSIZE -
+                                                            check0.ByteCount());
+               zeros.fill(0x00);
+               childKey.append(zeros);
+               SecureBinaryData check0Str(check0.ByteCount());
+               check0.Encode(check0Str.getPtr(), check0Str.getSize(), UNSIGNED);
+               childKey.append(check0Str);
+               derivSuccess = true;
+            }
+         }
+         else
+         {
+            // Base point taken from SEC 2, Sect. 2.7.1.
+            SecureBinaryData BASE_X = SecureBinaryData().CreateFromHex(
+            "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798");
+            SecureBinaryData BASE_Y = SecureBinaryData().CreateFromHex(
+            "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8");
+            SecureBinaryData pubX = extPar.getPub().getSliceRef(1, 32);
+            SecureBinaryData pubY = extPar.getPub().getSliceRef(33, 32);
+            SecureBinaryData newPub;
+
+            // Multiply base point by the multiplier to get an intermediate key.
+            // Don't proceed if at the point of infinity.
+            if(!(CryptoECDSA().ECMultiplyPoint(leftHMAC, BASE_X, BASE_Y, newPub)))
+            {
+               LOGERR << "Multiplication derived the point at infinity for "
+                  << "public key #" << childNum << ". Try again with a new "
+                  << "child #.";
+            }
+            else
+            {
+               SecureBinaryData newX = newPub.getSliceRef(0, 32);
+               SecureBinaryData newY = newPub.getSliceRef(32, 32);
+               SecureBinaryData addRes;
+
+               // BIP32 requires child key to not be at the point of infinity.
+               // BIP32 also requests that we try again w/ child#+1. We'll
+               // leave that to other code.
+               if(!(CryptoECDSA().ECAddPoints(newX, newY, pubX, pubY, addRes)))
+               {
+                  LOGERR << "Addition derived the point at infinity for public "
+                     << "key #" << childNum << ". Try using child #"
+                     << (childNum + 1) << ".";
+               }
+               else
+               {
+                  // We have the child public key!
+                  uint8_t pubHdr = 0x04;
+                  childKey.append(pubHdr);
+                  childKey.append(addRes);
+                  keyIsPub = true;
+                  derivSuccess = true;
+               }
             }
          }
       }
 
-      // Create and return the child.
-      derivKey = ExtendedKey(childKey, rightHMAC, extPar.getFingerprint(),
-                             extPar.getIndicesList(), extPar.getVersion(),
-                             childNum, keyIsPub);
+      if(derivSuccess)
+      {
+         // Create and return the child object.
+         derivKey = ExtendedKey(childKey, rightHMAC, extPar.getFingerprint(),
+                                extPar.getIndicesList(), extPar.getVersion(),
+                                childNum, keyIsPub);
+      }
    }
 
    return derivKey;
