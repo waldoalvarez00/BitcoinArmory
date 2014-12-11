@@ -359,11 +359,63 @@ class SignableIDPayload(object):
       
       
 
+################################################################################
+def computeBip32PathWithProof(binPublicKey, binChaincode, indexList):
+   """
+   We will actually avoid using the higher level ArmoryKeyPair (AKP) objects
+   for now, as they do a ton of extra stuff we don't need for this.  We go
+   a bit lower-level and talk to CppBlockUtils.HDWalletCrypto directly.
+
+   Inputs:
+      binPublicKey:  python string, 33-byte compressed public key
+      binChaincode:  python string, 32-byte chaincode 
+      indexList:     python list of UINT32s, anything >0x7fffffff is hardened
    
+   Output: [multiplierList, finalPublicKey]
 
+      multiplierList:   The list of 32-byte multipliers that can be applied
+                        to the input binPublicKey to produce the publicExtKeyObj
+                        All multipliers passed out as python strings
+      finalPublicKey:   pyton string:  33-byte compressed public key
 
+   Note that an error will be thrown if any items in the index list correspond
+   to a hardened derivation.  We need this proof to be generatable strictly
+   from public key material.
 
+   """
+   
+   # Sanity check the inputs
+   if not len(binPublicKey)==33 or not binPublicKey[0] in ['\x02','\x03']:
+      raise KeyDataError('Input public key is a valid format')
+      
+   if not len(binChaincode)==32:
+      raise KeyDataError('Chaincode must be 32 bytes')
 
+   # Crypto-related code uses SecureBinaryData and Cpp.ExtendedKey objects
+   sbdPublicKey = SecureBinaryData(binPublicKey)
+   sbdChainCode = SecureBinaryData(binChaincode)
+   extPubKeyObj = Cpp.ExtendedKey(sbdPublicKey, sbdChainCode)
+
+   # Prepare the output multiplier list
+   self.multList = []
+
+   # Derive the children
+   for childIndex in indexList:
+      if (childIndex & 0x80000000) > 0:
+         raise ChildDeriveError('Cannot generate proofs along hardened paths')
+                      
+      # Pass in a NULL SecureBinaryData object as a reference
+      sbdMultiplier = NULLSBD()
+
+      # Computes the child and emits the multiplier via the last arg
+      extPubKeyObj = Cpp.HDWalletCrypto().childKeyDeriv(extPubKeyObj, 
+                                                        childIndex, 
+                                                        sbdMultiplier)
+
+      # Append multiplier to list
+      self.multiplierList.append(sbdMultiplier.toBinStr())
+                      
+   return self.multiplierList, extPubKeyObj.getPublicKey().toBinStr()
 
 
 
