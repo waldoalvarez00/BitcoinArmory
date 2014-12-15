@@ -215,11 +215,21 @@ class ConstructedScript(object):
       self.pubKeyBundles  = []
 
       self.setTemplateAndPubKeySrcs(scrTemp, pubSrcs)
+
       
    
-   @staticmethod
-   def setTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
+   def readTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
       """ 
+      Inputs:
+         scrTemp:  script template  (ff-escaped)
+         pubSrcs:  flat list of PublicKeySource objects
+
+   
+      Outputs:
+         Sets member vars self.scriptTemplate and self.pubKeyBundles 
+         pubkeyBundles will be a list-of-lists as described below.
+
+
       Let's say we have a script template like this: this is a non-working
       2-of-3 OR 3-of-5, with the second key list sorted)
 
@@ -238,29 +248,101 @@ class ConstructedScript(object):
              [ [PubSrc1], [PubSrc2], [PubSrc3], [PubSrc4, PubSrc5, ...]]
                    1          2          3       <--------- 4 -------->
       """ 
+      cs = ConstructedScript()
+
+      if '\xff\xff' in scrTemp or scrTemp.endswith('\xff'):
+         raise BadInputError('All 0xff sequences need to be properly escaped')
 
       # The first byte after each ESCAPECHAR is number of pubkeys to insert.
-      # Repeated ESCAPECHAR+'\x00' bytes are interpretted as the respective 
-      # (single) 0xff op code.  i.e.  0xff00 will be inserted in the final 
+      # ESCAPECHAR+'\x00' is interpretted as as single
+      # 0xff op code.  i.e.  0xff00 will be inserted in the final 
       # script as a single 0xff byte (which is OP_INVALIDOPCODE).   For the 
       # purposes of this function, 0xff00 is ignored.
+      # 0xffff should not exist in any script template
       scriptPieces = scrTemp.split(ESCAPECHAR)
-      bundleBytes  = [pc[0] for pc in scriptPieces[1:] if not pc[0]==ESCESC]
-      bundleSizes  = [binary_to_int(b) for b in bundleBytes]
+
+      # Example after splitting:
+      # 76a9ff0188acff03ff0001 would now look like:  '76a9' '0188ac' '03', '0001']
+      #                                                      ^^       ^^    ^^
+      #                                                  ff-escaped chars
+      # We want this to look like:                   '76a9',  '88ac',  '',   '01'
+      #        with escape codes:                           01       03     ff
+      #        with 2 pub key bundles                      [k0] [k1,k2,k3]
+      # There will always be X script pieces and X-1 pubkey bundles
+
+      # Get the first byte after every 0xff 
+      breakoutPairs = [[pc[0],pc[1:]] for pc in scriptPieces[1:]]
+      escapedBytes  = [binary_to_int(b[0]) for b in breakout if b[0]]
+      scriptPieces  = [scriptPieces[0]] + [b[1] for b in bundleBytes]
 
       if sum(bundleSizes) != len(pubSrcs):
          raise UnserializeError('Template key count do not match pub list size')
 
-      self.scriptTemplate = scrTemp
-      self.pubKeySrcList  = pubSrcs[:]
-      self.pubKeyBundles  = []
+      cs.scriptTemplate = scrTemp
+      cs.pubKeySrcList  = pubSrcs[:]
+      cs.pubKeyBundles  = []
       
       # Slice up the pubkey src list into the bundles
       idx = 0
       for sz in bundleSizes:
-         self.pubKeyBundles.append( self.pubKeySrcList[idx:idx+sz] )
+         cs.pubKeyBundles.append( cs.pubKeySrcList[idx:idx+sz] )
          idx += sz
       
+      
+
+
+
+   #############################################################################
+   @staticmethod
+   def StandardP2PKHConstructed(binRootPubKey):
+      if not len(binRootPubKey) in [33,65]:
+         raise KeyDataError('Invalid pubkey;  length=%d' % len(binRootPubKey))
+
+      templateStr = hex_to_binary("76a9" "ff01" "88ac")
+      
+      pks = PublicKeySource()
+      pks.initialize(isStatic=False, 
+                     useCompr=(len(binRootPubKey)==33), 
+                     use160=True, 
+                     isSx=False, 
+                     isUser=False, 
+                     isExt=False, 
+                     src=binRootPubKey)
+
+      cs = ConstructedScript()
+      cs.initialize(self, templateStr, [pks], False)
+      return cs
+
+   #############################################################################
+   @staticmethod
+   def StandardMultisigConstructed(M, binRootList):
+      for pk in binRootList:
+         if not len(pk) in [33,65]:
+            raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
+
+      N = len(binRootList)
+      escN = int_to_binary(N)
+      op_M = int_to_binary(80+M)
+      op_N = int_to_binary(80+N)
+      templateStr = hex_to_binary(op_M + 'ff'+escN + op_N + 'ae')
+      
+      
+      pksList = []
+      for rootPub in binRootList:
+         pks = PublicKeySource()
+         pks.initialize(isStatic=False, 
+                        useCompr=(len(binRootPubKey)==33), 
+                        use160=False, 
+                        isSx=False, 
+                        isUser=False, 
+                        isExt=False, 
+                        src=rootPub)
+         pksList.append(pks)
+         
+
+      cs = ConstructedScript()
+      cs.initialize(self, templateStr, pksList, True)
+      return cs
 
 
 ################################################################################
