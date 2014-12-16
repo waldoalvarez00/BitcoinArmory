@@ -109,7 +109,14 @@ class ArmoryDStartupTest(TiabTest):
       self.assertEqual(actualResult['difficulty'], 1.0)
       self.assertEqual(actualResult['testnet'], True)
       
-   @SkipTest
+class ArmoryDStartupTest2(TiabTest):
+
+   def setUp(self):
+      self.armoryDSession = ArmoryDSession(self.tiab)
+
+   def tearDown(self):
+      self.armoryDSession.clean()
+
    def testJSONMultipleWallets(self):
       self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
       wltDictionary = self.armoryDSession.callArmoryD(['listloadedwallets'])
