@@ -574,16 +574,30 @@ public:
                                 SecureBinaryData msg);
 
    // Derive a child key from an incoming key (pub or pri).
-   ExtendedKey childKeyDeriv(ExtendedKey const & extPar,
+   ExtendedKey childKeyDeriv(ExtendedKey const& extPar,
                              uint32_t childNum,
-                             SecureBinaryData* multiplierOut=NULL); 
+                             SecureBinaryData* multiplierOut=NULL);
 
    // Use a seed to create a master key.
-   ExtendedKey ConvertSeedToMasterKey(SecureBinaryData const & seed);
+   ExtendedKey ConvertSeedToMasterKey(SecureBinaryData const& seed);
+
+   // Get a child key based off a list of multipliers/addends.
+   SecureBinaryData getChildKeyFromOps(SecureBinaryData const& parKey,
+                                       vector<SecureBinaryData>& mathOps,
+                                       bool& success);
 
    ~HDWalletCrypto();
 
 private:
+   bool childKeyDerivPub(SecureBinaryData const& multiplier,
+                         SecureBinaryData const& parKey,
+                         SecureBinaryData const& ecGenX,
+                         SecureBinaryData const& ecGenY,
+                         SecureBinaryData& childKey);
+   bool childKeyDerivPrv(SecureBinaryData const& addend,
+                         SecureBinaryData const& parKey,
+                         SecureBinaryData const& ecGenOrder,
+                         SecureBinaryData& childKey);
 };
 
 
@@ -592,7 +606,7 @@ class HDWalletCryptoSeed
 {
 public:
    HDWalletCryptoSeed() {}
-   HDWalletCryptoSeed(SecureBinaryData const & rngData);
+   HDWalletCryptoSeed(SecureBinaryData const& rngData);
 
    const SecureBinaryData& getMasterKey()   { return masterKey_; }
    const SecureBinaryData& getMasterChain() { return masterChain_; }
