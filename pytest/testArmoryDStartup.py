@@ -100,23 +100,6 @@ class ArmoryDStartupTest(TiabTest):
    def tearDown(self):
       self.armoryDSession.clean()
 
-   def testJSONGetinfo(self):
-      self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
-      actualResult = self.armoryDSession.callArmoryD(['getarmorydinfo'])
-      self.assertEqual(actualResult['balance'], FIRST_WLT_BALANCE)
-      self.assertEqual(actualResult['bdmstate'], BDM_BLOCKCHAIN_READY)
-      self.assertEqual(actualResult['blocks'], TOP_TIAB_BLOCK)
-      self.assertEqual(actualResult['difficulty'], 1.0)
-      self.assertEqual(actualResult['testnet'], True)
-      
-class ArmoryDStartupTest2(TiabTest):
-
-   def setUp(self):
-      self.armoryDSession = ArmoryDSession(self.tiab)
-
-   def tearDown(self):
-      self.armoryDSession.clean()
-
    def testJSONMultipleWallets(self):
       self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
       wltDictionary = self.armoryDSession.callArmoryD(['listloadedwallets'])
@@ -127,6 +110,16 @@ class ArmoryDStartupTest2(TiabTest):
       self.assertTrue(setWltResult.index(THIRD_WLT_NAME) > 0)
       actualResult2 = self.armoryDSession.callArmoryD(['getwalletinfo'])
       self.assertEqual(actualResult2['name'], 'Third Wallet')
+
+   def testJSONGetinfo(self):
+      self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
+      actualResult = self.armoryDSession.callArmoryD(['getarmorydinfo'])
+      self.assertEqual(actualResult['balance'], FIRST_WLT_BALANCE)
+      self.assertEqual(actualResult['bdmstate'], BDM_BLOCKCHAIN_READY)
+      self.assertEqual(actualResult['blocks'], TOP_TIAB_BLOCK)
+      self.assertEqual(actualResult['difficulty'], 1.0)
+      self.assertEqual(actualResult['testnet'], True)
+      
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
 # You must run tests with "python -m unittest <module name>" or run all tests with "python -m unittest discover"
