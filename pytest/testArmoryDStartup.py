@@ -95,8 +95,6 @@ class ArmoryDSession:
 class ArmoryDStartupTest(TiabTest):      
 
    def setUp(self):
-      import time
-      time.sleep(5)
       self.armoryDSession = ArmoryDSession(self.tiab)
 
    def tearDown(self):
@@ -111,6 +109,7 @@ class ArmoryDStartupTest(TiabTest):
       self.assertEqual(actualResult['difficulty'], 1.0)
       self.assertEqual(actualResult['testnet'], True)
       
+   @SkipTest
    def testJSONMultipleWallets(self):
       self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
       wltDictionary = self.armoryDSession.callArmoryD(['listloadedwallets'])
