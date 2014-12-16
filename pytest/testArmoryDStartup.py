@@ -95,6 +95,8 @@ class ArmoryDSession:
 class ArmoryDStartupTest(TiabTest):      
 
    def setUp(self):
+      import time
+      time.sleep(5)
       self.armoryDSession = ArmoryDSession(self.tiab)
 
    def tearDown(self):
