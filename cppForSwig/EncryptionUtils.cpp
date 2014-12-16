@@ -1863,6 +1863,11 @@ bool HDWalletCrypto::childKeyDerivPub(SecureBinaryData const& multiplier,
                                       SecureBinaryData const& ecGenY,
                                       SecureBinaryData& childKey)
 {
+   assert(multiplier.getSize() == 32);
+   assert(parKey.getSize() == 65);
+   assert(ecGenX.getSize() == 32);
+   assert(ecGenY.getSize() == 32);
+
    bool retVal = true;
    childKey.clear();
    SecureBinaryData newPub;
@@ -1917,6 +1922,10 @@ bool HDWalletCrypto::childKeyDerivPrv(SecureBinaryData const& addend,
                                       SecureBinaryData const& ecGenOrder,
                                       SecureBinaryData& childKey)
 {
+   assert(addend.getSize() == 32);
+   assert(parKey.getSize() == 33);
+   assert(ecGenOrder.getSize() == 32);
+
    bool retVal = true;
    SecureBinaryData prvKey = parKey.getSliceRef(1, 32);
    childKey.clear();
@@ -1956,7 +1965,7 @@ bool HDWalletCrypto::childKeyDerivPrv(SecureBinaryData const& addend,
 // Function that takes a parent key and some math ops (multipliers or addends)
 // and uses the ops to derive a child key.
 //
-// INPUT:  Parent key. (SecureBinaryData const&)
+// INPUT:  Parent key (33 or 65 bytes). (SecureBinaryData const&)
 //         Sequential collection of operators. (vector<SecureBinaryData>)
 // OUTPUT: Indicator of whether or not derivation was successful. (bool&)
 // RETURN: The child key (33 or 65 bytes). (SecureBinaryData)
@@ -1964,6 +1973,8 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
                                                     vector<SecureBinaryData>& mathOps,
                                                     bool& success)
 {
+   assert(parKey.getSize() == 33 || parKey.getSize() == 65);
+
    SecureBinaryData retKey;
    SecureBinaryData nextKey = parKey;
    vector<SecureBinaryData>::iterator it = mathOps.begin();
@@ -1973,6 +1984,7 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
    {
       while(success && (it != mathOps.end()))
       {
+         assert(it->getSize() == 32);
          success = childKeyDerivPrv(*it,
                                     const_cast<const SecureBinaryData&>(nextKey),
                                     ecOrder_BE,
@@ -1993,6 +2005,7 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
    {
       while(success && (it != mathOps.end()))
       {
+         assert(it->getSize() == 32);
          success = childKeyDerivPub(*it,
                                     const_cast<const SecureBinaryData&>(nextKey),
                                     ecGenX_BE,
@@ -2016,9 +2029,12 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
 
 
 // Function that takes an incoming HDWalletCryptoSeed buffer and creates a
-// master ExtendedKey object.
+// master ExtendedKey object. BIP32 requires the seed to be 16-64 bytes long,
+// with 32 bytes recommended.
 ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed)
 {
+   assert(seed.getSize() >= 16 && seed.getSize() <= 64);
+
    HDWalletCryptoSeed newSeed(seed);
    SecureBinaryData newMasterPriv = SecureBinaryData().CreateFromHex("00");
    SecureBinaryData master32 = newSeed.getMasterKey().copy();
