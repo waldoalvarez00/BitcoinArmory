@@ -6,7 +6,9 @@
 #                                                                              #
 ################################################################################
 from ArmoryUtils import *
-from Script import *
+from BinaryPacker import *
+from BinaryUnpacker import *
+from Transaction import getOpCode
 
 
 BTCID_PAYLOAD_VERSION = (0, 1, 0, 0)
@@ -295,10 +297,43 @@ class ConstructedScript(object):
    #############################################################################
    @staticmethod
    def StandardP2PKHConstructed(binRootPubKey):
+      """
+      Standard Pay-to-public-key-hash script
+      """
+
       if not len(binRootPubKey) in [33,65]:
          raise KeyDataError('Invalid pubkey;  length=%d' % len(binRootPubKey))
 
-      templateStr = hex_to_binary("76a9" "ff01" "88ac")
+      templateStr  = ''
+      templateStr += getOpCode('OP_DUP')
+      templateStr += getOpCode('OP_HASH160')
+      templateStr += '\xff\x01'
+      templateStr += getOpCode('OP_EQUALVERIFY')
+      templateStr += getOpCode('OP_CHECKSIG')
+      
+      pks = PublicKeySource()
+      pks.initialize(isStatic=False, 
+                     useCompr=(len(binRootPubKey)==33), 
+                     use160=True, 
+                     isSx=False, 
+                     isUser=False, 
+                     isExt=False, 
+                     src=binRootPubKey)
+
+      cs = ConstructedScript()
+      cs.initialize(self, templateStr, [pks], False)
+      return cs
+
+   #############################################################################
+   @staticmethod
+   def StandardP2PKConstructed(binRootPubKey):
+      """ This is bare pubkey, usually used with coinbases """
+      if not len(binRootPubKey) in [33,65]:
+         raise KeyDataError('Invalid pubkey;  length=%d' % len(binRootPubKey))
+
+      templateStr  = ''
+      templateStr += '\xff\x01' 
+      templateStr += getOpCode('OP_CHECKSIG')
       
       pks = PublicKeySource()
       pks.initialize(isStatic=False, 
@@ -321,12 +356,57 @@ class ConstructedScript(object):
             raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
 
       N = len(binRootList)
-      escN = int_to_binary(N)
-      op_M = int_to_binary(80+M)
-      op_N = int_to_binary(80+N)
-      templateStr = hex_to_binary(op_M + 'ff'+escN + op_N + 'ae')
+      if (not 0<M<=15) or (not 0<N<=15):
+         raise BadInputError('M and N values must be less than 15')
+
+
+      templateStr  = ''
+      templateStr += getOpCode('OP_%d' % M)
+      templateStr += '\xff' + int_to_binary(N, widthBytes=1)
+      templateStr += getOpCode('OP_%d' % N)
+      templateStr += getOpCode('OP_CHECKMULTISIG')
+
       
-      
+      pksList = []
+      for rootPub in binRootList:
+         pks = PublicKeySource()
+         pks.initialize(isStatic=False, 
+                        useCompr=(len(binRootPubKey)==33), 
+                        use160=False, 
+                        isSx=False, 
+                        isUser=False, 
+                        isExt=False, 
+                        src=rootPub)
+         pksList.append(pks)
+         
+
+      cs = ConstructedScript()
+      cs.initialize(self, templateStr, pksList, True)
+      return cs
+
+   #############################################################################
+   @staticmethod
+   def UnsortedMultisigConstructed(M, binRootList):
+      """
+      THIS PROBABLY WON'T BE USED -- IT IS STANDARD CONVENTION TO ALWAYS SORT!
+      Consider this code to be here to illustrate using constructed scripts
+      with unsorted pubkey lists.
+      """
+      for pk in binRootList:
+         if not len(pk) in [33,65]:
+            raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
+
+      N = len(binRootList)
+      if (not 0<M<=15) or (not 0<N<=15):
+         raise BadInputError('M and N values must be less than 15')
+
+
+      templateStr  = ''
+      templateStr += getOpCode('OP_%d' % M)
+      templateStr += '\xff\x01' * N
+      templateStr += getOpCode('OP_%d' % N)
+      templateStr += getOpCode('OP_CHECKMULTISIG')
+
       pksList = []
       for rootPub in binRootList:
          pks = PublicKeySource()
@@ -498,6 +578,5 @@ def computeBip32PathWithProof(binPublicKey, binChaincode, indexList):
       self.multiplierList.append(sbdMultiplier.toBinStr())
                       
    return self.multiplierList, extPubKeyObj.getPublicKey().toBinStr()
-
 
 
