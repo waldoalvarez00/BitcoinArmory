@@ -4,6 +4,7 @@ from pytest.Tiab import *
 from twisted.trial._synctest import SkipTest
 from armoryengine.BDM import BDM_BLOCKCHAIN_READY
 import json
+import time
 
 from armoryd import Armory_Daemon
 from armoryengine.ArmoryUtils import CLI_OPTIONS
@@ -96,11 +97,20 @@ class ArmoryDStartupTest(TiabTest):
 
    def setUp(self):
       self.armoryDSession = ArmoryDSession(self.tiab)
+      time.sleep(1)
 
    def tearDown(self):
       self.armoryDSession.clean()
 
-   @SkipTest
+   def testJSONGetinfo(self):
+      self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
+      actualResult = self.armoryDSession.callArmoryD(['getarmorydinfo'])
+      self.assertEqual(actualResult['balance'], FIRST_WLT_BALANCE)
+      self.assertEqual(actualResult['bdmstate'], BDM_BLOCKCHAIN_READY)
+      self.assertEqual(actualResult['blocks'], TOP_TIAB_BLOCK)
+      self.assertEqual(actualResult['difficulty'], 1.0)
+      self.assertEqual(actualResult['testnet'], True)
+
    def testJSONMultipleWallets(self):
       self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
       wltDictionary = self.armoryDSession.callArmoryD(['listloadedwallets'])
@@ -111,17 +121,6 @@ class ArmoryDStartupTest(TiabTest):
       self.assertTrue(setWltResult.index(THIRD_WLT_NAME) > 0)
       actualResult2 = self.armoryDSession.callArmoryD(['getwalletinfo'])
       self.assertEqual(actualResult2['name'], 'Third Wallet')
-
-   def testJSONGetinfo(self):
-      import time
-      time.sleep(5)
-      self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
-      actualResult = self.armoryDSession.callArmoryD(['getarmorydinfo'])
-      self.assertEqual(actualResult['balance'], FIRST_WLT_BALANCE)
-      self.assertEqual(actualResult['bdmstate'], BDM_BLOCKCHAIN_READY)
-      self.assertEqual(actualResult['blocks'], TOP_TIAB_BLOCK)
-      self.assertEqual(actualResult['difficulty'], 1.0)
-      self.assertEqual(actualResult['testnet'], True)
       
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
