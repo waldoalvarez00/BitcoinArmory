@@ -113,6 +113,8 @@ class ArmoryDStartupTest(TiabTest):
       self.assertEqual(actualResult2['name'], 'Third Wallet')
 
    def testJSONGetinfo(self):
+      import time
+      time.sleep(5)
       self.armoryDSession.callArmoryD(['setactivewallet', FIRST_WLT_NAME])
       actualResult = self.armoryDSession.callArmoryD(['getarmorydinfo'])
       self.assertEqual(actualResult['balance'], FIRST_WLT_BALANCE)
