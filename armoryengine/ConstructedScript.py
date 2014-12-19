@@ -418,31 +418,37 @@ class ConstructedScript(object):
 
 
 ################################################################################
-class MultiplierList(object):
+class MultiplierProof(object):
    """
-   Simply a list of 32-byte multipliers and the associated hash160 we expect
-   after applying them to the root pub key.
+   Simply a list of 32-byte multipliers, and a 4-byte fingerprint of the key
+   to which to apply them.  The four bytes isn't meant to be cryptographically
+   strong, just to help reduce unnecessary computation.
    """
 
    #############################################################################
-   def __init__(self, isNull=None, finger4=None, multList=None):
-      self.isNull           = None   # If static, stealth, etc, no mult list 
-      self.srcFingerprint4  = None   # just the first 4B of hash256(rootpub)
-      self.rawMultList      = []     # list of 32-byte LE multipliers
+   def __init__(self, isNull=None, srcFinger4=None, dstFinger4=None,
+                multList=None):
+      self.isNull      = None   # If static, stealth, etc, no mult list 
+      self.srcFinger4  = None   # just the first 4B of hash256(rootpub)
+      self.dstFinger4  = None   # just the first 4B of hash256(rootpub)
+      self.rawMultList = []     # list of 32-byte LE multipliers
 
       if isNull is not None:
-         self.initialize(isNull, finger4, multList)
+         self.initialize(isNull, srcFinger4, dstFinger4, multList)
 
 
    #############################################################################
-   def initialize(self, isNull=None, finger4=None, multList=None):
+   def initialize(self, isNull=None, srcFinger4=None, dstFinger4=None,
+                  multList=None):
       self.isNull = isNull
       if isNull:
-         self.srcFingerprint4  = None
-         self.rawMultList      = []
+         self.srcFinger4  = None
+         self.dstFinger4  = None
+         self.rawMultList = []
       else:
-         self.srcFingerprint4  = finger4
-         self.rawMultList      = multList[:]
+         self.srcFinger4  = srcFinger4
+         self.dstFinger4  = dstFinger4
+         self.rawMultList = multList[:]
 
 
    #############################################################################
@@ -454,9 +460,10 @@ class MultiplierList(object):
       bp.put(BITSET, flags, widthBytes=1)
 
       if not self.isNull:
-         bp.put(BINARY_CHUNK, self.srcFingerprint4, widthBytes= 4)
+         bp.put(BINARY_CHUNK, self.srcFinger4, widthBytes= 4)
+         bp.put(BINARY_CHUNK, self.dstFinger4, widthBytes= 4)
          bp.put(VAR_INT, len(self.rawMultList))
-         for mult in self.rawMultList: 
+         for mult in self.rawMultList:
             bp.put(BINARY_CHUNK,  mult,  widthBytes=32)
 
       return bp.getBinaryString()
@@ -468,16 +475,17 @@ class MultiplierList(object):
       flags = bu.get(BITSET, 1)
 
       if flags.getBit(0):
-         self.initialize(True)
+         self.initialize(isNull=True)
       else:
-         finger4B = bu.get(BINARY_CHUNK, 4)
-         numMult  = bu.get(UINT8)
-      
-         multList = [] 
+         srcFinger4B = bu.get(BINARY_CHUNK, 4)
+         dstFinger4B = bu.get(BINARY_CHUNK, 4)
+         numMult  = bu.get(VAR_INT)
+
+         multList = []
          for m in numMult:
             multList.append( bu.get(BINARY_CHUNK, 32))
 
-         self.initialize(False, finger4B, multList)
+         self.initialize(False, srcFinger4B, dstFinger4B, multList)
 
       return self
 
@@ -515,44 +523,42 @@ class SignableIDPayload(object):
 
 
 ################################################################################
-def computeBip32PathWithProof(binPublicKey, binChaincode, indexList):
+def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
    """
    We will actually avoid using the higher level ArmoryKeyPair (AKP) objects
    for now, as they do a ton of extra stuff we don't need for this.  We go
    a bit lower-level and talk to CppBlockUtils.HDWalletCrypto directly.
 
    Inputs:
-      binPublicKey:  python string, 33-byte compressed public key
-      binChaincode:  python string, 32-byte chaincode 
+      startPubKey:   python string, 33-byte compressed public key
+      binChaincode:  python string, 32-byte chaincode
       indexList:     python list of UINT32s, anything >0x7fffffff is hardened
-   
-   Output: [multiplierList, finalPublicKey]
 
-      multiplierList:   The list of 32-byte multipliers that can be applied
-                        to the input binPublicKey to produce the publicExtKeyObj
-                        All multipliers passed out as python strings
-      finalPublicKey:   pyton string:  33-byte compressed public key
+   Output: [MultiplierProof, finalPubKey]
+
+      proofObject:   MultiplierProof: list of 32-byte mults to be applied
+                     to the input startPubKey to produce the finalPubKey
+      finalPubKey:   pyton string:  33-byte compressed public key
 
    Note that an error will be thrown if any items in the index list correspond
    to a hardened derivation.  We need this proof to be generatable strictly
    from public key material.
-
    """
-   
+
    # Sanity check the inputs
-   if not len(binPublicKey)==33 or not binPublicKey[0] in ['\x02','\x03']:
+   if not len(startPubKey)==33 or not startPubKey[0] in ['\x02','\x03']:
       raise KeyDataError('Input public key is a valid format')
 
    if not len(binChaincode)==32:
       raise KeyDataError('Chaincode must be 32 bytes')
 
    # Crypto-related code uses SecureBinaryData and Cpp.ExtendedKey objects
-   sbdPublicKey = SecureBinaryData(binPublicKey)
+   sbdPublicKey = SecureBinaryData(startPubKey)
    sbdChainCode = SecureBinaryData(binChaincode)
    extPubKeyObj = Cpp.ExtendedKey(sbdPublicKey, sbdChainCode)
 
    # Prepare the output multiplier list
-   self.multList = []
+   binMultList = []
 
    # Derive the children
    for childIndex in indexList:
@@ -563,11 +569,48 @@ def computeBip32PathWithProof(binPublicKey, binChaincode, indexList):
       sbdMultiplier = NULLSBD()
 
       # Computes the child and emits the multiplier via the last arg
-      extPubKeyObj = Cpp.HDWalletCrypto().childKeyDeriv(extPubKeyObj, 
-                                                        childIndex, 
+      extPubKeyObj = Cpp.HDWalletCrypto().childKeyDeriv(extPubKeyObj,
+                                                        childIndex,
                                                         sbdMultiplier)
 
       # Append multiplier to list
-      self.multiplierList.append(sbdMultiplier.toBinStr())
+      binMultList.append(sbdMultiplier.toBinStr())
 
-   return self.multiplierList, extPubKeyObj.getPublicKey().toBinStr()
+   finalPubKey = extPubKeyObj.getPublicKey().toBinStr()
+   proofObject = MultiplierProof(isNull=False,
+                                srcFinger4=hash256(startPubKey)[:4],
+                                dstFinger4=hash256(finalPubKey)[:4],
+                                binMultList)
+
+   return finalPubKey, proofObject
+
+
+################################################################################
+def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
+   """
+   Inputs:
+      startPubKey:    python string, 33-byte compressed public key
+      multProofObj:   MultiplierProof object
+      expectFinalPub: Optionally provide the final pub key we expect
+
+   Output: [MultiplierProof, finalPubKey]
+
+      finalPubKey:    python string with resulting public key, will match
+                      expectFinalPub input if supplied.
+
+   Since we don't expect this to fail, KeyDataError raised on failure
+   """
+   if not hash256(startPubKey)[:4] == multProofObj.srcFinger4:
+      raise KeyDataError('Source fingerprint of proof does not match root pub')
+
+   finalPubKey = getChildKeyFromOps(SecureBinaryData(startPubKey,
+                                                     multProofObj.rawMultList)
+
+
+   if not hash256(finalPubKey)[:4] == multProofObj.dstFinger4:
+      raise KeyDataError('Dst fingerprint of proof does not match root pub')
+
+   if expectFinalPub and not finalPubKey==expectFinalPub:
+      raise KeyDataError('Computation did not yield expected public key!')
+
+   return finalPubKey
