@@ -289,11 +289,10 @@ public:
                         blockHeight_(UINT32_MAX), 
                         duplicateID_(UINT8_MAX), 
                         merkle_(0), 
+                        merkleIsPartial_(false),
                         isMainBranch_(false),
                         blockAppliedToDB_(false), 
-                        merkleIsPartial_(false),
                         hasBlockHeader_(false) {}
-                           
 
    bool isInitialized(void) const {return dataCopy_.getSize() > 0;}
    bool isNull(void) const {return !isInitialized(); }
@@ -455,15 +454,15 @@ public:
 class StoredTxOut
 {
 public:
-   StoredTxOut(void) : txVersion_(UINT32_MAX), 
-                       dataCopy_(0), 
-                       blockHeight_(UINT32_MAX), 
-                       duplicateID_(UINT8_MAX), 
+   StoredTxOut(void) : txVersion_(UINT32_MAX),
+                       dataCopy_(0),
+                       blockHeight_(UINT32_MAX),
+                       duplicateID_(UINT8_MAX),
+                       txIndex_(UINT16_MAX),
+                       txOutIndex_(UINT16_MAX),
                        parentHash_(0),
-                       txIndex_(UINT16_MAX), 
-                       txOutIndex_(UINT16_MAX), 
-                       spentness_(TXOUT_SPENTUNK), 
-                       isCoinbase_(false), 
+                       spentness_(TXOUT_SPENTUNK),
+                       isCoinbase_(false),
                        spentByTxInKey_(0) {}
 
    bool isInitialized(void) const {return dataCopy_.getSize() > 0;}

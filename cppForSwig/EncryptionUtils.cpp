@@ -1451,8 +1451,8 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
                          uint32_t inChildNum,
                          bool keyIsPub) :
    chaincode_(ch),
-   version_(netVer),
-   indicesList_(parentTreeIdx)
+   indicesList_(parentTreeIdx),
+   version_(netVer)
 {
    assert(key.getSize() == 33 || key.getSize() == 65);
    assert(ch.getSize() == 32);
@@ -1501,8 +1501,8 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
    pubKey_(pb),
    chaincode_(ch),
    indicesList_(parentTreeIdx),
-   parentFP_(parFP),
-   version_(inVer)
+   version_(inVer),
+   parentFP_(parFP)
 {
    assert(key_.getSize() == 0 || key_.getSize() == 33);
    assert(pubKey_.getSize() == 65);

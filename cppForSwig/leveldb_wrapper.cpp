@@ -910,7 +910,6 @@ bool InterfaceToLDB::startBlkDataIteration(LDBIter & ldbIter, DB_PREFIX prefix)
 // because we checked it and decide we don't care, so we want to skip it.
 bool InterfaceToLDB::advanceToNextBlock(LDBIter & ldbIter, bool skip)
 {
-   char prefix = DB_PREFIX_TXDATA;
    BinaryData key;
    while(1) 
    {
@@ -1056,7 +1055,6 @@ void InterfaceToLDB::getStoredScriptHistorySummary( StoredScriptHistory & ssh,
                                                     BinaryDataRef scrAddrStr)
 {
    LDBIter ldbIter = getIterator(BLKDATA);
-   bool seekTrue = ldbIter.seekTo(DB_PREFIX_SCRIPT, scrAddrStr);
 
    if(!ldbIter.seekToExact(DB_PREFIX_SCRIPT, scrAddrStr))
    {
@@ -1200,7 +1198,6 @@ void InterfaceToLDB::addRegisteredScript(BinaryDataRef rawScript,
                                          uint32_t      blockCreated)
 {
    BinaryData uniqKey = BtcUtils::getTxOutScrAddr(rawScript);
-   bool       isMulti = BtcUtils::isMultisigScript(rawScript);
 
    StoredScriptHistory ssh;
    getStoredScriptHistory(ssh, uniqKey);
@@ -1310,7 +1307,6 @@ uint8_t InterfaceToLDB::getValidDupIDForHeight_fromDB(uint32_t blockHgt)
    for(uint8_t i=0; i<numDup; i++)
    {
       uint8_t dup8 = brrHgts.get_uint8_t(); 
-      BinaryDataRef thisHash = brrHgts.get_BinaryDataRef(lenEntry-1);
       if((dup8 & 0x80) > 0)
          return (dup8 & 0x7f);
    }
@@ -1754,10 +1750,9 @@ bool InterfaceToLDB::readStoredBlockAtIter(LDBIter & ldbIter, StoredHeader & sbh
    ldbIter.resetReaders();
    BinaryData blkDataKey(ldbIter.getKeyReader().getCurrPtr(), 5);
 
-   BLKDATA_TYPE bdtype = DBUtils.readBlkDataKey(ldbIter.getKeyReader(),
-                                                sbh.blockHeight_,
-                                                sbh.duplicateID_);
-
+   DBUtils.readBlkDataKey(ldbIter.getKeyReader(),
+                          sbh.blockHeight_,
+                          sbh.duplicateID_);
    
    // Grab the header first, then iterate over 
    sbh.unserializeDBValue(BLKDATA, ldbIter.getValueRef(), false);
@@ -1777,10 +1772,10 @@ bool InterfaceToLDB::readStoredBlockAtIter(LDBIter & ldbIter, StoredHeader & sbh
 
       // We can't just read the the tx, because we have to guarantee 
       // there's a place for it in the sbh.stxMap_
-      BLKDATA_TYPE bdtype = DBUtils.readBlkDataKey(ldbIter.getKeyReader(), 
-                                                   tempHgt, 
-                                                   tempDup,
-                                                   currIdx);
+      DBUtils.readBlkDataKey(ldbIter.getKeyReader(), 
+                             tempHgt, 
+                             tempDup,
+                             currIdx);
 
       if(currIdx >= sbh.numTx_)
       {
@@ -2191,8 +2186,8 @@ bool InterfaceToLDB::getStoredTx_byHash( StoredTx & stx,
          continue;
       }
 
-      BLKDATA_TYPE bdtype = DBUtils.readBlkDataKey(ldbIter.getKeyReader(), 
-                                                   height, dup, txIdx);
+      DBUtils.readBlkDataKey(ldbIter.getKeyReader(), 
+                             height, dup, txIdx);
       
       // We don't actually know for sure whether the seekTo() found 
       BinaryData key6 = DBUtils.getBlkDataKeyNoPrefix(height, dup, txIdx);
