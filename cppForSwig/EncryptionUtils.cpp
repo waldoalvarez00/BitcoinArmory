@@ -2026,7 +2026,7 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
 
 // Same as above but using BinaryData objects which are SWIG friendly
 BinaryData HDWalletCrypto::getChildKeyFromOps_SWIG(BinaryData parKey,
-                                               vector<BinaryData> mathOps)
+                                               const vector<BinaryData>& mathOps)
 {
    SecureBinaryData sbdParKey(parKey);
    vector<SecureBinaryData> sbdOpsVect;

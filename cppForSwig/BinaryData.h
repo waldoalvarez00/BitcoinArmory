@@ -572,10 +572,6 @@ public:
       if( !is.is_open() )
          return -1;
 
-      is.seekg(0, ios::end);
-      uint32_t filesize = (size_t)is.tellg();
-      is.seekg(0, ios::beg);
-      
       data_.resize(getSize());
       is.read((char*)getPtr(), getSize());
       return getSize();
