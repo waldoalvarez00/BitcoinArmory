@@ -313,20 +313,18 @@ class UtilityFuncTests(unittest.TestCase):
       self.assertEqual(ChildIndexToStr(HARDBIT), "0'")
 
 
-
-
 ################################################################################
 class TestHDWalletLogic(unittest.TestCase):
 
    #############################################################################
    def testCppConvertSeed(self):
-      extkey = Cpp.HDWalletCrypto().ConvertSeedToMasterKey(SEEDTEST[0]['Seed'])
-      self.assertEqual(extkey.getPrivateKey(), SEEDTEST[0]['Priv'])
+      extkey = Cpp.HDWalletCrypto().convertSeedToMasterKey(SEEDTEST[0]['Seed'])
+      self.assertEqual(extkey.getPrivateKey(False), SEEDTEST[0]['Priv'])
       self.assertEqual(extkey.getPublicKey(), SEEDTEST[0]['Pubk'])
       self.assertEqual(extkey.getChaincode(), SEEDTEST[0]['Chain'])
-      
-      extkey = Cpp.HDWalletCrypto().ConvertSeedToMasterKey(SEEDTEST[1]['Seed'])
-      self.assertEqual(extkey.getPrivateKey(), SEEDTEST[1]['Priv'])
+
+      extkey = Cpp.HDWalletCrypto().convertSeedToMasterKey(SEEDTEST[1]['Seed'])
+      self.assertEqual(extkey.getPrivateKey(False), SEEDTEST[1]['Priv'])
       self.assertEqual(extkey.getPublicKey(), SEEDTEST[1]['Pubk'])
       self.assertEqual(extkey.getChaincode(), SEEDTEST[1]['Chain'])
 
@@ -342,7 +340,7 @@ class TestHDWalletLogic(unittest.TestCase):
          currEK = Cpp.ExtendedKey(currEKdata['seedKey'], currEKdata['seedCC'])
          compEK = Cpp.HDWalletCrypto().childKeyDeriv(currEK, currEKdata['nextChild'])
          nextPriv = SecureBinaryData(nextEKdata['seedKey'].toBinStr()[1:])
-         self.assertEqual(compEK.getPrivateKey(), nextPriv)
+         self.assertEqual(compEK.getPrivateKey(False), nextPriv)
          self.assertEqual(compEK.getPublicKey(), nextEKdata['seedCompPubKey'])
          self.assertEqual(compEK.getChaincode(), nextEKdata['seedCC'])
 
@@ -849,7 +847,7 @@ class ABEK_Tests(unittest.TestCase):
       # Should fail for not supplying extra entropy
       self.assertRaises(KeyDataError, abekSeed.createNewSeed, 16, NULLSBD())
 
-      for seedsz in [16, 20, 256]:
+      for seedsz in [16, 20, 64]:
          abekSeed.createNewSeed(seedsz, entropy, fillPool=False)
 
       runSerUnserRoundTripTest(self, abekSeed)
@@ -1403,11 +1401,11 @@ class ABEK_Tests(unittest.TestCase):
 
 
       self.ekey.lock()
-      for seedsz in [16, 20, 256]:
+      for seedsz in [16, 20, 64]:
          self.assertRaises(WalletLockError, abekSeed.createNewSeed, seedsz, entropy, fillPool=False)
 
       self.ekey.unlock(self.password)
-      for seedsz in [16, 20, 256]:
+      for seedsz in [16, 20, 64]:
          abekSeed.createNewSeed(seedsz, entropy, fillPool=False)
 
       runSerUnserRoundTripTest(self, abekSeed)

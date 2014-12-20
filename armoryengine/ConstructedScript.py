@@ -36,6 +36,7 @@ except:
          return func
       return decorator
 
+#############################################################################
 def makeBinaryUnpacker(inputStr):
    """
    Use this on input args so that unserialize funcs can treat the
@@ -51,7 +52,6 @@ def makeBinaryUnpacker(inputStr):
    else:
       # Initialize a new BinaryUnpacker
       return BinaryUnpacker(inputStr)
-
 
 
 ################################################################################
@@ -112,9 +112,8 @@ class PublicKeySource(object):
       self.isStealth     = isSx
       self.isUserKey     = isUser
       self.isExternalSrc = isExt
-      self.rawSource     = toBytes(src)  
+      self.rawSource     = toBytes(src)
 
-         
 
    #############################################################################
    def isInitialized(self):
@@ -197,7 +196,6 @@ class ExternalPublicKeySource(object):
       raise NotImplementedError('Have not implemented external sources yet')
 
 
-
 ################################################################################
 class ConstructedScript(object):
    def __init__(self):
@@ -207,33 +205,30 @@ class ConstructedScript(object):
       self.useP2SH        = None
       self.pubKeyBundles  = []
 
-   
+
    #############################################################################
-   @VerifyArgTypes(scrTemp  = str, 
-                   pubSrcs  = [list, tuple], 
+   @VerifyArgTypes(scrTemp  = str,
+                   pubSrcs  = [list, tuple],
                    useP2sh  = bool,
                    ver      = [tuple, None])
    def initialize(self, scrTemp, pubSrcs, useP2SH, ver=None):
-      
       self.version        = ver[:] if ver else BTCID_PAYLOAD_VERSION
       self.useP2SH        = useP2SH
       self.pubKeyBundles  = []
 
       self.setTemplateAndPubKeySrcs(scrTemp, pubSrcs)
 
-      
-   
+
+   #############################################################################
    def readTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
-      """ 
+      """
       Inputs:
          scrTemp:  script template  (ff-escaped)
          pubSrcs:  flat list of PublicKeySource objects
 
-   
       Outputs:
-         Sets member vars self.scriptTemplate and self.pubKeyBundles 
+         Sets member vars self.scriptTemplate and self.pubKeyBundles
          pubkeyBundles will be a list-of-lists as described below.
-
 
       Let's say we have a script template like this: this is a non-working
       2-of-3 OR 3-of-5, with the second key list sorted)
@@ -286,15 +281,12 @@ class ConstructedScript(object):
       cs.scriptTemplate = scrTemp
       cs.pubKeySrcList  = pubSrcs[:]
       cs.pubKeyBundles  = []
-      
+
       # Slice up the pubkey src list into the bundles
       idx = 0
       for sz in bundleSizes:
          cs.pubKeyBundles.append( cs.pubKeySrcList[idx:idx+sz] )
          idx += sz
-      
-      
-
 
 
    #############################################################################
@@ -313,43 +305,46 @@ class ConstructedScript(object):
       templateStr += '\xff\x01'
       templateStr += getOpCode('OP_EQUALVERIFY')
       templateStr += getOpCode('OP_CHECKSIG')
-      
+
       pks = PublicKeySource()
-      pks.initialize(isStatic=False, 
-                     useCompr=(len(binRootPubKey)==33), 
-                     use160=True, 
-                     isSx=False, 
-                     isUser=False, 
-                     isExt=False, 
+      pks.initialize(isStatic=False,
+                     useCompr=(len(binRootPubKey)==33),
+                     use160=True,
+                     isSx=False,
+                     isUser=False,
+                     isExt=False,
                      src=binRootPubKey)
 
       cs = ConstructedScript()
       cs.initialize(self, templateStr, [pks], False)
       return cs
 
+
    #############################################################################
+   # Check the hash160 call. There were 2 calls, one w/ Hash160 and one w/o.
    @staticmethod
-   def StandardP2PKConstructed(binRootPubKey):
+   def StandardP2PKConstructed(binRootPubKey, hash160=False):
       """ This is bare pubkey, usually used with coinbases """
       if not len(binRootPubKey) in [33,65]:
          raise KeyDataError('Invalid pubkey;  length=%d' % len(binRootPubKey))
 
       templateStr  = ''
-      templateStr += '\xff\x01' 
+      templateStr += '\xff\x01'
       templateStr += getOpCode('OP_CHECKSIG')
-      
+
       pks = PublicKeySource()
-      pks.initialize(isStatic=False, 
-                     useCompr=(len(binRootPubKey)==33), 
-                     use160=True, 
-                     isSx=False, 
-                     isUser=False, 
-                     isExt=False, 
+      pks.initialize(isStatic=False,
+                     useCompr=(len(binRootPubKey)==33),
+                     use160=hash160,
+                     isSx=False,
+                     isUser=False,
+                     isExt=False,
                      src=binRootPubKey)
 
       cs = ConstructedScript()
       cs.initialize(self, templateStr, [pks], False)
       return cs
+
 
    #############################################################################
    @staticmethod
@@ -369,23 +364,22 @@ class ConstructedScript(object):
       templateStr += getOpCode('OP_%d' % N)
       templateStr += getOpCode('OP_CHECKMULTISIG')
 
-      
       pksList = []
       for rootPub in binRootList:
          pks = PublicKeySource()
-         pks.initialize(isStatic=False, 
-                        useCompr=(len(binRootPubKey)==33), 
-                        use160=False, 
-                        isSx=False, 
-                        isUser=False, 
-                        isExt=False, 
+         pks.initialize(isStatic=False,
+                        useCompr=(len(binRootPubKey)==33),
+                        use160=False,
+                        isSx=False,
+                        isUser=False,
+                        isExt=False,
                         src=rootPub)
          pksList.append(pks)
-         
 
       cs = ConstructedScript()
       cs.initialize(self, templateStr, pksList, True)
       return cs
+
 
    #############################################################################
    @staticmethod
@@ -402,7 +396,6 @@ class ConstructedScript(object):
       N = len(binRootList)
       if (not 0<M<=15) or (not 0<N<=15):
          raise BadInputError('M and N values must be less than 15')
-
 
       templateStr  = ''
       templateStr += getOpCode('OP_%d' % M)
@@ -421,12 +414,10 @@ class ConstructedScript(object):
                         isExt=False, 
                         src=rootPub)
          pksList.append(pks)
-         
 
       cs = ConstructedScript()
       cs.initialize(self, templateStr, pksList, True)
       return cs
-
 
 
 ################################################################################
@@ -438,7 +429,8 @@ class MultiplierProof(object):
    """
 
    #############################################################################
-   def __init__(self, isNull=None, srcFinger4=None, dstFinger4=None, multList=None):
+   def __init__(self, isNull=None, srcFinger4=None, dstFinger4=None,
+                multList=None):
       self.isNull      = None   # If static, stealth, etc, no mult list 
       self.srcFinger4  = None   # just the first 4B of hash256(rootpub)
       self.dstFinger4  = None   # just the first 4B of hash256(rootpub)
@@ -449,18 +441,19 @@ class MultiplierProof(object):
 
 
    #############################################################################
-   def initialize(self, isNull=None, srcFinger4=None, dstFinger4=None, multList=None):
+   def initialize(self, isNull=None, srcFinger4=None, dstFinger4=None,
+                  multList=None):
       self.isNull = isNull
       if isNull:
          self.srcFinger4  = None
          self.dstFinger4  = None
-         self.rawMultList      = []
+         self.rawMultList = []
       else:
          self.srcFinger4  = srcFinger4
          self.dstFinger4  = dstFinger4
          self.rawMultList = multList[:]
 
-   
+
    #############################################################################
    def serialize(self):
       flags = BitSet(8)
@@ -473,7 +466,7 @@ class MultiplierProof(object):
          bp.put(BINARY_CHUNK, self.srcFinger4, widthBytes= 4)
          bp.put(BINARY_CHUNK, self.dstFinger4, widthBytes= 4)
          bp.put(VAR_INT, len(self.rawMultList))
-         for mult in self.rawMultList: 
+         for mult in self.rawMultList:
             bp.put(BINARY_CHUNK,  mult,  widthBytes=32)
 
       return bp.getBinaryString()
@@ -490,26 +483,23 @@ class MultiplierProof(object):
          srcFinger4B = bu.get(BINARY_CHUNK, 4)
          dstFinger4B = bu.get(BINARY_CHUNK, 4)
          numMult  = bu.get(VAR_INT)
-      
-         multList = [] 
+
+         multList = []
          for m in numMult:
             multList.append( bu.get(BINARY_CHUNK, 32))
 
          self.initialize(False, srcFinger4B, dstFinger4B, multList)
 
       return self
-  
-      
 
-   
-   
 
 ################################################################################
 class SignableIDPayload(object):
    """
-   This datastructure wraps up all the other classes above into a single, 
-   embeddable data type.  
+   This datastructure wraps up all the other classes above into a single,
+   embeddable data type.
    """
+   #############################################################################
    def __init__(self):
       self.version     = None
       self.createDate  = None
@@ -518,19 +508,21 @@ class SignableIDPayload(object):
       self.payload     = None
 
 
+   #############################################################################
    def initialize(self, template):
       self.rawTemplate = template
 
+
+   #############################################################################
    def serialize(self):
       pass
 
+
+   #############################################################################
    def unserialize(self, templateStr):
       bu = makeBinaryUnpacker(templateStr)
-      
+
       oplist = []
-      #for c in 
-      
-      
 
 ################################################################################
 def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
@@ -541,9 +533,9 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
 
    Inputs:
       startPubKey:   python string, 33-byte compressed public key
-      binChaincode:  python string, 32-byte chaincode 
+      binChaincode:  python string, 32-byte chaincode
       indexList:     python list of UINT32s, anything >0x7fffffff is hardened
-   
+
    Output: [MultiplierProof, finalPubKey]
 
       proofObject:   MultiplierProof: list of 32-byte mults to be applied
@@ -553,13 +545,12 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
    Note that an error will be thrown if any items in the index list correspond
    to a hardened derivation.  We need this proof to be generatable strictly
    from public key material.
-
    """
-   
+
    # Sanity check the inputs
    if not len(startPubKey)==33 or not startPubKey[0] in ['\x02','\x03']:
       raise KeyDataError('Input public key is a valid format')
-      
+
    if not len(binChaincode)==32:
       raise KeyDataError('Chaincode must be 32 bytes')
 
@@ -575,27 +566,25 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
    for childIndex in indexList:
       if (childIndex & 0x80000000) > 0:
          raise ChildDeriveError('Cannot generate proofs along hardened paths')
-                      
+
       # Pass in a NULL SecureBinaryData object as a reference
       sbdMultiplier = NULLSBD()
 
       # Computes the child and emits the multiplier via the last arg
-      extPubKeyObj = Cpp.HDWalletCrypto().childKeyDeriv(extPubKeyObj, 
-                                                        childIndex, 
+      extPubKeyObj = Cpp.HDWalletCrypto().childKeyDeriv(extPubKeyObj,
+                                                        childIndex,
                                                         sbdMultiplier)
 
       # Append multiplier to list
       binMultList.append(sbdMultiplier.toBinStr())
 
-                      
    finalPubKey = extPubKeyObj.getPublicKey().toBinStr()
-   proofObject = MultiplierProof(isNull=False, 
+   proofObject = MultiplierProof(isNull=False,
                                 srcFinger4=hash256(startPubKey)[:4],
                                 dstFinger4=hash256(finalPubKey)[:4],
                                 multList=binMultList)
 
    return finalPubKey, proofObject
-
 
 
 ################################################################################
@@ -605,7 +594,7 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
       startPubKey:    python string, 33-byte compressed public key
       multProofObj:   MultiplierProof object
       expectFinalPub: Optionally provide the final pub key we expect
-   
+
    Output: [MultiplierProof, finalPubKey]
 
       finalPubKey:    python string with resulting public key, will match
@@ -628,6 +617,5 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
       raise KeyDataError('Computation did not yield expected public key!')
 
    return finalPubKey
-
 
 

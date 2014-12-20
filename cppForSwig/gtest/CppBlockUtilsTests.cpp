@@ -7615,13 +7615,13 @@ TEST_F(TestExtendedKey, BuildEK1)
 {
    ExtendedKey masterKey1(seedKey1, seedCC1);
    SecureBinaryData retKey1       = masterKey1.getKey();
-   SecureBinaryData retPubKey1    = masterKey1.getPub();
+   SecureBinaryData retPubKey1    = masterKey1.getPublicKey(false);
    SecureBinaryData retChaincode1 = masterKey1.getChaincode();
    SecureBinaryData testExtSer1   = masterKey1.getExtKeySer();
    SecureBinaryData testID1       = masterKey1.getIdentifier();
    SecureBinaryData testFP1       = masterKey1.getFingerprint();
    SecureBinaryData testParFP1    = masterKey1.getParentFP();
-   SecureBinaryData testCompPub1  = masterKey1.getPubCompressed();
+   SecureBinaryData testCompPub1  = masterKey1.getPublicKey();
    uint32_t testVer1              = masterKey1.getVersion();
    uint8_t testDepth1             = masterKey1.getDepth();
    uint32_t testChildNum1         = masterKey1.getChildNum();
@@ -7647,13 +7647,13 @@ TEST_F(TestExtendedKey, BuildEK1)
 
    ExtendedKey masterKey2(seedKey2, seedCC2);
    SecureBinaryData retKey2       = masterKey2.getKey();
-   SecureBinaryData retPubKey2    = masterKey2.getPub();
+   SecureBinaryData retPubKey2    = masterKey2.getPublicKey(false);
    SecureBinaryData retChaincode2 = masterKey2.getChaincode();
    SecureBinaryData testExtSer2   = masterKey2.getExtKeySer();
    SecureBinaryData testID2       = masterKey2.getIdentifier();
    SecureBinaryData testFP2       = masterKey2.getFingerprint();
    SecureBinaryData testParFP2    = masterKey2.getParentFP();
-   SecureBinaryData testCompPub2  = masterKey2.getPubCompressed();
+   SecureBinaryData testCompPub2  = masterKey2.getPublicKey();
    uint32_t testVer2              = masterKey2.getVersion();
    uint8_t testDepth2             = masterKey2.getDepth();
    uint32_t testChildNum2         = masterKey2.getChildNum();
@@ -7757,12 +7757,12 @@ TEST_F(TestHDWalletCryptoSeed, BuildSeed)
 TEST_F(TestHDWalletCryptoSeed, ConvertSeed)
 {
    ExtendedKey ek;
-   ek = HDWalletCrypto().ConvertSeedToMasterKey(seedInput1);
-   EXPECT_EQ(seedKey1.getSliceCopy(1,32), ek.getPrivateKey());
+   ek = HDWalletCrypto().convertSeedToMasterKey(seedInput1);
+   EXPECT_EQ(seedKey1.getSliceCopy(1,32), ek.getPrivateKey(false));
    EXPECT_EQ(seedCC1, ek.getChaincode());
 
-   ek = HDWalletCrypto().ConvertSeedToMasterKey(seedInput2);
-   EXPECT_EQ(seedKey2.getSliceCopy(1,32), ek.getPrivateKey());
+   ek = HDWalletCrypto().convertSeedToMasterKey(seedInput2);
+   EXPECT_EQ(seedKey2.getSliceCopy(1,32), ek.getPrivateKey(false));
    EXPECT_EQ(seedCC2, ek.getChaincode());
 }
 
@@ -8228,13 +8228,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
                                                              *it1,
                                                              &addend1);
       SecureBinaryData retKey1       = childKey1.getKey();
-      SecureBinaryData retPubKey1    = childKey1.getPub();
+      SecureBinaryData retPubKey1    = childKey1.getPublicKey(false);
       SecureBinaryData retChaincode1 = childKey1.getChaincode();
       SecureBinaryData testExtSer1   = childKey1.getExtKeySer();
       SecureBinaryData testID1       = childKey1.getIdentifier();
       SecureBinaryData testFP1       = childKey1.getFingerprint();
       SecureBinaryData testParFP1    = childKey1.getParentFP();
-      SecureBinaryData testCompPub1  = childKey1.getPubCompressed();
+      SecureBinaryData testCompPub1  = childKey1.getPublicKey();
       uint32_t testVer1              = childKey1.getVersion();
       uint8_t testDepth1             = childKey1.getDepth();
       uint32_t testChildNum1         = childKey1.getChildNum();
@@ -8297,13 +8297,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
                                                              *it2,
                                                              &addend2);
       SecureBinaryData retKey2       = childKey2.getKey();
-      SecureBinaryData retPubKey2    = childKey2.getPub();
+      SecureBinaryData retPubKey2    = childKey2.getPublicKey(false);
       SecureBinaryData retChaincode2 = childKey2.getChaincode();
       SecureBinaryData testExtSer2   = childKey2.getExtKeySer();
       SecureBinaryData testID2       = childKey2.getIdentifier();
       SecureBinaryData testFP2       = childKey2.getFingerprint();
       SecureBinaryData testParFP2    = childKey2.getParentFP();
-      SecureBinaryData testCompPub2  = childKey2.getPubCompressed();
+      SecureBinaryData testCompPub2  = childKey2.getPublicKey();
       uint32_t testVer2              = childKey2.getVersion();
       uint8_t testDepth2             = childKey2.getDepth();
       uint32_t testChildNum2         = childKey2.getChildNum();
@@ -8403,13 +8403,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       }
 
       SecureBinaryData retKey1       = checkKey.getKey();
-      SecureBinaryData retPubKey1    = checkKey.getPub();
+      SecureBinaryData retPubKey1    = checkKey.getPublicKey(false);
       SecureBinaryData retChaincode1 = checkKey.getChaincode();
       SecureBinaryData testExtSer1   = checkKey.getExtKeySer();
       SecureBinaryData testID1       = checkKey.getIdentifier();
       SecureBinaryData testFP1       = checkKey.getFingerprint();
       SecureBinaryData testParFP1    = checkKey.getParentFP();
-      SecureBinaryData testCompPub1  = checkKey.getPubCompressed();
+      SecureBinaryData testCompPub1  = checkKey.getPublicKey();
       uint32_t testVer1              = checkKey.getVersion();
       uint8_t testDepth1             = checkKey.getDepth();
       uint32_t testChildNum1         = checkKey.getChildNum();
@@ -8438,9 +8438,9 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       {
          bool goodMultKey;
          SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(
-                                                            multParKey.getPub(),
-                                                              multiplier1Vector,
-                                                                   goodMultKey);
+                                                 multParKey.getPublicKey(false),
+                                                 multiplier1Vector,
+                                                 goodMultKey);
 
          if(goodMultKey)
          {
@@ -8504,13 +8504,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       }
 
       SecureBinaryData retKey2       = checkKey.getKey();
-      SecureBinaryData retPubKey2    = checkKey.getPub();
+      SecureBinaryData retPubKey2    = checkKey.getPublicKey(false);
       SecureBinaryData retChaincode2 = checkKey.getChaincode();
       SecureBinaryData testExtSer2   = checkKey.getExtKeySer();
       SecureBinaryData testID2       = checkKey.getIdentifier();
       SecureBinaryData testFP2       = checkKey.getFingerprint();
       SecureBinaryData testParFP2    = checkKey.getParentFP();
-      SecureBinaryData testCompPub2  = checkKey.getPubCompressed();
+      SecureBinaryData testCompPub2  = checkKey.getPublicKey();
       uint32_t testVer2              = checkKey.getVersion();
       uint8_t testDepth2             = checkKey.getDepth();
       uint32_t testChildNum2         = checkKey.getChildNum();
@@ -8538,10 +8538,10 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       {
          bool goodMultKey;
          SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(
-                                                                           multParKey.getPub(),
-                                                                             multiplier2Vector,
-                                                                             goodMultKey);
-         
+                                                 multParKey.getPublicKey(false),
+                                                 multiplier2Vector,
+                                                 goodMultKey);
+
          if(goodMultKey)
          {
             EXPECT_EQ(retPubKey2.toHexStr(), childMultKey.toHexStr());

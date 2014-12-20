@@ -1316,14 +1316,18 @@ const SecureBinaryData ExtendedKey::getIdentifier() const
 // Output: None
 // Result: A 32-byte big-endian buffer with the private key, or zeroed out if
 //         the extended key has only public key data (SecureBinaryData)
-SecureBinaryData ExtendedKey::getPrivateKey(void) const
+SecureBinaryData ExtendedKey::getPrivateKey(bool withZeroByte) const
 {
-   SecureBinaryData retVal;
+   SecureBinaryData retVal(0);
 
-   if(!isPrv())
-      return SecureBinaryData(0);
-   else
-      retVal = key_.getSliceCopy(1,32);
+   if(isPrv())
+   {
+      retVal = key_;
+      if(!withZeroByte)
+      {
+         retVal = retVal.getSliceCopy(1,32);
+      }
+   }
 
    return retVal;
 }
@@ -1599,14 +1603,6 @@ const string ExtendedKey::getIndexListString(const string prefix)
 }
 
 
-// Get a compressed copy (33 bytes) of the public key.
-////////////////////////////////////////////////////////////////////////////////
-SecureBinaryData ExtendedKey::getPubCompressed() const
-{
-   return CryptoECDSA().CompressPoint(pubKey_);
-}
-
-
 // Function that updates the public key based on the primary key.
 void ExtendedKey::updatePubKey()
 {
@@ -1664,11 +1660,11 @@ const bool ExtendedKey::isMaster() const
 // Overloaded constructor that should be used instead of the default
 // constructor. Takes incoming (P)RNG data and creates an HD master key and
 // chain code.
-// INPUT:  (P)RNG data seeding the HD crypto wallet. Can be any length but 32
-//         bytes is recommended.
+// INPUT:  (P)RNG data seeding the HD crypto wallet. Must be 16-64 bytes.
+//         (SecureBinaryData)
 // OUTPUT: None
 // RETURN: None
-HDWalletCryptoSeed::HDWalletCryptoSeed(const SecureBinaryData& rngData) 
+HDWalletCryptoSeed::HDWalletCryptoSeed(SecureBinaryData const& rngData) 
 {
    SecureBinaryData hmacKey = SecureBinaryData("Bitcoin seed");
    SecureBinaryData hVal = HDWalletCrypto().HMAC_SHA512(hmacKey, rngData);
@@ -1772,7 +1768,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       }
       else
       {
-         SecureBinaryData cp = CryptoECDSA().CompressPoint(extPar.getPub());
+         SecureBinaryData cp = extPar.getPublicKey();
          hashData.append(cp);
       }
       hashData.append(binaryN);
@@ -1820,7 +1816,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
          else
          {
             derivSuccess = childKeyDerivPub(const_cast<SecureBinaryData&>(leftHMAC),
-                                            extPar.getPub(),
+                                            extPar.getPublicKey(false),
                                             ecGenX_BE,
                                             ecGenY_BE,
                                             childKey);
@@ -2042,10 +2038,10 @@ BinaryData HDWalletCrypto::getChildKeyFromOps_SWIG(BinaryData parKey,
 }
 
 
-// Function that takes an incoming HDWalletCryptoSeed buffer and creates a
-// master ExtendedKey object. BIP32 requires the seed to be 16-64 bytes long,
-// with 32 bytes recommended.
-ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed)
+// Function that takes an incoming SecureBinaryData buffer and creates a master
+// ExtendedKey object. BIP32 requires the seed to be 16-64 bytes long, with 32
+// recommended.
+ExtendedKey HDWalletCrypto::convertSeedToMasterKey(SecureBinaryData const & seed)
 {
    assert(seed.getSize() >= 16 && seed.getSize() <= 64);
 
