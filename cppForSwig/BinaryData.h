@@ -220,10 +220,12 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    BinaryData & append(uint8_t const byte, uint32_t sz)
    {
-      for(int x = 0; x < sz; ++x)
+      for(uint32_t x = 0; x < sz; ++x)
       {
          append(byte);
       }
+
+      return *this;
    }
 
 

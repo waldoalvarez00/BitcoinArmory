@@ -582,7 +582,7 @@ public:
 
    // Same as above but using BinaryData objects which are SWIG friendly
    BinaryData getChildKeyFromOps_SWIG(BinaryData parKey,
-                                      vector<BinaryData> mathOps);
+                                      const vector<BinaryData>& mathOps);
 
    ~HDWalletCrypto();
 
