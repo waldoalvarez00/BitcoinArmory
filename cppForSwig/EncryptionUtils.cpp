@@ -1860,9 +1860,11 @@ bool HDWalletCrypto::childKeyDerivPub(SecureBinaryData const& multiplier,
                                       SecureBinaryData& childKey)
 {
    assert(multiplier.getSize() == 32);
-   assert(parKey.getSize() == 65);
+   assert(parKey.getSize() == 65 || parKey.getSize() == 33);
    assert(ecGenX.getSize() == 32);
    assert(ecGenY.getSize() == 32);
+
+   SecureBinaryData parKey65 = CryptoECDSA().UncompressPoint(parKey);
 
    bool retVal = true;
    childKey.clear();
@@ -1881,8 +1883,8 @@ bool HDWalletCrypto::childKeyDerivPub(SecureBinaryData const& multiplier,
    }
    else
    {
-      SecureBinaryData pubX = parKey.getSliceRef(1, 32);
-      SecureBinaryData pubY = parKey.getSliceRef(33, 32);
+      SecureBinaryData pubX = parKey65.getSliceRef(1, 32);
+      SecureBinaryData pubY = parKey65.getSliceRef(33, 32);
       SecureBinaryData newX = newPub.getSliceRef(0, 32);
       SecureBinaryData newY = newPub.getSliceRef(32, 32);
       SecureBinaryData addRes;
