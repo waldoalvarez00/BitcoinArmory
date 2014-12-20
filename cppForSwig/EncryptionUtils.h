@@ -509,25 +509,19 @@ public:
    bool hasChaincode() const   { return (chaincode_.getSize() > 0); }
    bool isInitialized() const  { return validKey_; }
 
-
-   SecureBinaryData const & getKey() const   { return key_; }
-   SecureBinaryData const & getPub() const    { return pubKey_; }
    const SecureBinaryData getExtKeySer();
    list<uint32_t>           getIndicesList() const { return indicesList_; }
    vector<uint32_t>         getIndicesVect() const;
    const SecureBinaryData   getFingerprint() const;
    const SecureBinaryData   getIdentifier() const;
    SecureBinaryData const & getParentFP() const { return parentFP_; }
-
-
-   SecureBinaryData getPrivateKey(void) const;
+   SecureBinaryData const & getKey() const   { return key_; }
+   SecureBinaryData getPrivateKey(bool withZeroByte) const;
    SecureBinaryData getPublicKey(bool compr=true) const;
    SecureBinaryData getChaincode() const  { return chaincode_; }
 
    BinaryData               getHash160() const; // Hash160 of uncomp pub key
    ExtendedKey              copy() const;
-
-   SecureBinaryData getPubCompressed() const;
 
    void debugPrint();
 
@@ -570,7 +564,7 @@ public:
    HDWalletCrypto() {}
 
    // Perform an HMAC-SHA512 hash.
-   SecureBinaryData HMAC_SHA512(SecureBinaryData key, 
+   SecureBinaryData HMAC_SHA512(SecureBinaryData key,
                                 SecureBinaryData msg);
 
    // Derive a child key from an incoming key (pub or pri).
@@ -579,8 +573,8 @@ public:
                              SecureBinaryData* multiplierOut=NULL);
 
    // Use a seed to create a master key.
-   ExtendedKey ConvertSeedToMasterKey(SecureBinaryData const& seed);
-
+   ExtendedKey convertSeedToMasterKey(SecureBinaryData const& seed);
+   
    // Get a child key based off a list of multipliers/addends.
    SecureBinaryData getChildKeyFromOps(SecureBinaryData const& parKey,
                                        vector<SecureBinaryData>& mathOps,
@@ -606,6 +600,8 @@ private:
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// The HDWalletCryptoSeed class really isn't meant to be used directly. It ought
+// to be used indirectly via HDWalletCrypto calls.
 class HDWalletCryptoSeed 
 {
 public:
