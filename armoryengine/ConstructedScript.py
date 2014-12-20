@@ -9,6 +9,8 @@ from ArmoryUtils import *
 from BinaryPacker import *
 from BinaryUnpacker import *
 from Transaction import getOpCode
+from ArmoryEncryption import NULLSBD
+from CppBlockUtils import HDWalletCrypto
 
 
 BTCID_PAYLOAD_VERSION = (0, 1, 0, 0)
@@ -191,7 +193,8 @@ class PublicKeySource(object):
 
 ################################################################################
 class ExternalPublicKeySource(object):
-   raise NotImplementedError('Have not implemented external sources yet')
+   def __init__(self):
+      raise NotImplementedError('Have not implemented external sources yet')
 
 
 
@@ -519,12 +522,13 @@ class SignableIDPayload(object):
       self.rawTemplate = template
 
    def serialize(self):
+      pass
 
    def unserialize(self, templateStr):
       bu = makeBinaryUnpacker(templateStr)
       
       oplist = []
-      for c in 
+      #for c in 
       
       
 
@@ -588,7 +592,7 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
    proofObject = MultiplierProof(isNull=False, 
                                 srcFinger4=hash256(startPubKey)[:4],
                                 dstFinger4=hash256(finalPubKey)[:4],
-                                binMultList)
+                                multList=binMultList)
 
    return finalPubKey, proofObject
 
@@ -613,8 +617,8 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
       raise KeyDataError('Source fingerprint of proof does not match root pub')
 
    
-   finalPubKey = getChildKeyFromOps(SecureBinaryData(startPubKey, 
-                                                     multProofObj.rawMultList)
+   finalPubKey = HDWalletCrypto().getChildKeyFromOps_SWIG(startPubKey,
+                                                          multProofObj.rawMultList)
 
 
    if not hash256(finalPubKey)[:4] == multProofObj.dstFinger4:
@@ -624,13 +628,6 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
       raise KeyDataError('Computation did not yield expected public key!')
 
    return finalPubKey
-
-
-
-
-
-
-
 
 
 
