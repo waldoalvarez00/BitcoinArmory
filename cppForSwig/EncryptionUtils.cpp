@@ -1233,7 +1233,7 @@ SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
    }
 
    // Let Crypto++ do the heavy lifting. Build uncompressed key, then compress.
-   assert(pubKey65.getSize() == 65);
+   assert(pubKey65.getSize() == 65 && pubKey65[0] == 0x04);
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    BTC_ECPOINT ptPub;
    ecp.DecodePoint(ptPub, (byte*)pubKey65.getPtr(), 65);
@@ -1845,13 +1845,13 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
 }
 
 
-// 
+//
 // INPUT:  The curve's base order multiplier (32 bytes). (const
 //         SecureBinaryData&)
-//         The parent key (65 bytes). (const SecureBinaryData&)
+//         The parent key (33 or 65 bytes). (const SecureBinaryData&)
 //         The curve's generator (X-coordinate). (const SecureBinaryData&)
 //         The curve's generator (Y-coordinate). (const SecureBinaryData&)
-// OUTPUT: The child key. (const SecureBinaryData&)
+// OUTPUT: The child key (65 bytes). (SecureBinaryData&)
 // RETURN: A bool indicating if derivation was successful. (bool)
 bool HDWalletCrypto::childKeyDerivPub(SecureBinaryData const& multiplier,
                                       SecureBinaryData const& parKey,
@@ -1913,7 +1913,7 @@ bool HDWalletCrypto::childKeyDerivPub(SecureBinaryData const& multiplier,
 // INPUT:  The curve's base order addend (32 bytes). (const SecureBinaryData&)
 //         The parent key (33 bytes). (const SecureBinaryData&)
 //         The curve's generator order. (const SecureBinaryData&)
-// OUTPUT: The child key. (const SecureBinaryData&)
+// OUTPUT: The child key (33 bytes). (SecureBinaryData&)
 // RETURN: A bool indicating if derivation was successful. (bool)
 bool HDWalletCrypto::childKeyDerivPrv(SecureBinaryData const& addend,
                                       SecureBinaryData const& parKey,
@@ -1961,24 +1961,27 @@ bool HDWalletCrypto::childKeyDerivPrv(SecureBinaryData const& addend,
 
 
 // Function that takes a parent key and some math ops (multipliers or addends)
-// and uses the ops to derive a child key.
+// and uses the ops to derive a child key. Note that the input and output key
+// size must match.
 //
 // INPUT:  Parent key (33 or 65 bytes). (SecureBinaryData const&)
 //         Sequential collection of operators. (vector<SecureBinaryData>)
-// OUTPUT: Indicator of whether or not derivation was successful. (bool&)
-// RETURN: The child key (33 or 65 bytes). (SecureBinaryData)
+// OUTPUT: None
+// RETURN: The child key (33 or 65 bytes, or 0 bytes if a key couldn't be
+//         successfully derived (extremely unlikely). (SecureBinaryData)
 SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parKey,
-                                                    vector<SecureBinaryData>& mathOps,
-                                                    bool & success)
+                                                    vector<SecureBinaryData>& mathOps)
 {
    assert(parKey.getSize() == 33 || parKey.getSize() == 65);
 
-   SecureBinaryData retKey;
+   bool inKeyComp = ((parKey[0] == 0x02 || parKey[0] == 0x03) &&
+                     parKey.getSize() == 33) ? true : false;
+   SecureBinaryData retKey(0);
    SecureBinaryData nextKey = parKey;
    vector<SecureBinaryData>::iterator it = mathOps.begin();
-   success = true;
+   bool success = true;
 
-   if(parKey[0] == '\x00') // Private parent
+   if(parKey[0] == 0x00) // Private parent
    {
       while(success && (it != mathOps.end()))
       {
@@ -1995,6 +1998,8 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
          {
             LOGERR << "Multiplier " << it->toHexStr() << " led to a point at "
                << "infinity. The final private key cannot be derived.";
+            retKey = SecureBinaryData(0);
+            break;
          }
          ++it;
       }
@@ -2017,26 +2022,32 @@ SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parK
          {
             LOGERR << "Addend " << it->toHexStr() << " led to a point at "
                << "infinity. The final public key cannot be derived.";
+            retKey = SecureBinaryData(0);
+            break;
          }
          ++it;
       }
    }
 
+   // childKeyDerivPub() returns uncompressed keys. We may need to compress.
+   if(inKeyComp && success)
+   {
+      retKey = CryptoECDSA().CompressPoint(retKey);
+   }
    return retKey;
 }
 
 
 // Same as above but using BinaryData objects which are SWIG friendly
 BinaryData HDWalletCrypto::getChildKeyFromOps_SWIG(BinaryData parKey,
-                                               const vector<BinaryData>& mathOps)
+                                              const vector<BinaryData>& mathOps)
 {
    SecureBinaryData sbdParKey(parKey);
    vector<SecureBinaryData> sbdOpsVect;
    for(uint32_t i=0; i<mathOps.size(); i++)
       sbdOpsVect.push_back(SecureBinaryData(mathOps[i]));
 
-   bool success;
-   return getChildKeyFromOps(sbdParKey, sbdOpsVect, success).getRawCopy();
+   return getChildKeyFromOps(sbdParKey, sbdOpsVect).getRawCopy();
 }
 
 

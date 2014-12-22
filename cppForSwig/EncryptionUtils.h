@@ -574,11 +574,10 @@ public:
 
    // Use a seed to create a master key.
    ExtendedKey convertSeedToMasterKey(SecureBinaryData const& seed);
-   
+
    // Get a child key based off a list of multipliers/addends.
    SecureBinaryData getChildKeyFromOps(SecureBinaryData const& parKey,
-                                       vector<SecureBinaryData>& mathOps,
-                                       bool & success);
+                                       vector<SecureBinaryData>& mathOps);
 
    // Same as above but using BinaryData objects which are SWIG friendly
    BinaryData getChildKeyFromOps_SWIG(BinaryData parKey,

@@ -605,10 +605,11 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
    if not hash256(startPubKey)[:4] == multProofObj.srcFinger4:
       raise KeyDataError('Source fingerprint of proof does not match root pub')
 
-   
    finalPubKey = HDWalletCrypto().getChildKeyFromOps_SWIG(startPubKey,
                                                           multProofObj.rawMultList)
 
+   if len(finalPubKey) == 0:
+      raise KeyDataError('Key derivation failed - Elliptic curve violations')
 
    if not hash256(finalPubKey)[:4] == multProofObj.dstFinger4:
       raise KeyDataError('Dst fingerprint of proof does not match root pub')
@@ -617,5 +618,3 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
       raise KeyDataError('Computation did not yield expected public key!')
 
    return finalPubKey
-
-
