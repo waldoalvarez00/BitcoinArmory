@@ -1009,8 +1009,6 @@ void StoredTxOut::serializeDBValue(BinaryWriter & bw,
       }
    }
 
-   uint16_t isCbase = (isCoinbase_ ? 1 : 0);
-
    BitPacker<uint16_t> bitpack;
    bitpack.putBits((uint16_t)ARMORY_DB_VERSION,  4);
    bitpack.putBits((uint16_t)txVersion_,         2);

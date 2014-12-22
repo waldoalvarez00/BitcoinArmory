@@ -1883,17 +1883,17 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
          return childAddr
 
       # This sets the priv key (if non-empty)
-      # NOTE: this call must come after setting the public key, as it uses the 
-      #       public key to compute the IV to encrypt new priv.  Because this 
-      #       is fragile, we should consider making setPlainKeyData() a 
+      # NOTE: this call must come after setting the public key, as it uses the
+      #       public key to compute the IV to encrypt new priv.  Because this
+      #       is fragile, we should consider making setPlainKeyData() a
       #       method that sets the pubkey and chaincode, too, to make sure this
-      #       is done correctly
-      childAddr.setPlainKeyData(self.privCryptInfo, 
-                                extend1.getPrivateKey(),
-                                extend1.getPublicKey(), 
+      #       is done correctly.
+      childAddr.setPlainKeyData(self.privCryptInfo,
+                                extend1.getPrivateKey(False),
+                                extend1.getPublicKey(),
                                 extend1.getChaincode())
       childAddr.masterEkeyRef = self.masterEkeyRef
-      childAddr.masterKdfRef  = self.masterKdfRef 
+      childAddr.masterKdfRef  = self.masterKdfRef
       childAddr.privKeyNextUnlock = nextUnlockFlag
 
       if not childAddr.sbdPublicKey33.getSize()==33:
@@ -2008,9 +2008,15 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       it set in this object (so the EkeyMustBeUnlocked decorator returns True)
       """
 
-      cppExtKey = Cpp.HDWalletCrypto().ConvertSeedToMasterKey(sbdPlainSeed)
-      self.setPlainKeyData(self.privCryptInfo, 
-                           cppExtKey.getPrivateKey(),
+      if sbdPlainSeed.getSize() < 16:
+            raise KeyDataError('Extended key seed is not at least 16 bytes.')
+      elif sbdPlainSeed.getSize() > 64:
+            raise KeyDataError('Extended key seed is more than 64 bytes.')
+
+      # BIP32 only allows seeds up to 64 bytes large. (Range must be 16-64.)
+      cppExtKey = Cpp.HDWalletCrypto().convertSeedToMasterKey(sbdPlainSeed)
+      self.setPlainKeyData(self.privCryptInfo,
+                           cppExtKey.getPrivateKey(False),
                            cppExtKey.getPublicKey(),
                            cppExtKey.getChaincode())
 
@@ -2058,6 +2064,8 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
       if seedSize < 16 and not USE_TESTNET:
          raise KeyDataError('Seed size is not large enough to be secure!')
+      elif seedSize > 64:
+         raise KeyDataError('Seed size is too large!')
 
       if extraEntropy.getSize()<16:
          raise KeyDataError('Must provide >= 16B extra entropy for seed gen')
@@ -2065,12 +2073,6 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       newSeed = SecureBinaryData().GenerateRandom(seedSize, extraEntropy)
       self.initializeFromSeed(newSeed, fillPool=fillPool)
       newSeed.destroy()
-      
-      
-
-
-      
-
 
 
 ################################################################################

@@ -41,8 +41,8 @@ namespace std
 {
    %template(vector_int) std::vector<int>;
    %template(vector_float) std::vector<float>;
-   %template(vector_BinaryData) std::vector<BinaryData>;
    %template(vector_LedgerEntry) std::vector<LedgerEntry>;
+   //%template(vector_BinaryData) std::vector<BinaryData>;
    %template(vector_TxRefPtr) std::vector<TxRef*>;
    %template(vector_Tx) std::vector<Tx>;
    %template(vector_BlockHeaderPtr) std::vector<BlockHeader>;
@@ -95,6 +95,48 @@ namespace std
 {
    $result = PyString_FromStringAndSize((char*)($1->getPtr()), $1->getSize());
 }
+
+
+
+/******************************************************************************/
+// Convert Python(list[string]) to C++(vector<BinaryData>) 
+%typemap(in) const std::vector<BinaryData> & (std::vector<BinaryData> bdObjVec)
+{
+	for(int i=0; i<PyList_Size($input); i++)
+	{
+		PyObject* strobj = PyList_GetItem($input, i);
+		
+		BinaryData bdStr((uint8_t*)PyString_AsString(strobj), PyString_Size(strobj));
+
+		bdObjVec.push_back(bdStr);
+	}
+
+	$1 = &bdObjVec;
+}
+
+/******************************************************************************/
+// Convert C++(vector<BinaryData>) to Python(list[string])
+%typemap(out) vector<BinaryData>
+{
+	vector<BinaryData>::iterator bdIter = $1.begin();
+	PyObject* thisList = PyList_New($1.size());
+	int i=0;
+
+	while(bdIter != $1.end())
+	{
+		BinaryData & bdobj = (*bdIter);
+		
+		PyObject* thisPyObj = PyString_FromStringAndSize((char*)(bdobj.getPtr()), bdobj.getSize());
+
+		PyList_SET_ITEM(thisList, i, thisPyObj);
+
+		++i;
+		++bdIter;
+	}
+
+	$result = thisList;
+}
+
 
 
 

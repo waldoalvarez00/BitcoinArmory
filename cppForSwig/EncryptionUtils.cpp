@@ -26,9 +26,17 @@
 #define PRVVER MAIN_PRV
 #endif
 
+// Generator and curve order taken from SEC 2, Sect. 2.7.1. Data is big endian.
+const SecureBinaryData ecGenX_BE = SecureBinaryData().CreateFromHex(
+            "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798");
+const SecureBinaryData ecGenY_BE = SecureBinaryData().CreateFromHex(
+            "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8");
+const SecureBinaryData ecOrder_BE = SecureBinaryData().CreateFromHex(
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
+
 // Function that takes an incoming child number and determines if the BIP32
 // child key will use private or public key derivation.
-inline bool isHardened(uint32_t inChildNumber) 
+inline bool isHardened(uint32_t inChildNumber)
 {
    return ((0x80000000 & inChildNumber) == 0x80000000);
 }
@@ -895,7 +903,7 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
    if( binPrivKey.getSize() != 32 || chaincode.getSize() != 32)
    {
       LOGERR << "***ERROR:  Invalid private key or chaincode (both must be 32B)";
-      LOGERR << "BinPrivKey: " << binPrivKey.getSize();
+      LOGERR << "BinPrivKey size: " << binPrivKey.getSize();
       LOGERR << "BinPrivKey: (not logged for security)";
       //LOGERR << "BinPrivKey: " << binPrivKey.toHexStr();
       LOGERR << "BinChain  : " << chaincode.getSize();
@@ -1225,7 +1233,7 @@ SecureBinaryData CryptoECDSA::CompressPoint(SecureBinaryData const & pubKey65)
    }
 
    // Let Crypto++ do the heavy lifting. Build uncompressed key, then compress.
-   assert(pubKey65.getSize() == 65);
+   assert(pubKey65.getSize() == 65 && pubKey65[0] == 0x04);
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
    BTC_ECPOINT ptPub;
    ecp.DecodePoint(ptPub, (byte*)pubKey65.getPtr(), 65);
@@ -1308,14 +1316,18 @@ const SecureBinaryData ExtendedKey::getIdentifier() const
 // Output: None
 // Result: A 32-byte big-endian buffer with the private key, or zeroed out if
 //         the extended key has only public key data (SecureBinaryData)
-SecureBinaryData ExtendedKey::getPrivateKey(void) const
+SecureBinaryData ExtendedKey::getPrivateKey(bool withZeroByte) const
 {
-   SecureBinaryData retVal;
+   SecureBinaryData retVal(0);
 
-   if(!isPrv())
-      return SecureBinaryData(0);
-   else
-      retVal = key_.getSliceCopy(1,32);
+   if(isPrv())
+   {
+      retVal = key_;
+      if(!withZeroByte)
+      {
+         retVal = retVal.getSliceCopy(1,32);
+      }
+   }
 
    return retVal;
 }
@@ -1439,8 +1451,8 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & key,
                          uint32_t inChildNum,
                          bool keyIsPub) :
    chaincode_(ch),
-   version_(netVer),
-   indicesList_(parentTreeIdx)
+   indicesList_(parentTreeIdx),
+   version_(netVer)
 {
    assert(key.getSize() == 33 || key.getSize() == 65);
    assert(ch.getSize() == 32);
@@ -1489,8 +1501,8 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
    pubKey_(pb),
    chaincode_(ch),
    indicesList_(parentTreeIdx),
-   parentFP_(parFP),
-   version_(inVer)
+   version_(inVer),
+   parentFP_(parFP)
 {
    assert(key_.getSize() == 0 || key_.getSize() == 33);
    assert(pubKey_.getSize() == 65);
@@ -1591,14 +1603,6 @@ const string ExtendedKey::getIndexListString(const string prefix)
 }
 
 
-// Get a compressed copy (33 bytes) of the public key.
-////////////////////////////////////////////////////////////////////////////////
-SecureBinaryData ExtendedKey::getPubCompressed() const
-{
-   return CryptoECDSA().CompressPoint(pubKey_);
-}
-
-
 // Function that updates the public key based on the primary key.
 void ExtendedKey::updatePubKey()
 {
@@ -1656,11 +1660,11 @@ const bool ExtendedKey::isMaster() const
 // Overloaded constructor that should be used instead of the default
 // constructor. Takes incoming (P)RNG data and creates an HD master key and
 // chain code.
-// INPUT:  (P)RNG data seeding the HD crypto wallet. Can be any length but 32
-//         bytes is recommended.
+// INPUT:  (P)RNG data seeding the HD crypto wallet. Must be 16-64 bytes.
+//         (SecureBinaryData)
 // OUTPUT: None
 // RETURN: None
-HDWalletCryptoSeed::HDWalletCryptoSeed(const SecureBinaryData& rngData) 
+HDWalletCryptoSeed::HDWalletCryptoSeed(SecureBinaryData const& rngData) 
 {
    SecureBinaryData hmacKey = SecureBinaryData("Bitcoin seed");
    SecureBinaryData hVal = HDWalletCrypto().HMAC_SHA512(hmacKey, rngData);
@@ -1711,11 +1715,11 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 
 // The ExtendedKey class accommodates full private-included ExtendedKey objects
 // or public-key-only.  You can pass in either one here, and it will derive the
-// child for whatever key data is there. Note that thisfunction doesn't perform
+// child for whatever key data is there. Note that this function doesn't perform
 // private-to-public conversions. Such conversions will require the caller to
 // manually convert a private key to a public key. For example, in the case of
 // hardened public keys, a private-to-private derivation must occur, and the
-// derived private key is then converted to a public key.
+// derived private key must then be converted to a public key.
 //
 // INPUT:  The parent key. (const ExtendedKey&)
 //         The child number. (uint32_t)
@@ -1745,20 +1749,26 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       // First, let's use HMAC-SHA512 to get some data. The key will always be
       // the parent's chain code. The HMAC-SHA512 msg will depend on if the
       // key's hardened. (| = Concatenation)
+      //
       // Prv par (Hardened) - 0x00 | Prv par key | Incoming position
       // Pub par (Hardened) - Compressed pub par key | Incoming position
       // Prv or pub par (Non-hardened) - Compressed pub par key | Incoming pos
+      //
+      // At a glance, for non-hardened prv parents, this is incorrect. It is
+      // correct. Point multiplication of the prv parent key yields the parent
+      // pub key, which we already have. See X9.62:1998 (Sect. 5.2.1) or
+      // X9.62:2005 (Sect. A.4.3) for the formal pub key derivation definition.
       SecureBinaryData binaryN = WRITE_UINT32_BE(childNum);
       SecureBinaryData hashData;
 
-      if(isHardened(childNum)) 
+      if(isHardened(childNum))
       {
          SecureBinaryData pKey = extPar.getKey();
          hashData.append(pKey);
       }
-      else 
+      else
       {
-         SecureBinaryData cp = CryptoECDSA().CompressPoint(extPar.getPub());
+         SecureBinaryData cp = extPar.getPublicKey();
          hashData.append(cp);
       }
       hashData.append(binaryN);
@@ -1771,10 +1781,7 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
       // Curve order taken from SEC 2, Sect. 2.7.1.
       CryptoPP::Integer intLeft;
       CryptoPP::Integer ecOrder;
-      SecureBinaryData CURVE_ORDER_BE = SecureBinaryData().CreateFromHex(
-            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
-      ecOrder.Decode(CURVE_ORDER_BE.getPtr(), CURVE_ORDER_BE.getSize(),
-                     UNSIGNED);
+      ecOrder.Decode(ecOrder_BE.getPtr(), ecOrder_BE.getSize(), UNSIGNED);
       intLeft.Decode(leftHMAC.getPtr(), leftHMAC.getSize(), UNSIGNED);
 
       // If the caller wants to save a non-hardened child's multiplier, save it.
@@ -1799,79 +1806,23 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
          //      Chain code = 2nd 32 bytes of HMAC-512
          // PUB: Key = (1st 32 bytes of HMAC-SHA512 * secp256k1 base) + par pub key
          //      Chain code = 2nd 32 bytes of HMAC-512
-         if(extPar.isPrv()) 
+         if(extPar.isPrv())
          {
-            CryptoPP::Integer intKey;
-            CryptoPP::Integer check0;
-            SecureBinaryData prvKey = extPar.getKey().getSliceRef(1, 32);
-            intKey.Decode(prvKey.getPtr(), prvKey.getSize(), UNSIGNED);
-            check0 = (intLeft + intKey) % ecOrder;
-
-            // BIP32 requires the child key to not be at the point of infinity.
-            // BIP32 also requests that we try again w/ child#+1. We'll leave
-            // that to other code.
-            if(check0.IsZero())
-            {
-               LOGERR << "Addition derived the point at infinity for private "
-                  << "key #" << childNum << "! Try again for child #"
-                  << (childNum + 1) << ".";
-            }
-            else
-            {
-               // We have the child private key!
-               SecureBinaryData zeros = SecureBinaryData(PRIKEYSIZE -
-                                                            check0.ByteCount());
-               zeros.fill(0x00);
-               childKey.append(zeros);
-               SecureBinaryData check0Str(check0.ByteCount());
-               check0.Encode(check0Str.getPtr(), check0Str.getSize(), UNSIGNED);
-               childKey.append(check0Str);
-               derivSuccess = true;
-            }
+            derivSuccess = childKeyDerivPrv(const_cast<SecureBinaryData&>(leftHMAC),
+                                            extPar.getKey(),
+                                            ecOrder_BE,
+                                            childKey);
          }
          else
          {
-            // Base point taken from SEC 2, Sect. 2.7.1.
-            SecureBinaryData BASE_X = SecureBinaryData().CreateFromHex(
-            "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798");
-            SecureBinaryData BASE_Y = SecureBinaryData().CreateFromHex(
-            "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8");
-            SecureBinaryData pubX = extPar.getPub().getSliceRef(1, 32);
-            SecureBinaryData pubY = extPar.getPub().getSliceRef(33, 32);
-            SecureBinaryData newPub;
-
-            // Multiply base point by the multiplier to get an intermediate key.
-            // Don't proceed if at the point of infinity.
-            if(!(CryptoECDSA().ECMultiplyPoint(leftHMAC, BASE_X, BASE_Y, newPub)))
+            derivSuccess = childKeyDerivPub(const_cast<SecureBinaryData&>(leftHMAC),
+                                            extPar.getPublicKey(false),
+                                            ecGenX_BE,
+                                            ecGenY_BE,
+                                            childKey);
+            if(derivSuccess)
             {
-               LOGERR << "Multiplication derived the point at infinity for "
-                  << "public key #" << childNum << ". Try again with a new "
-                  << "child #.";
-            }
-            else
-            {
-               SecureBinaryData newX = newPub.getSliceRef(0, 32);
-               SecureBinaryData newY = newPub.getSliceRef(32, 32);
-               SecureBinaryData addRes;
-
-               // BIP32 requires child key to not be at the point of infinity.
-               // BIP32 also requests that we try again w/ child#+1. We'll
-               // leave that to other code.
-               if(!(CryptoECDSA().ECAddPoints(newX, newY, pubX, pubY, addRes)))
-               {
-                  LOGERR << "Addition derived the point at infinity for public "
-                     << "key #" << childNum << ". Try using child #"
-                     << (childNum + 1) << ".";
-               }
-               else
-               {
-                  // We have the child public key!
-                  uint8_t pubHdr = 0x04;
-                  childKey.append(pubHdr);
-                  childKey.append(addRes);
-                  keyIsPub = true;
-                  derivSuccess = true;
-               }
+               keyIsPub = true;
             }
          }
       }
@@ -1883,16 +1834,230 @@ ExtendedKey HDWalletCrypto::childKeyDeriv(ExtendedKey const & extPar,
                                 extPar.getIndicesList(), extPar.getVersion(),
                                 childNum, keyIsPub);
       }
+      else
+      {
+         LOGERR << "Child #" << childNum << " failed. Try the next child "
+            << "number.";
+      }
    }
 
    return derivKey;
 }
 
 
-// Function that takes an incoming HDWalletCryptoSeed buffer and creates a
-// master ExtendedKey object.
-ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed)
+//
+// INPUT:  The curve's base order multiplier (32 bytes). (const
+//         SecureBinaryData&)
+//         The parent key (33 or 65 bytes). (const SecureBinaryData&)
+//         The curve's generator (X-coordinate). (const SecureBinaryData&)
+//         The curve's generator (Y-coordinate). (const SecureBinaryData&)
+// OUTPUT: The child key (65 bytes). (SecureBinaryData&)
+// RETURN: A bool indicating if derivation was successful. (bool)
+bool HDWalletCrypto::childKeyDerivPub(SecureBinaryData const& multiplier,
+                                      SecureBinaryData const& parKey,
+                                      SecureBinaryData const& ecGenX,
+                                      SecureBinaryData const& ecGenY,
+                                      SecureBinaryData& childKey)
 {
+   assert(multiplier.getSize() == 32);
+   assert(parKey.getSize() == 65 || parKey.getSize() == 33);
+   assert(ecGenX.getSize() == 32);
+   assert(ecGenY.getSize() == 32);
+
+   SecureBinaryData parKey65 = CryptoECDSA().UncompressPoint(parKey);
+
+   bool retVal = true;
+   childKey.clear();
+   SecureBinaryData newPub;
+   CryptoPP::Integer multInt;
+   multInt.Decode(multiplier.getPtr(), multiplier.getSize(), UNSIGNED);
+
+   // Multiply base point by the multiplier to get an intermediate key. Don't
+   // proceed if at the point of infinity. This is extremely unlikely.
+	// NB: BIP32 doesn't seem to require using the next child #.
+   if(!(CryptoECDSA().ECMultiplyPoint(multiplier, ecGenX, ecGenY, newPub)))
+   {
+      LOGERR << "Multiplication derived the point at infinity for the public "
+         << "key! Try again with a new child number.";
+      retVal = false;
+   }
+   else
+   {
+      SecureBinaryData pubX = parKey65.getSliceRef(1, 32);
+      SecureBinaryData pubY = parKey65.getSliceRef(33, 32);
+      SecureBinaryData newX = newPub.getSliceRef(0, 32);
+      SecureBinaryData newY = newPub.getSliceRef(32, 32);
+      SecureBinaryData addRes;
+
+      // BIP32 requires child key to not be at the point of infinity. BIP32 also
+      // requests that we try again w/ child#+1. We'll leave that to other code.
+      if(!(CryptoECDSA().ECAddPoints(newX, newY, pubX, pubY, addRes)))
+      {
+         LOGERR << "Addition derived the point at infinity for the public key! "
+            << "Try again with the next child number.";
+         retVal = false;
+      }
+      else
+      {
+         // We have the child public key!
+         uint8_t pubHdr = 0x04;
+         childKey.append(pubHdr);
+         childKey.append(addRes);
+      }
+   }
+
+   return retVal;
+}
+
+
+// INPUT:  The curve's base order addend (32 bytes). (const SecureBinaryData&)
+//         The parent key (33 bytes). (const SecureBinaryData&)
+//         The curve's generator order. (const SecureBinaryData&)
+// OUTPUT: The child key (33 bytes). (SecureBinaryData&)
+// RETURN: A bool indicating if derivation was successful. (bool)
+bool HDWalletCrypto::childKeyDerivPrv(SecureBinaryData const& addend,
+                                      SecureBinaryData const& parKey,
+                                      SecureBinaryData const& ecGenOrder,
+                                      SecureBinaryData& childKey)
+{
+   assert(addend.getSize() == 32);
+   assert(parKey.getSize() == 33);
+   assert(ecGenOrder.getSize() == 32);
+
+   bool retVal = true;
+   SecureBinaryData prvKey = parKey.getSliceRef(1, 32);
+   childKey.clear();
+   CryptoPP::Integer addendInt;
+   CryptoPP::Integer intKey;
+   CryptoPP::Integer ecOrder;
+   CryptoPP::Integer check0;
+   addendInt.Decode(addend.getPtr(), addend.getSize(), UNSIGNED);
+   intKey.Decode(prvKey.getPtr(), prvKey.getSize(), UNSIGNED);
+   ecOrder.Decode(ecGenOrder.getPtr(), ecGenOrder.getSize(), UNSIGNED);
+   check0 = (intKey + addendInt) % ecOrder;
+
+   // BIP32 requires the child key to not be at the point of infinity. BIP32
+   // also requests that we try again w/ child#+1. We'll leave that to other
+   // code.
+   if(check0.IsZero())
+   {
+      LOGERR << "Addition derived the point at infinity for the private key! "
+         << "Try again with the next child number.";
+		retVal = false;
+    }
+    else
+    {
+      // We have the child private key!
+      SecureBinaryData zero = SecureBinaryData(PRIKEYSIZE - check0.ByteCount());
+      zero.fill(0x00);
+      childKey.append(zero);
+      SecureBinaryData check0Str(check0.ByteCount());
+      check0.Encode(check0Str.getPtr(), check0Str.getSize(), UNSIGNED);
+      childKey.append(check0Str);
+   }
+
+   return retVal;
+}
+
+
+// Function that takes a parent key and some math ops (multipliers or addends)
+// and uses the ops to derive a child key. Note that the input and output key
+// size must match.
+//
+// INPUT:  Parent key (33 or 65 bytes). (SecureBinaryData const&)
+//         Sequential collection of operators. (vector<SecureBinaryData>)
+// OUTPUT: None
+// RETURN: The child key (33 or 65 bytes, or 0 bytes if a key couldn't be
+//         successfully derived (extremely unlikely). (SecureBinaryData)
+SecureBinaryData HDWalletCrypto::getChildKeyFromOps(SecureBinaryData const& parKey,
+                                                    vector<SecureBinaryData>& mathOps)
+{
+   assert(parKey.getSize() == 33 || parKey.getSize() == 65);
+
+   bool inKeyComp = ((parKey[0] == 0x02 || parKey[0] == 0x03) &&
+                     parKey.getSize() == 33) ? true : false;
+   SecureBinaryData retKey(0);
+   SecureBinaryData nextKey = parKey;
+   vector<SecureBinaryData>::iterator it = mathOps.begin();
+   bool success = true;
+
+   if(parKey[0] == 0x00) // Private parent
+   {
+      while(success && (it != mathOps.end()))
+      {
+         assert(it->getSize() == 32);
+         success = childKeyDerivPrv(*it,
+                                    const_cast<const SecureBinaryData&>(nextKey),
+                                    ecOrder_BE,
+                                    retKey);
+         if(success)
+         {
+            nextKey = retKey;
+         }
+         else
+         {
+            LOGERR << "Multiplier " << it->toHexStr() << " led to a point at "
+               << "infinity. The final private key cannot be derived.";
+            retKey = SecureBinaryData(0);
+            break;
+         }
+         ++it;
+      }
+   }
+   else               // Public parent
+   {
+      while(success && (it != mathOps.end()))
+      {
+         assert(it->getSize() == 32);
+         success = childKeyDerivPub(*it,
+                                    const_cast<const SecureBinaryData&>(nextKey),
+                                    ecGenX_BE,
+                                    ecGenY_BE,
+                                    retKey);
+         if(success)
+         {
+            nextKey = retKey;
+         }
+         else
+         {
+            LOGERR << "Addend " << it->toHexStr() << " led to a point at "
+               << "infinity. The final public key cannot be derived.";
+            retKey = SecureBinaryData(0);
+            break;
+         }
+         ++it;
+      }
+   }
+
+   // childKeyDerivPub() returns uncompressed keys. We may need to compress.
+   if(inKeyComp && success)
+   {
+      retKey = CryptoECDSA().CompressPoint(retKey);
+   }
+   return retKey;
+}
+
+
+// Same as above but using BinaryData objects which are SWIG friendly
+BinaryData HDWalletCrypto::getChildKeyFromOps_SWIG(BinaryData parKey,
+                                              const vector<BinaryData>& mathOps)
+{
+   SecureBinaryData sbdParKey(parKey);
+   vector<SecureBinaryData> sbdOpsVect;
+   for(uint32_t i=0; i<mathOps.size(); i++)
+      sbdOpsVect.push_back(SecureBinaryData(mathOps[i]));
+
+   return getChildKeyFromOps(sbdParKey, sbdOpsVect).getRawCopy();
+}
+
+
+// Function that takes an incoming SecureBinaryData buffer and creates a master
+// ExtendedKey object. BIP32 requires the seed to be 16-64 bytes long, with 32
+// recommended.
+ExtendedKey HDWalletCrypto::convertSeedToMasterKey(SecureBinaryData const & seed)
+{
+   assert(seed.getSize() >= 16 && seed.getSize() <= 64);
+
    HDWalletCryptoSeed newSeed(seed);
    SecureBinaryData newMasterPriv = SecureBinaryData().CreateFromHex("00");
    SecureBinaryData master32 = newSeed.getMasterKey().copy();

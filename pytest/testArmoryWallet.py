@@ -310,6 +310,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       TESTBYTES = '\x0b\x11\x09\x07'
       afhSer4 = afhSer1[:16] + TESTBYTES + afhSer1[20:]
       self.assertRaises(NetworkIDError, ArmoryFileHeader.Unserialize, afhSer4)
+
       
 
 ################################################################################

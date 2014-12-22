@@ -3233,7 +3233,6 @@ uint32_t BlockDataManager_LevelDB::evalLowestBlockNextScan(void)
    SCOPED_TIMER("evalLowestBlockNextScan");
 
    uint32_t lowestBlk = UINT32_MAX;
-   uint32_t i=0;
    map<HashString, RegisteredScrAddr>::iterator rsaIter;
    for(rsaIter  = registeredScrAddrMap_.begin();
        rsaIter != registeredScrAddrMap_.end();
@@ -3436,8 +3435,6 @@ void BlockDataManager_LevelDB::scanBlockchainForTx(BtcWallet & myWallet,
    
    // Check whether we can get everything we need from the registered tx list
    endBlknum = min(endBlknum, getTopBlockHeight()+1);
-   uint32_t numRescan = numBlocksToRescan(myWallet, endBlknum);
-
 
    // This is the part that might take a while...
    //applyBlockRangeToDB(allScannedUpToBlk_, endBlknum);
@@ -3876,7 +3873,6 @@ vector<TxRef*> BlockDataManager_LevelDB::findAllNonStdTx(void)
 
 static bool scanFor(std::istream &in, const uint8_t * bytes, const unsigned len)
 {
-   unsigned matched=0; // how many bytes we've matched so far
    std::vector<uint8_t> ahead(len); // the bytes matched
    
    in.read((char*)&ahead.front(), len);
@@ -4408,13 +4404,14 @@ void BlockDataManager_LevelDB::buildAndScanDatabases(
            <<  (int)timeElapsed << " seconds)";
 
    // Now start scanning the raw blocks
+   // WARNING: size() is unsigned, so this will always succeed. What gives?
    if(registeredScrAddrMap_.size() == -1)
    {
       // We think that the lack of scanning was causing some crashes
       // So we disabled this block, at least temporarily, despite being
       // "pointless" when no wallets are loaded
-      LOGWARN << "No addresses are registered with the BDM, so there's no";
-      LOGWARN << "point in doing a blockchain scan yet.";
+      LOGWARN << "No addresses are registered with the BDM, so there's no "
+         << "point in doing a blockchain scan yet.";
    }
    else if(DBUtils.getArmoryDbType() != ARMORY_DB_SUPER)
    {
@@ -4808,7 +4805,6 @@ void BlockDataManager_LevelDB::saveScrAddrHistories(void)
 
    iface_->startBatch(BLKDATA);
 
-   uint32_t i=0;
    set<BtcWallet*>::iterator wltIter;
    for(wltIter  = registeredWallets_.begin();
        wltIter != registeredWallets_.end();

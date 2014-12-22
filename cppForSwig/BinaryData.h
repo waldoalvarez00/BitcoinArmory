@@ -220,10 +220,12 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    BinaryData & append(uint8_t const byte, uint32_t sz)
    {
-      for(int x = 0; x < sz; ++x)
+      for(uint32_t x = 0; x < sz; ++x)
       {
          append(byte);
       }
+
+      return *this;
    }
 
 
@@ -570,10 +572,6 @@ public:
       if( !is.is_open() )
          return -1;
 
-      is.seekg(0, ios::end);
-      uint32_t filesize = (size_t)is.tellg();
-      is.seekg(0, ios::beg);
-      
       data_.resize(getSize());
       is.read((char*)getPtr(), getSize());
       return getSize();
