@@ -4,6 +4,7 @@ from flask.ext.socketio import SocketIO, emit
 import base64
 import httplib
 import json
+import optparse
 import os
 
 
@@ -30,11 +31,16 @@ products = {
      },
 }
 
+options = {}
+
 def armoryd_request(method, params):
     subdir = "testnet3"
     conf = os.path.join(os.getenv('HOME'), '.armory', subdir, "armoryd.conf")
     user_pass = open(conf, 'r').read()
-    c = httplib.HTTPConnection("localhost",18225)
+    port = 18225
+    if options.mainnet:
+        port = 8225
+    c = httplib.HTTPConnection("localhost", port)
     data = {"jsonrpc":"1.0","id":1,"method":method,"params":params}
     serialized = json.dumps(data)
     headers = {
@@ -96,7 +102,15 @@ def pay():
         return redirect(url_for('ship'))
 
     if not session.get("bitcoinaddress"):
-        session["bitcoinaddress"] = armoryd_request("getnewaddress",[])
+        if options.lockbox:
+            wallets = armoryd_request("listloadedwallets", [])
+            args = [2,3]
+            for key in sorted(wallets.keys()):
+                args.append(wallets[key])
+            lockbox = armoryd_request("createlockbox", args)
+            session["bitcoinaddress"] = lockbox["p2shaddr"]
+        else:
+            session["bitcoinaddress"] = armoryd_request("getnewaddress",[])
 
     total = 0
     for product, quantity in session["cart"].items():
@@ -153,8 +167,8 @@ def address():
 
 @app.route("/reset")
 def reset():
-    del session["bitcoinaddress"]
-    del session["cart"]
+    session["bitcoinaddress"] = None
+    session["cart"] = None
     return "success"
 
 @socketio.on('connect', namespace='/ws')
@@ -180,4 +194,10 @@ def ws_listen(message):
 
 
 if __name__ == "__main__":
+    parser = optparse.OptionParser()
+    parser.add_option("-m", "--mainnet", action="store_true", dest="mainnet",
+                      default=False, help="connect to mainnet")
+    parser.add_option("-l", "--lockbox", action="store_true", dest="lockbox",
+                      default=False, help="Use a 2 of 3 lockbox")
+    options, args = parser.parse_args()
     socketio.run(app,host="0.0.0.0")

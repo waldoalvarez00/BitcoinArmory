@@ -997,16 +997,25 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
 
       if CLI_OPTIONS.offline:
          raise ValueError('Cannot get received amount when offline')
-      # Only gets correct amount for addresses in the wallet, otherwise 0
-      addr160 = addrStr_to_hash160(address, False)[1]
 
-      # Iterate through the address in our wallet. Include coins only if values
-      # are positive and the number of confirmations is high enough.
-      if minconf == 0:
-         balance = self.curWlt.getAddrBalance(addr160, 'full')
+      addrType, addr160 = addrStr_to_hash160(address, True)
+      balance = 0
+      if addrType == ADDRBYTE:
+         if minconf == 0:
+            balance = self.curWlt.getAddrBalance(addr160, 'full')
+         else:
+            topBlk = TheBDM.getTopBlockHeight()
+            balance = self.curWlt.getAddrBalance(addr160, 'spend', topBlk - int(minconf))
+      elif addrType == P2SHBYTE:
+         lbox = self.getLockboxByP2SHAddrStr(address)
+         cppWallet = self.serverLBCppWalletMap.get(lbox.uniqueIDB58)
+         if minconf == 0:
+            balance = cppWallet.getFullBalance()
+         else:
+            topBlk = TheBDM.getTopBlockHeight()
+            balance = cppWallet.getSpendableBalance(topBlk - int(minconf), IGNOREZC)
       else:
-         topBlk = TheBDM.getTopBlockHeight()
-         balance = self.curWlt.getAddrBalance(addr160, 'spend', topBlk - minconf)
+         raise NetworkIDError('Addr for the wrong network!')
 
       return AmountToJSON(balance)
 
@@ -1896,14 +1905,18 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
             else:
                # Write to the "master" LB list used by Armory and an individual
                # file, and load the LB into our LB set.
-               lbFileName = 'Multisig_%s.lockbox.txt' % lbID
+               lbFileName = 'Lockbox_%s_.lockbox.def' % lbID
                lbFilePath = os.path.join(self.armoryHomeDir, lbFileName)
                writeLockboxesFile([lockbox], 
                                   os.path.join(self.armoryHomeDir, \
                                                MULTISIG_FILE_NAME), True)
                writeLockboxesFile([lockbox], lbFilePath, False)
                self.serverLBMap[lbID] = lockbox
-
+               scraddrReg = script_to_scrAddr(lockbox.binScript)
+               scraddrP2SH = script_to_scrAddr(script_to_p2sh_script(lockbox.binScript))
+               scrAddrList = [scraddrReg, scraddrP2SH]
+               LOGINFO("lockbox addrs: %s" % scrAddrList)
+               self.serverLBCppWalletMap[lbID] = lockbox.registerLockbox(scrAddrList, True)
                result = lockbox.toJSONMap()
 
       return result
@@ -2832,7 +2845,9 @@ class Armory_Daemon(object):
                if wltID in self.WltMap:
                   self.WltMap[wltID].doAfterScan()
                   self.WltMap[wltID].isEnabled = True
-               else:                
+               else:
+                  if wltID not in self.lboxMap:
+                     raise RuntimeError("cpp says %s exists, but armoryd can't find it" % wltId)
                   self.lboxMap[wltID].isEnabled = True
                 
                #no progress repoting in armoryd yet     

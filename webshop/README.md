@@ -18,16 +18,18 @@ Dependencies
 How to run
 ----------
 
-1. Start armoryd in testnet:
+1. Create a wallet using ArmoryQt.
+
+2. Start armoryd in testnet:
 
   `python armoryd.py --testnet`
 
-2. Start the webshop server:
+3. Start the webshop server:
 
   `cd webshop`
 
   `python server.py`
 
-3. Go to the url:
+4. Go to the url:
 
   `http://localhost:5000`
