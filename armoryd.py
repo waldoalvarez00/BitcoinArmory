@@ -2777,9 +2777,6 @@ class Armory_Daemon(object):
          #Blockchain just finished loading, finish initializing UI and render the
          #ledgers
 
-         #no mempool file code yet
-         TheBDM.bdv().enableZeroConf("") #mempoolfile.encode('utf-8'))        
-         
          self.timeReceived = TheBDM.bdv().blockchain().top().getTimestamp()
          self.latestBlockNum = TheBDM.bdv().blockchain().top().getBlockHeight()
          LOGINFO('Blockchain loaded. Wallets synced!')
@@ -2801,7 +2798,13 @@ class Armory_Daemon(object):
    
       elif action == NEW_ZC_ACTION:
          # for zero-confirmation transcations, do nothing for now.
-         pass
+         print 'New ZC'
+         for le in args:
+            wltID = le.getWalletID()
+            if wltID in self.WltMap:
+               print '   Wallet: %s, amount: %d' % (wltID, le.getValue())
+            elif wltID in self.lboxMap:
+               print '   Lockbox: %s, amount: %d' % (wltID, le.getValue())
 
       elif action == NEW_BLOCK_ACTION:
          #A new block has appeared, pull updated ledgers from the BDM, display
