@@ -11,6 +11,7 @@ from BinaryUnpacker import *
 from Transaction import getOpCode
 from ArmoryEncryption import NULLSBD
 from CppBlockUtils import HDWalletCrypto
+import re
 
 
 BTCID_PAYLOAD_VERSION = (0, 1, 0, 0)
@@ -48,10 +49,22 @@ def makeBinaryUnpacker(inputStr):
    """
    if isinstance(inputStr, BinaryUnpacker):
       # Just return the input reference
-      return inputStr  
+      return inputStr
    else:
       # Initialize a new BinaryUnpacker
       return BinaryUnpacker(inputStr)
+
+
+################################################################################
+def escapeFF(inputStr):
+   """
+   Take a string intended for a DANE script template and "escape" it such that
+   any instance of 0xff becomes 0xff00. This must be applied to any string that
+   will be processed by a DANE script template decoder.
+   """
+   convExp = re.compile('ff', re.IGNORECASE)
+   convStr = convExp.sub('ff00', inputStr)
+   return convStr
 
 
 ################################################################################
@@ -97,7 +110,7 @@ class PublicKeySource(object):
                    ver      = [tuple, None])
    def initialize(self, isStatic, useCompr, use160, isSx, isUser, isExt, src, ver=None):
       """
-       
+      Set all PKS values.
       """
 
       # We expect regular public key sources to be binary strings, but external
@@ -220,7 +233,7 @@ class ConstructedScript(object):
 
 
    #############################################################################
-   def readTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
+   def setTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
       """
       Inputs:
          scrTemp:  script template  (ff-escaped)
@@ -247,9 +260,7 @@ class ConstructedScript(object):
 
              [ [PubSrc1], [PubSrc2], [PubSrc3], [PubSrc4, PubSrc5, ...]]
                    1          2          3       <--------- 4 -------->
-      """ 
-      cs = ConstructedScript()
-
+      """
       if '\xff\xff' in scrTemp or scrTemp.endswith('\xff'):
          raise BadInputError('All 0xff sequences need to be properly escaped')
 
@@ -268,25 +279,25 @@ class ConstructedScript(object):
       # We want this to look like:                   '76a9',  '88ac',  '',   '01'
       #        with escape codes:                           01       03     ff
       #        with 2 pub key bundles                      [k0] [k1,k2,k3]
-      # There will always be X script pieces and X-1 pubkey bundles
 
-      # Get the first byte after every 0xff 
+      # Get the first byte after every 0xff
       breakoutPairs = [[pc[0],pc[1:]] for pc in scriptPieces[1:]]
-      escapedBytes  = [binary_to_int(b[0]) for b in breakout if b[0]]
-      scriptPieces  = [scriptPieces[0]] + [b[1] for b in bundleBytes]
+      escapedBytes  = [binary_to_int(b[0]) for b in breakoutPairs if b[0]]
+      #scriptPieces  = [scriptPieces[0]] + [b[1] for b in bundleBytes]
 
-      if sum(bundleSizes) != len(pubSrcs):
+      if sum(escapedBytes) != len(pubSrcs):
          raise UnserializeError('Template key count do not match pub list size')
 
-      cs.scriptTemplate = scrTemp
-      cs.pubKeySrcList  = pubSrcs[:]
-      cs.pubKeyBundles  = []
+      self.scriptTemplate = scrTemp
+      self.pubKeySrcList  = pubSrcs[:]
+      self.pubKeyBundles  = []
 
       # Slice up the pubkey src list into the bundles
       idx = 0
       for sz in bundleSizes:
-         cs.pubKeyBundles.append( cs.pubKeySrcList[idx:idx+sz] )
-         idx += sz
+         if sz > 0:
+            cs.pubKeyBundles.append( cs.pubKeySrcList[idx:idx+sz] )
+            idx += sz
 
 
    #############################################################################
@@ -354,9 +365,10 @@ class ConstructedScript(object):
             raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
 
       N = len(binRootList)
-      if (not 0<M<=15) or (not 0<N<=15):
-         raise BadInputError('M and N values must be less than 15')
-
+      if (not 0<M<=LB_MAXM):
+         raise BadInputError('M value must be less than %d' % LB_MAXM)
+      elif (not 0<N<=LB_MAXN):
+         raise BadInputError('N value must be less than %d' % LB_MAXN)
 
       templateStr  = ''
       templateStr += getOpCode('OP_%d' % M)
@@ -394,8 +406,10 @@ class ConstructedScript(object):
             raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
 
       N = len(binRootList)
-      if (not 0<M<=15) or (not 0<N<=15):
-         raise BadInputError('M and N values must be less than 15')
+      if (not 0<M<=LB_MAXM):
+         raise BadInputError('M value must be less than %d' % LB_MAXM)
+      elif (not 0<N<=LB_MAXN):
+         raise BadInputError('N value must be less than %' % LB_MAXN)
 
       templateStr  = ''
       templateStr += getOpCode('OP_%d' % M)
@@ -418,6 +432,63 @@ class ConstructedScript(object):
       cs = ConstructedScript()
       cs.initialize(self, templateStr, pksList, True)
       return cs
+
+
+   #############################################################################
+   def serialize(self):
+#      flags = BitSet(16)
+#      flags.setBit(0, self.isStatic)
+#      flags.setBit(1, self.useCompressed)
+#      flags.setBit(2, self.useHash160)
+#      flags.setBit(3, self.isStealth)
+#      flags.setBit(4, self.isUserKey)
+#      flags.setBit(5, self.isExternalSrc)
+#
+#      inner = BinaryPacker()
+#      inner.put(UINT32,   getVersionInt(self.version))
+#      inner.put(BITSET,   flags, widthBytes=4)
+#      inner.put(VAR_STR,  self.rawSource)
+#      pkData = inner.getBinaryString()
+#
+#      chksum = computeChecksum(pkData, 4)
+#
+#      bp = BinaryPacker()
+#      bp.put(VAR_STR, pkData)
+#      bp.put(BINARY_CHUNK, chksum)
+#      return bp.getBinaryString()
+
+
+   #############################################################################
+   def unserialize(self, serData):
+#      bu = makeBinaryUnpacker(serData)
+#      pkData = bu.get(VAR_STR)
+#      chksum = bu.get(BINARY_CHUNK, 4)
+#
+#      # verify func returns the up-to-one-byte-corrected version of the input
+#      pkData = verifyChecksum(pkData, chksum)
+#      if len(pkData) == 0:
+#         raise UnserializeError('Error correction on key data failed')
+#
+#      inner  = BinaryUnpacker(pkData)
+#      ver    = bu.get(UINT32)
+#      flags  = bu.get(BITSET, 2)
+#      rawSrc = bu.get(VAR_STR)
+#
+#      if not readVersionInt(ver) == BTCID_PAYLOAD_VERSION:
+#         # In the future we will make this more of a warning, not error
+#         raise VersionError('BTCID version does not match the loaded version')
+#
+#      self.__init__()
+#      self.initialize(self, flags.getBit(0),
+#                            flags.getBit(1), 
+#                            flags.getBit(2), 
+#                            flags.getBit(3), 
+#                            flags.getBit(4), 
+#                            flags.getBit(5), 
+#                            rawSrc,  
+#                            ver=ver)
+#
+#      return self
 
 
 ################################################################################
