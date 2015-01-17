@@ -16,7 +16,7 @@ from armoryengine import ArmoryUtils
 from armoryengine import ArmoryUtils
 from armoryengine.ConstructedScript import *
 
-################################################################################
+
 ################################################################################
 class CSClassTests(unittest.TestCase):
 

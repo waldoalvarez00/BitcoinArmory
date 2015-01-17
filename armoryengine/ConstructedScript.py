@@ -11,13 +11,16 @@ from BinaryUnpacker import *
 from Transaction import getOpCode
 from ArmoryEncryption import NULLSBD
 from CppBlockUtils import HDWalletCrypto
+import re
 
 
-BTCID_PAYLOAD_VERSION = (0, 1, 0, 0)
+BTCID_PKS_VERSION = 1
+BTCID_CS_VERSION = 1
 BTCID_PAYLOAD_TYPE = enum('KeySource', 'ConstructedScript')
 ESCAPECHAR  = '\xff'
 ESCESC      = '\x00'
 
+# Use in SignableIDPayload
 BTCID_PAYLOAD_BYTE = { \
    BTCID_PAYLOAD_TYPE.KeySource:       '\x00',
    BTCID_PAYLOAD_TYPE.ConstructedScript:  '\x01' }
@@ -48,10 +51,22 @@ def makeBinaryUnpacker(inputStr):
    """
    if isinstance(inputStr, BinaryUnpacker):
       # Just return the input reference
-      return inputStr  
+      return inputStr
    else:
       # Initialize a new BinaryUnpacker
       return BinaryUnpacker(inputStr)
+
+
+################################################################################
+def escapeFF(inputStr):
+   """
+   Take a string intended for a DANE script template and "escape" it such that
+   any instance of 0xff becomes 0xff00. This must be applied to any string that
+   will be processed by a DANE script template decoder.
+   """
+   convExp = re.compile('ff', re.IGNORECASE)
+   convStr = convExp.sub('ff00', inputStr)
+   return convStr
 
 
 ################################################################################
@@ -71,7 +86,7 @@ class PublicKeySource(object):
 
    #############################################################################
    def __init__(self):
-      self.version        = BTCID_PAYLOAD_VERSION
+      self.version        = BTCID_PKS_VERSION
       self.isStatic       = False
       self.useCompressed  = False
       self.useHash160     = False
@@ -94,10 +109,10 @@ class PublicKeySource(object):
                    isUser   = bool,
                    isExt    = bool,
                    src      = [str, unicode],
-                   ver      = [tuple, None])
+                   ver      = int)
    def initialize(self, isStatic, useCompr, use160, isSx, isUser, isExt, src, ver=None):
       """
-       
+      Set all PKS values.
       """
 
       # We expect regular public key sources to be binary strings, but external
@@ -105,7 +120,7 @@ class PublicKeySource(object):
       if isExt != isinstance(src, unicode):
          raise UnicodeError('Must use str for reg srcs, unicode for external')
 
-      self.version       = ver[:] if ver else BTCID_PAYLOAD_VERSION
+      self.version       = ver[:] if ver else BTCID_PKS_VERSION
       self.isStatic      = isStatic
       self.useCompressed = useCompr
       self.useHash160    = use160
@@ -144,11 +159,13 @@ class PublicKeySource(object):
       flags.setBit(5, self.isExternalSrc)
 
       inner = BinaryPacker()
-      inner.put(UINT32,   getVersionInt(self.version))
-      inner.put(BITSET,   flags, widthBytes=4)
-      inner.put(VAR_STR,  self.rawSource)
+      inner.put(UINT8,  self.version)
+      inner.put(BITSET, flags, width=2)
+      inner.put(VAR_STR,self.rawSource)
       pkData = inner.getBinaryString()
 
+      # Place a checksum in the data. Somewhat redundant due to signatures.
+      # Still useful because it offers protection when sending data to signer.
       chksum = computeChecksum(pkData, 4)
 
       bp = BinaryPacker()
@@ -169,22 +186,22 @@ class PublicKeySource(object):
          raise UnserializeError('Error correction on key data failed')
 
       inner  = BinaryUnpacker(pkData)
-      ver    = bu.get(UINT32)
+      ver    = bu.get(UINT8)
       flags  = bu.get(BITSET, 2)
       rawSrc = bu.get(VAR_STR)
 
-      if not readVersionInt(ver) == BTCID_PAYLOAD_VERSION:
+      if not readVersionInt(ver) == BTCID_PKS_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('BTCID version does not match the loaded version')
 
       self.__init__()
       self.initialize(self, flags.getBit(0),
-                            flags.getBit(1), 
-                            flags.getBit(2), 
-                            flags.getBit(3), 
-                            flags.getBit(4), 
-                            flags.getBit(5), 
-                            rawSrc,  
+                            flags.getBit(1),
+                            flags.getBit(2),
+                            flags.getBit(3),
+                            flags.getBit(4),
+                            flags.getBit(5),
+                            rawSrc,
                             ver=ver)
 
       return self
@@ -199,7 +216,7 @@ class ExternalPublicKeySource(object):
 ################################################################################
 class ConstructedScript(object):
    def __init__(self):
-      self.version        = BTCID_PAYLOAD_VERSION
+      self.version        = BTCID_CS_VERSION
       self.scriptTemplate = None
       self.pubKeySrcList  = None
       self.useP2SH        = None
@@ -209,10 +226,10 @@ class ConstructedScript(object):
    #############################################################################
    @VerifyArgTypes(scrTemp  = str,
                    pubSrcs  = [list, tuple],
-                   useP2sh  = bool,
-                   ver      = [tuple, None])
+                   useP2SH  = bool,
+                   ver      = int)
    def initialize(self, scrTemp, pubSrcs, useP2SH, ver=None):
-      self.version        = ver[:] if ver else BTCID_PAYLOAD_VERSION
+      self.version        = ver[:] if ver else BTCID_CS_VERSION
       self.useP2SH        = useP2SH
       self.pubKeyBundles  = []
 
@@ -220,7 +237,7 @@ class ConstructedScript(object):
 
 
    #############################################################################
-   def readTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
+   def setTemplateAndPubKeySrcs(self, scrTemp, pubSrcs):
       """
       Inputs:
          scrTemp:  script template  (ff-escaped)
@@ -247,9 +264,7 @@ class ConstructedScript(object):
 
              [ [PubSrc1], [PubSrc2], [PubSrc3], [PubSrc4, PubSrc5, ...]]
                    1          2          3       <--------- 4 -------->
-      """ 
-      cs = ConstructedScript()
-
+      """
       if '\xff\xff' in scrTemp or scrTemp.endswith('\xff'):
          raise BadInputError('All 0xff sequences need to be properly escaped')
 
@@ -268,25 +283,25 @@ class ConstructedScript(object):
       # We want this to look like:                   '76a9',  '88ac',  '',   '01'
       #        with escape codes:                           01       03     ff
       #        with 2 pub key bundles                      [k0] [k1,k2,k3]
-      # There will always be X script pieces and X-1 pubkey bundles
 
-      # Get the first byte after every 0xff 
+      # Get the first byte after every 0xff
       breakoutPairs = [[pc[0],pc[1:]] for pc in scriptPieces[1:]]
-      escapedBytes  = [binary_to_int(b[0]) for b in breakout if b[0]]
-      scriptPieces  = [scriptPieces[0]] + [b[1] for b in bundleBytes]
+      escapedBytes  = [binary_to_int(b[0]) for b in breakoutPairs if b[0]]
+      #scriptPieces  = [scriptPieces[0]] + [b[1] for b in bundleBytes]
 
-      if sum(bundleSizes) != len(pubSrcs):
+      if sum(escapedBytes) != len(pubSrcs):
          raise UnserializeError('Template key count do not match pub list size')
 
-      cs.scriptTemplate = scrTemp
-      cs.pubKeySrcList  = pubSrcs[:]
-      cs.pubKeyBundles  = []
+      self.scriptTemplate = scrTemp
+      self.pubKeySrcList  = pubSrcs[:]
+      self.pubKeyBundles  = []
 
       # Slice up the pubkey src list into the bundles
       idx = 0
-      for sz in bundleSizes:
-         cs.pubKeyBundles.append( cs.pubKeySrcList[idx:idx+sz] )
-         idx += sz
+      for sz in escapedBytes:
+         if sz > 0:
+            self.pubKeyBundles.append( self.pubKeySrcList[idx:idx+sz] )
+            idx += sz
 
 
    #############################################################################
@@ -349,15 +364,23 @@ class ConstructedScript(object):
    #############################################################################
    @staticmethod
    def StandardMultisigConstructed(M, binRootList):
+      # Make sure all keys are valid before processing them.
       for pk in binRootList:
          if not len(pk) in [33,65]:
             raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
+         else:
+            sbdPublicKey = SecureBinaryData(pk)
+            if not CryptoECDSA().VerifyPublicKeyValid(sbdPublicKey):
+               raise KeyDataError('Invalid pubkey received: Key=0x%s' % pk)
 
+      # Make sure there aren't too many keys.
       N = len(binRootList)
-      if (not 0<M<=15) or (not 0<N<=15):
-         raise BadInputError('M and N values must be less than 15')
+      if (not 0 < M <= LB_MAXM):
+         raise BadInputError('M value must be less than %d' % LB_MAXM)
+      elif (not 0 < N <= LB_MAXN):
+         raise BadInputError('N value must be less than %d' % LB_MAXN)
 
-
+      # Build a template for the standard multisig script.
       templateStr  = ''
       templateStr += getOpCode('OP_%d' % M)
       templateStr += '\xff' + int_to_binary(N, widthBytes=1)
@@ -368,7 +391,7 @@ class ConstructedScript(object):
       for rootPub in binRootList:
          pks = PublicKeySource()
          pks.initialize(isStatic=False,
-                        useCompr=(len(binRootPubKey)==33),
+                        useCompr=(len(rootPub)==33),
                         use160=False,
                         isSx=False,
                         isUser=False,
@@ -389,14 +412,23 @@ class ConstructedScript(object):
       Consider this code to be here to illustrate using constructed scripts
       with unsorted pubkey lists.
       """
+      # Make sure all keys are valid before processing them.
       for pk in binRootList:
          if not len(pk) in [33,65]:
             raise KeyDataError('Invalid pubkey;  length=%d' % len(pk))
+         else:
+            sbdPublicKey = SecureBinaryData(pk)
+            if not CryptoECDSA().VerifyPublicKeyValid(sbdPublicKey):
+               raise KeyDataError('Invalid pubkey received: Key=0x%s' % pk)
 
+      # Make sure there aren't too many keys.
       N = len(binRootList)
-      if (not 0<M<=15) or (not 0<N<=15):
-         raise BadInputError('M and N values must be less than 15')
+      if (not 0 < M <= LB_MAXM):
+         raise BadInputError('M value must be less than %d' % LB_MAXM)
+      elif (not 0 < N <= LB_MAXN):
+         raise BadInputError('N value must be less than %d' % LB_MAXN)
 
+      # Build a template for the standard multisig script.
       templateStr  = ''
       templateStr += getOpCode('OP_%d' % M)
       templateStr += '\xff\x01' * N
@@ -406,18 +438,88 @@ class ConstructedScript(object):
       pksList = []
       for rootPub in binRootList:
          pks = PublicKeySource()
-         pks.initialize(isStatic=False, 
-                        useCompr=(len(binRootPubKey)==33), 
-                        use160=False, 
-                        isSx=False, 
-                        isUser=False, 
-                        isExt=False, 
+         pks.initialize(isStatic=False,
+                        useCompr=(len(rootPub)==33),
+                        use160=False,
+                        isSx=False,
+                        isUser=False,
+                        isExt=False,
                         src=rootPub)
          pksList.append(pks)
 
       cs = ConstructedScript()
       cs.initialize(self, templateStr, pksList, True)
       return cs
+
+
+   #############################################################################
+   def serialize(self):
+      flags = BitSet(8)
+      flags.setBit(0, self.useP2SH)
+
+      inner = BinaryPacker()
+      inner.put(UINT8,   self.version)
+      inner.put(BITSET,  flags, width=1)
+      inner.put(VAR_STR, self.scriptTemplate)
+      inner.put(UINT8,   sum(sum(keyList1) for keyList1 in self.pubKeyBundles)
+      for keyList2 in self.pubKeyBundles:
+         for keyItem in keyList2:
+            inner.put(VAR_STR, keyItem)
+      pkData = inner.getBinaryString()
+
+      # Place a checksum in the data. Somewhat redundant due to signatures.
+      # Still useful because it offers protection when sending data to signer.
+      chksum = computeChecksum(pkData, 4)
+
+      bp = BinaryPacker()
+      bp.put(VAR_STR, pkData)
+      bp.put(BINARY_CHUNK, chksum)
+      return bp.getBinaryString()
+
+
+   #############################################################################
+   def unserialize(self, serData):
+      keyList = []
+      bu = makeBinaryUnpacker(serData)
+      pkData = bu.get(VAR_STR)
+      chksum = bu.get(BINARY_CHUNK, 4)
+
+      # verify func returns the up-to-one-byte-corrected version of the input
+      pkData = verifyChecksum(pkData, chksum)
+      if len(pkData) == 0:
+         raise UnserializeError('Error correction on key data failed')
+
+      inner   = BinaryUnpacker(pkData)
+      ver     = bu.get(UINT8)
+      flags   = bu.get(BITSET, 1)
+      scrTemp = bu.get(VAR_STR)
+      numKeys = bu.get(UINT8)
+      k = 0
+      while k < numKeys:
+         nextKey = bu.get(VAR_STR)
+         pks = PublicKeySource()
+         pks.initialize(isStatic=False,
+                        useCompr=(len(nextKey)==33),
+                        use160=False,
+                        isSx=False,
+                        isUser=False,
+                        isExt=False,
+                        src=nextKey)
+         keyList.append(pks)
+         k += 1
+
+      if not readVersionInt(ver) == BTCID_CS_VERSION:
+         # In the future we will make this more of a warning, not error
+         raise VersionError('BTCID version does not match the loaded version')
+
+      self.__init__()
+      initialize(self, scrTemp, pubSrcs, useP2SH, ver=None):
+      self.initialize(self, scrTemp,
+                            keyList,
+                            flags.getBit(0),
+                            ver=ver)
+
+      return self
 
 
 ################################################################################
@@ -431,10 +533,10 @@ class MultiplierProof(object):
    #############################################################################
    def __init__(self, isNull=None, srcFinger4=None, dstFinger4=None,
                 multList=None):
-      self.isNull      = None   # If static, stealth, etc, no mult list 
-      self.srcFinger4  = None   # just the first 4B of hash256(rootpub)
-      self.dstFinger4  = None   # just the first 4B of hash256(rootpub)
-      self.rawMultList = []     # list of 32-byte LE multipliers
+      self.isNull      = None   # If static, stealth, etc, no mult list
+      self.srcFinger4  = None   # Just the first 4B of hash256(root pub key)
+      self.dstFinger4  = None   # Just the first 4B of hash256(result pub key)
+      self.rawMultList = []     # List of 32-byte LE multipliers
 
       if isNull is not None:
          self.initialize(isNull, srcFinger4, dstFinger4, multList)
