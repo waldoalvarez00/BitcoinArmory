@@ -492,6 +492,7 @@ class ArmoryCryptInfo(object):
       required for encryption/decryption and the keydata is provided as 
       the passphrase to unlock the ekey.  
 
+      (if chaining...)
       In the case that ivData is supplied, it is assumed it is the IV for
       *this data*, not for the ekeyObj -- because ekey objects usually carry 
       their own IV with them.  If you are doing something much more general 

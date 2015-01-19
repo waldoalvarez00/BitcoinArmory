@@ -781,11 +781,10 @@ class ABEK_Tests(unittest.TestCase):
    def testABEK_seedCalc(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
-      abekSeed.wltFileRef = mockwlt
+      abekSeed.setWalletAndCryptInfo(mockwlt, None)
 
       WRONGPUBK = SecureBinaryData('\x03' + '\xaa'*32)
    
-      abekSeed.privCryptInfo = NULLCRYPTINFO()
       abekSeed.initializeFromSeed(SEEDTEST[0]['Seed'], fillPool=False)
       self.assertEqual(abekSeed.getPlainPrivKeyCopy(), SEEDTEST[0]['Priv'])
       self.assertEqual(abekSeed.sbdPublicKey33,        SEEDTEST[0]['Pubk'])
@@ -1315,8 +1314,7 @@ class ABEK_Tests(unittest.TestCase):
    def testABEK_seedCalc_Crypt(self):
       mockwlt  = MockWalletFile()
       abekSeed = ABEK_StdBip32Seed()
-      abekSeed.wltFileRef = mockwlt
-      abekSeed.masterEkeyRef = self.ekey
+      abekSeed.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
 
       WRONGPUBK = SecureBinaryData('\x03' + '\xaa'*32)
 
@@ -1325,7 +1323,6 @@ class ABEK_Tests(unittest.TestCase):
                                        SEEDTEST[0]['Seed'], fillPool=False)
       self.ekey.unlock(self.password)
    
-      abekSeed.privCryptInfo = self.privACI
       abekSeed.initializeFromSeed(SEEDTEST[0]['Seed'], fillPool=False)
       self.assertEqual(abekSeed.getPlainPrivKeyCopy(), SEEDTEST[0]['Priv'])
       self.assertEqual(abekSeed.sbdPublicKey33,        SEEDTEST[0]['Pubk'])
@@ -1425,26 +1422,20 @@ class ABEK_Tests(unittest.TestCase):
       sbdSeed = SecureBinaryData('\xfc\x3d'*8)
 
       abekSeedBase = ABEK_SoftBip32Seed()
-      abekSeedBase.wltFileRef = mockwlt
-      abekSeedBase.masterEkeyRef = None
-      abekSeedBase.privCryptInfo = NULLCRYPTINFO()
+      abekSeedBase.setWalletAndCryptInfo(mockwlt, None)
       abekSeedBase.initializeFromSeed(sbdSeed, fillPool=False)
       abekSeedBase.fillKeyPool()
 
       
       abekSeedCrypt = ABEK_SoftBip32Seed()
-      abekSeedCrypt.wltFileRef = mockwlt
-      abekSeedCrypt.masterEkeyRef = self.ekey
-      abekSeedCrypt.privCryptInfo = self.privACI
+      abekSeedCrypt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       self.ekey.unlock(self.password)
       abekSeedCrypt.initializeFromSeed(sbdSeed, fillPool=False)
       abekSeedCrypt.fillKeyPool()
 
       
       abekSeedNU = ABEK_SoftBip32Seed()
-      abekSeedNU.wltFileRef = mockwlt
-      abekSeedNU.masterEkeyRef = self.ekey
-      abekSeedNU.privCryptInfo = self.privACI
+      abekSeedNU.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       abekSeedNU.initializeFromSeed(sbdSeed, fillPool=False)
       self.ekey.lock(self.password)
       abekSeedNU.fillKeyPool()
@@ -1582,26 +1573,20 @@ class ABEK_Tests(unittest.TestCase):
       sbdSeed = SecureBinaryData('\xfc\x3d'*8)
 
       abekSeedBase = ABEK_SoftBip32Seed()
-      abekSeedBase.wltFileRef = self.mockwlt
-      abekSeedBase.masterEkeyRef = None
-      abekSeedBase.privCryptInfo = NULLCRYPTINFO()
+      abekSeedBase.setWalletAndCryptInfo(self.mockwlt, None)
       abekSeedBase.initializeFromSeed(sbdSeed, fillPool=False)
       abekSeedBase.fillKeyPool()
 
       
       abekSeedCrypt = ABEK_SoftBip32Seed()
-      abekSeedCrypt.wltFileRef = self.mockwlt
-      abekSeedCrypt.masterEkeyRef = mkey
-      abekSeedCrypt.privCryptInfo = privACI
+      abekSeedCrypt.setWalletAndCryptInfo(self.mockwlt, privACI, mkey)
       mkey.unlock(unlockList)
       abekSeedCrypt.initializeFromSeed(sbdSeed, fillPool=False)
       abekSeedCrypt.fillKeyPool()
 
       
       abekSeedNU = ABEK_SoftBip32Seed()
-      abekSeedNU.wltFileRef = self.mockwlt
-      abekSeedNU.masterEkeyRef = mkey
-      abekSeedNU.privCryptInfo = privACI
+      abekSeedNU.setWalletAndCryptInfo(self.mockwlt, privACI, mkey)
       abekSeedNU.initializeFromSeed(sbdSeed, fillPool=False)
       mkey.lock()
       abekSeedNU.fillKeyPool()
@@ -1910,9 +1895,8 @@ class Armory135Tests(unittest.TestCase):
 
          seed = SecureBinaryData(self.binSeed)
          a135rt = Armory135Root()
-         a135rt.privCryptInfo = NULLCRYPTINFO()
+         a135rt.setWalletAndCryptInfo(mockwlt, None)
          a135rt.childPoolSize = 3
-         a135rt.wltFileRef = mockwlt
          a135rt.initializeFromSeed(seed, fillPool=False)
 
          if WO:
@@ -1996,9 +1980,8 @@ class Armory135Tests(unittest.TestCase):
          mockwlt = MockWalletFile()
          seed = SecureBinaryData(self.binSeed)
          a135rt = Armory135Root()
-         a135rt.privCryptInfo = NULLCRYPTINFO()
+         a135rt.setWalletAndCryptInfo(mockwlt, None)
          a135rt.childPoolSize = 5
-         a135rt.wltFileRef = mockwlt
          a135rt.initializeFromSeed(seed, fillPool=False)
 
 
@@ -2104,9 +2087,8 @@ class Armory135Tests(unittest.TestCase):
          mockwlt = MockWalletFile()
          seed = SecureBinaryData(self.binSeed)
          a135rt = Armory135Root()
-         a135rt.privCryptInfo = NULLCRYPTINFO()
+         a135rt.setWalletAndCryptInfo(mockwlt, None)
          a135rt.childPoolSize = POOLSZ
-         a135rt.wltFileRef = mockwlt
          a135rt.initializeFromSeed(seed, fillPool=False)
 
          self.assertEqual(len(a135rt.akpChildByIndex),   0)
@@ -2201,8 +2183,7 @@ class Armory135Tests(unittest.TestCase):
       seed = SecureBinaryData(self.binSeed)
 
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(None, self.privACI, self.ekey)
       a135rt.childPoolSize = 3
 
       self.assertRaises(WalletLockError, a135rt.initializeFromSeed, seed, fillPool=False)
@@ -2227,8 +2208,7 @@ class Armory135Tests(unittest.TestCase):
       seed = SecureBinaryData(self.binSeed + self.binAltChn)
 
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(None, self.privACI, self.ekey)
       a135rt.childPoolSize = 3
 
       self.assertRaises(WalletLockError, a135rt.initializeFromSeed, seed, fillPool=False)
@@ -2258,10 +2238,8 @@ class Armory135Tests(unittest.TestCase):
       seed = SecureBinaryData(self.binSeed)
 
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = 3
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
@@ -2343,10 +2321,8 @@ class Armory135Tests(unittest.TestCase):
       seed = SecureBinaryData(self.binSeed)
 
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = 5
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
@@ -2454,10 +2430,8 @@ class Armory135Tests(unittest.TestCase):
       mockwlt = MockWalletFile()
       seed = SecureBinaryData(self.binSeed)
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = POOLSZ
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
@@ -2559,10 +2533,8 @@ class Armory135Tests(unittest.TestCase):
       mockwlt = MockWalletFile()
       seed = SecureBinaryData(self.binSeed)
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = POOLSZ
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
@@ -2668,10 +2640,8 @@ class Armory135Tests(unittest.TestCase):
       mockwlt = MockWalletFile()
       seed = SecureBinaryData(self.binSeed)
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = 3
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
@@ -2722,10 +2692,8 @@ class Armory135Tests(unittest.TestCase):
       mockwlt = MockWalletFile()
       seed = SecureBinaryData(self.binSeed)
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = 3
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)
@@ -2808,10 +2776,8 @@ class Armory135Tests(unittest.TestCase):
       mockwlt = MockWalletFile()
       seed = SecureBinaryData(self.binSeed)
       a135rt = Armory135Root()
-      a135rt.privCryptInfo = self.privACI
-      a135rt.masterEkeyRef = self.ekey
+      a135rt.setWalletAndCryptInfo(mockwlt, self.privACI, self.ekey)
       a135rt.childPoolSize = POOLSZ
-      a135rt.wltFileRef = mockwlt
 
       self.ekey.unlock(self.password)
       a135rt.initializeFromSeed(seed, fillPool=False)

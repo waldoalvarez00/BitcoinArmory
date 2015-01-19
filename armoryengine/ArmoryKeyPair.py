@@ -127,6 +127,37 @@ class ArmoryKeyPair(WalletEntry):
       self.scrAddrLabelRef    = None
 
 
+   #############################################################################
+   def setWalletAndCryptInfo(self, wltRef=None, cryptInfo=None, ekeyRef=None, kdfRef=None):
+      """
+      Can use args to preset wlt file ref, and crypt info
+      Note, as of this writing, kdfRef (and self.masterKdfRef) are not
+      normally specified.  This is because cryptInfo usually uses chained
+      encryption, and the KDF is already referenced in the ekeyRef object
+
+      A more rigorous explanation:
+         A cryptInfo object is normally attached to a piece of encrypted data
+         to specify how that data is encrypted and what will be the source of 
+         the decryption key.  In some circumstances, the source will be 
+         "PASSWORD" and will have a KDF referenced to use to stretch that
+         password to get the final decryption key.
+
+         In the case of Armory wallets, we rarely encrypt data directly with
+         passphrase and KDF.  Instead, we have a master 32-byte encryption key 
+         for the whole wallet, and the cryptInfo object uses its ekeyID as the
+         "keySource" for the encryption.  The passphrasing and KDF (stretching)
+         is still there, but it's used on the ekey only, so it's specified when
+         you setup the ekey object originally, not here (and maintained as part
+         of the EncryptionKey object, not part of the AKP object)
+
+         If you decide to create an AKP object directly with passphrase and
+         stretching (not chained through an Ekey object), then you will pass
+         in the relevant privCryptInfo with a valid kdfRef but ekeyRef=None.
+      """
+      self.wltFileRef    = wltRef
+      self.privCryptInfo = cryptInfo.copy() if cryptInfo else NULLCRYPTINFO()
+      self.masterEkeyRef = ekeyRef
+      self.masterKdfRef  = kdfRef
 
    #############################################################################
    def setChildPoolSize(self, newSize):
