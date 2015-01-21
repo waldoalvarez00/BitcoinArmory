@@ -104,13 +104,15 @@ def compareWalletObjs(tself, wlt1, wlt2):
                      wlt2.arbitraryDataMap.countNodes())
 
    def cmpMapKeys(a,b,prop):
-      if hasattr(a, prop) and hasattr(b, prop):
-         mapA = getattr(a, prop)
-         mapB = getattr(b, prop)
-         if not isinstance(mapA, dict) or not isinstance(mapB, dict):
-            raise KeyError('Supplied property is not a map: %s' % prop)
-         for key in mapA:
-            self.assertTrue(key in mapB)
+      self.assertTrue(hasattr(a, prop) and hasattr(b, prop))
+      mapA = getattr(a, prop)
+      mapB = getattr(b, prop)
+      if not isinstance(mapA, dict) or not isinstance(mapB, dict):
+         raise KeyError('Supplied property is not a map: %s' % prop)
+      for key in mapA:
+         self.assertTrue(key in mapB)
+      for key in mapB:
+         self.assertTrue(key in mapA)
 
    cmpMapKeys(wlt1, wlt2, 'allKeyPairObjects')
    cmpMapKeys(wlt1, wlt2, 'displayableWalletsMap')
@@ -123,6 +125,16 @@ def compareWalletObjs(tself, wlt1, wlt2):
    def cmpprop(a,b,prop):
       if hasattr(a, prop) and hasattr(b, prop):
          tself.assertEqual(getattr(a, prop), getattr(b, prop))
+
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'wltUserName')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'createTime')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'createBlock')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'rsecParity')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'rsecPerData')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'isDisabled')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'headerSize')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'isTransferWallet')
+   cmpprop(wlt1.fileHeader, wlt2.fileHeader, 'isSupplemental')
 
 
 
@@ -153,56 +165,6 @@ def writeReadWalletRoundTripTest(tself, wlt):
             
    
    
-
-#############################################################################
-def runSerUnserRoundTripTest(tself, obj):
-   """
-   Can be run with "self" as the first arg from inside a TestCase subclass
-   """
-   # Compare all properties for all classes, this function ignores a call 
-   # properties that don't exist for the input objects
-   def cmpprop(a,b,prop):
-      if hasattr(a, prop) and hasattr(b, prop):
-         tself.assertEqual(getattr(a, prop), getattr(b, prop))
-
-   CLASSOBJ = obj.__class__
-   ser1     = obj.serialize()  
-   objNew   = CLASSOBJ().unserialize(ser1)
-   ser2     = objNew.serialize()
-   objNew2  = CLASSOBJ().unserialize(ser2)
-   
-
-   # Now check that all the properties are identical
-   cmpprop(objNew, objNew2, 'isWatchOnly')
-   cmpprop(objNew, objNew2, 'isRootRoot')
-   cmpprop(objNew, objNew2, 'sbdPrivKeyData')
-   cmpprop(objNew, objNew2, 'sbdPublicKey33')
-   cmpprop(objNew, objNew2, 'sbdChaincode')
-   cmpprop(objNew, objNew2, 'useCompressPub')
-   cmpprop(objNew, objNew2, 'isUsed')
-   cmpprop(objNew, objNew2, 'notForDirectUse')
-   cmpprop(objNew, objNew2, 'keyBornTime')
-   cmpprop(objNew, objNew2, 'keyBornBlock')
-   cmpprop(objNew, objNew2, 'privKeyNextUnlock')
-   cmpprop(objNew, objNew2, 'akpParScrAddr')
-   cmpprop(objNew, objNew2, 'childIndex')
-   cmpprop(objNew, objNew2, 'maxChildren')
-   cmpprop(objNew, objNew2, 'rawScript')
-   cmpprop(objNew, objNew2, 'scrAddrStr')
-   cmpprop(objNew, objNew2, 'uniqueIDBin')
-   cmpprop(objNew, objNew2, 'uniqueIDB58')
-   cmpprop(objNew, objNew2, 'walletName')
-   cmpprop(objNew, objNew2, 'sbdSeedData')
-   cmpprop(objNew, objNew2, 'seedNumBytes')
-   cmpprop(objNew, objNew2, 'chainIndex')
-   cmpprop(objNew, objNew2, 'root135ScrAddr')
-   cmpprop(objNew, objNew2, 'userRemoved')
-   cmpprop(objNew, objNew2, 'rootSourceApp')
-   cmpprop(objNew, objNew2, 'fakeRootID')
-
-
-   # Test that the raw serializations are identical
-   tself.assertEqual(ser1, ser2)
 
 
 

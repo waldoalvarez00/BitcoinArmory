@@ -8260,14 +8260,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
 
       // Check the multiplier if it's non-hardened. (The official test vectors
       // don't have consecutive non-hardened multipliers, unfortunately.)
-      bool goodAddKey;
       if(addend1.getSize() != 0)
       {
          addend1Vector.push_back(addend1);
-         SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(parentKey1.getKey(),
-                                                                             addend1Vector,
-                                                                             goodAddKey);
-         if(goodAddKey)
+         SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(
+                                                            parentKey1.getKey(),
+                                                            addend1Vector);
+         if(childMultKey.getSize() > 0)
          {
             EXPECT_EQ(childKey1.getKey().toHexStr(), childMultKey.toHexStr());
          }
@@ -8329,14 +8328,13 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
 
       // Check the multiplier if it's non-hardened. (The official test vectors
       // don't have consecutive non-hardened multipliers, unfortunately.)
-      bool goodAddKey;
       if(addend2.getSize() != 0)
       {
          addend2Vector.push_back(addend2);
-         SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(parentKey2.getKey(),
-                                                                          addend2Vector,
-                                                                          goodAddKey);
-         if(goodAddKey)
+         SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(
+                                                            parentKey2.getKey(),
+                                                            addend2Vector);
+         if(childMultKey.getSize() > 0)
          {
             EXPECT_EQ(childKey2.getKey().toHexStr(), childMultKey.toHexStr());
          }
@@ -8436,13 +8434,11 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       // Check the multiplier.
       if(multiplier1.getSize() != 0)
       {
-         bool goodMultKey;
          SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(
                                                  multParKey.getPublicKey(false),
-                                                 multiplier1Vector,
-                                                 goodMultKey);
+                                                 multiplier1Vector);
 
-         if(goodMultKey)
+         if(childMultKey.getSize() > 0)
          {
             EXPECT_EQ(retPubKey1.toHexStr(), childMultKey.toHexStr());
          }
@@ -8536,13 +8532,11 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
       // Check the multiplier.
       if(multiplier2.getSize() != 0)
       {
-         bool goodMultKey;
          SecureBinaryData childMultKey = HDWalletCrypto().getChildKeyFromOps(
                                                  multParKey.getPublicKey(false),
-                                                 multiplier2Vector,
-                                                 goodMultKey);
+                                                 multiplier2Vector);
 
-         if(goodMultKey)
+         if(childMultKey.getSize() > 0)
          {
             EXPECT_EQ(retPubKey2.toHexStr(), childMultKey.toHexStr());
          }
