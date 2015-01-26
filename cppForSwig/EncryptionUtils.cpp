@@ -1119,13 +1119,10 @@ bool CryptoECDSA::ECMultiplyPoint(BinaryData const & A,
                                   BinaryData const & By,
                                   BinaryData& multResult)
 {
-   BinaryData curveOrder = BinaryData::CreateFromHex(
-            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
    CryptoPP::ECP ecp = Get_secp256k1_ECP();
-   CryptoPP::Integer intA, intBx, intBy, intCx, intCy, intCurveOrder;
+   CryptoPP::Integer intA, intBx, intBy, intCx, intCy;
    bool validResult = true;
    intA.Decode( A.getPtr(),  A.getSize(),  UNSIGNED);
-   intCurveOrder.Decode(curveOrder.getPtr(), curveOrder.getSize(), UNSIGNED);
 
    // Math is taken from ANSI X9.62 (Sect. D.3.2/1998 or I.3.1/2005).
    multResult.clear();

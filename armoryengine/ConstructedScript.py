@@ -638,11 +638,11 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
       binChaincode:  python string, 32-byte chaincode
       indexList:     python list of UINT32s, anything >0x7fffffff is hardened
 
-   Output: [MultiplierProof, finalPubKey]
+   Output: [finalPubKey, proofObject]
 
+      finalPubKey:   pyton string:  33-byte compressed public key
       proofObject:   MultiplierProof: list of 32-byte mults to be applied
                      to the input startPubKey to produce the finalPubKey
-      finalPubKey:   pyton string:  33-byte compressed public key
 
    Note that an error will be thrown if any items in the index list correspond
    to a hardened derivation.  We need this proof to be generatable strictly
@@ -697,7 +697,7 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
       multProofObj:   MultiplierProof object
       expectFinalPub: Optionally provide the final pub key we expect
 
-   Output: [MultiplierProof, finalPubKey]
+   Output: finalPubKey
 
       finalPubKey:    python string with resulting public key, will match
                       expectFinalPub input if supplied.
