@@ -26,8 +26,9 @@ ESCESC      = '\x00'
 
 # Use in SignableIDPayload
 BTCID_PAYLOAD_BYTE = { \
-   BTCID_PAYLOAD_TYPE.KeySource:       '\x00',
-   BTCID_PAYLOAD_TYPE.ConstructedScript:  '\x01' }
+   BTCID_PAYLOAD_TYPE.KeySource:         '\x00',
+   BTCID_PAYLOAD_TYPE.ConstructedScript: '\x01'
+}
 
 class VersionError(Exception): pass
 
@@ -49,7 +50,7 @@ class MultiplierProof(object):
    Simply a list of 32-byte multipliers, and a 4-byte fingerprint of both the
    root key where the mults will be applied, and the resultant key. The four
    bytes aren't meant to be cryptographically strong, just data that helps
-   reduce unnecessary computation. Mults are obtained from C++.
+   reduce unnecessary computation. These objects are obtained from C++.
    """
 
    #############################################################################
@@ -120,8 +121,9 @@ class MultiplierProof(object):
 ################################################################################
 class SignableIDPayload(object):
    """
-   This datastructure wraps up all the other classes above into a single,
-   embeddable data type.
+   !!!WORK IN PROGRESS!!!
+   This data structure wraps up all the other classes that can go into a DANE
+   record into a single, embeddable data type.
    """
    #############################################################################
    def __init__(self):
@@ -371,9 +373,9 @@ class PublicKeySource(object):
       flags.setBit(6, self.isChksumPresent)
 
       inner = BinaryPacker()
-      inner.put(UINT8,  self.version)
-      inner.put(BITSET, flags, width=2)
-      inner.put(VAR_STR,self.rawSource)
+      inner.put(UINT8,   self.version)
+      inner.put(BITSET,  flags, width=2)
+      inner.put(VAR_STR, self.rawSource)
       pkData = inner.getBinaryString()
 
       bp = BinaryPacker()
@@ -856,7 +858,6 @@ class ScriptRelationshipProof(object):
       """
       Set all SRP values.
       """
-
       self.version  = ver
       self.numPKRPs = numPKRPs
       self.pkrpList = toBytes(pkrpList)
@@ -873,7 +874,7 @@ class ScriptRelationshipProof(object):
       bp.put(UINT8,  self.version)
       bp.put(VAR_INT, numPKRPs, width=1)
       for pkrpItem in self.pkrpList:
-         bp.put(PublicKeyRelationshipProof, pkrpItem)  # Revise this???
+         bp.put(BINARY_CHUNK, pkrpItem.serialize())  # Revise this???
 
       return bp.getBinaryString()
 
@@ -887,7 +888,7 @@ class ScriptRelationshipProof(object):
 
       k = 0
       while k < numPKRPs:
-         nextPKRP = bu.get(PublicKeyRelationshipProof)
+         nextPKRP = PublicKeyRelationshipProof().unserialize(bu)
          pkrpList.append(nextPKRP)
          k += 1
 
@@ -960,7 +961,7 @@ class PaymentRequest(object):
       for daneItem in self.daneReqNames:
          bp.put(VAR_STR, daneItem)  # Revise this???
       for srpItem in self.srpLists:
-         bp.put(ScriptRelationshipProof, srpItem)  # Revise this???
+         bp.put(BINARY_CHUNK, srpItem.serialize())  # Revise this???
 
       return bp.getBinaryString()
 
@@ -985,13 +986,13 @@ class PaymentRequest(object):
       l = 0
       while l < numTxOutScripts:
          daneName = bu.get(VAR_STR)
-         daneNames.append(nextScript)
+         daneNames.append(daneName)
          l += 1
 
       m = 0
       while m < numTxOutScripts:
-         nextSRPList = bu.get(ScriptRelationshipProof)
-         srpList.append(nextScript)
+         nextSRPItem = ScriptRelationshipProof().serialize(bu)
+         srpList.append(nextSRPItem)
          m += 1
 
       if not readVersionInt(ver) == BTCID_PR_VERSION:
