@@ -313,8 +313,28 @@ class PublicKeySource(object):
 
 
    #############################################################################
-   @VerifyArgTypes(isStatic   = bool, 
-                   useCompr   = bool, 
+   def getDataNoChecksum(self):
+      # In BitSet, higher numbers are less significant bits.
+      # e.g., To get 0x0001, set bit 15 to 1.
+      flags = BitSet(16)
+      flags.setBit(15, self.isStatic)
+      flags.setBit(14, self.useCompressed)
+      flags.setBit(13, self.useHash160)
+      flags.setBit(12, self.isStealth)
+      flags.setBit(11, self.isUserKey)
+      flags.setBit(10, self.isExternalSrc)
+      flags.setBit(9, self.isChksumPresent)
+
+      inner = BinaryPacker()
+      inner.put(UINT8,   self.version)
+      inner.put(BITSET,  flags, width=2)
+      inner.put(VAR_STR, self.rawSource)
+      return inner.getBinaryString()
+
+
+   #############################################################################
+   @VerifyArgTypes(isStatic   = bool,
+                   useCompr   = bool,
                    use160     = bool,
                    isSx       = bool,
                    isUser     = bool,
@@ -323,7 +343,7 @@ class PublicKeySource(object):
                    chksumPres = bool,
                    ver        = int)
    def initialize(self, isStatic, useCompr, use160, isSx, isUser, isExt, src,
-                  chksumPres, ver=ver=BTCID_PKS_VERSION):
+                  chksumPres, ver=BTCID_PKS_VERSION):
       """
       Set all PKS values.
       """
@@ -333,7 +353,7 @@ class PublicKeySource(object):
       if isExt != isinstance(src, unicode):
          raise UnicodeError('Must use str for reg srcs, unicode for external')
 
-      self.version       = ver[:] if ver else BTCID_PKS_VERSION
+      self.version       = ver
       self.isStatic      = isStatic
       self.useCompressed = useCompr
       self.useHash160    = use160
@@ -363,27 +383,13 @@ class PublicKeySource(object):
 
    #############################################################################
    def serialize(self):
-      flags = BitSet(16)
-      flags.setBit(0, self.isStatic)
-      flags.setBit(1, self.useCompressed)
-      flags.setBit(2, self.useHash160)
-      flags.setBit(3, self.isStealth)
-      flags.setBit(4, self.isUserKey)
-      flags.setBit(5, self.isExternalSrc)
-      flags.setBit(6, self.isChksumPresent)
-
-      inner = BinaryPacker()
-      inner.put(UINT8,   self.version)
-      inner.put(BITSET,  flags, width=2)
-      inner.put(VAR_STR, self.rawSource)
-      pkData = inner.getBinaryString()
-
       bp = BinaryPacker()
-      bp.put(VAR_STR, pkData)
+      dataStr = self.getDataNoChecksum()
+      bp.put(BINARY_CHUNK, dataStr)
       if self.isChksumPresent:
          # Place a checksum in the data. Somewhat redundant due to signatures.
          # Still useful because it protects data sent to signer.
-         chksum = computeChecksum(pkData, 4)
+         chksum = computeChecksum(dataStr, 4)
          bp.put(BINARY_CHUNK, chksum)
 
       return bp.getBinaryString()
@@ -464,7 +470,7 @@ class ConstructedScript(object):
                    chksumPres = bool,
                    ver        = int)
    def initialize(self, scrTemp, pubSrcs, useP2SH, chksumPres,
-                  ver=ver=BTCID_CS_VERSION):
+                  ver=BTCID_CS_VERSION):
       self.version         = ver[:] if ver else BTCID_CS_VERSION
       self.useP2SH         = useP2SH
       self.isChksumPresent = chksumPres
@@ -692,14 +698,14 @@ class ConstructedScript(object):
    #############################################################################
    def serialize(self):
       flags = BitSet(16)
-      flags.setBit(0, self.useP2SH)
-      flags.setBit(1, self.isChksumPresent)
+      flags.setBit(15, self.useP2SH)
+      flags.setBit(14, self.isChksumPresent)
 
       inner = BinaryPacker()
       inner.put(UINT8,   self.version)
       inner.put(BITSET,  flags, width=1)
       inner.put(VAR_STR, self.scriptTemplate)
-      inner.put(UINT8,   sum(sum(keyList1) for keyList1 in self.pubKeyBundles)
+      inner.put(UINT8,   sum(sum(keyList1) for keyList1 in self.pubKeyBundles))
       for keyList2 in self.pubKeyBundles:
          for keyItem in keyList2:
             inner.put(VAR_STR, keyItem)
@@ -758,7 +764,6 @@ class ConstructedScript(object):
          raise VersionError('BTCID version does not match the loaded version')
 
       self.__init__()
-      initialize(self, scrTemp, pubSrcs, useP2SH, ver=None):
       self.initialize(self, scrTemp,
                             keyList,
                             flags.getBit(0),
