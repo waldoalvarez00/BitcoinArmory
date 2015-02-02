@@ -353,14 +353,15 @@ class PublicKeySource(object):
       if isExt != isinstance(src, unicode):
          raise UnicodeError('Must use str for reg srcs, unicode for external')
 
-      self.version       = ver
-      self.isStatic      = isStatic
-      self.useCompressed = useCompr
-      self.useHash160    = use160
-      self.isStealth     = isSx
-      self.isUserKey     = isUser
-      self.isExternalSrc = isExt
-      self.rawSource     = toBytes(src)
+      self.version         = ver
+      self.isStatic        = isStatic
+      self.useCompressed   = useCompr
+      self.useHash160      = use160
+      self.isStealth       = isSx
+      self.isUserKey       = isUser
+      self.isExternalSrc   = isExt
+      self.isChksumPresent = chksumPres
+      self.rawSource       = toBytes(src)
 
 
    #############################################################################
@@ -386,6 +387,7 @@ class PublicKeySource(object):
       bp = BinaryPacker()
       dataStr = self.getDataNoChecksum()
       bp.put(BINARY_CHUNK, dataStr)
+
       if self.isChksumPresent:
          # Place a checksum in the data. Somewhat redundant due to signatures.
          # Still useful because it protects data sent to signer.
@@ -397,41 +399,33 @@ class PublicKeySource(object):
 
    #############################################################################
    def unserialize(self, serData):
-      bu = makeBinaryUnpacker(serData)
-      pkData = bu.get(VAR_STR)
-      chksum = bu.get(BINARY_CHUNK, 4)
+      inData   = BinaryUnpacker(serData)
+      inVer    = inData.get(UINT8)
+      inFlags  = inData.get(BITSET, 2)
+      inRawSrc = inData.get(VAR_STR)
 
-      # verify func returns the up-to-one-byte-corrected version of the input
-      pkData = verifyChecksum(pkData, chksum)
-      if len(pkData) == 0:
-         raise UnserializeError('Error correction on key data failed')
-
-      inner  = BinaryUnpacker(pkData)
-      ver    = bu.get(UINT8)
-      flags  = bu.get(BITSET, 2)
-      rawSrc = bu.get(VAR_STR)
-
-      if flags.getBit(6):
-         chksum = bu.get(BINARY_CHUNK, 4)
-         dataChunk  = inner.getBinaryString()[:-4]
+      # If checksum is present, confirm that the other data is correct.
+      if inFlags.getBit(9):
+         chksum = inData.get(BINARY_CHUNK, 4)
+         dataChunk  = inData.getBinaryString()[:-4]
          compChksum = computeChecksum(dataChunk)
          if chksum != compChksum:
             raise DataError('PKS record checksum does not match real checksum')
 
-      if not ver == BTCID_PKS_VERSION:
+      if not inVer == BTCID_PKS_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('BTCID version does not match the loaded version')
 
       self.__init__()
-      self.initialize(self, flags.getBit(0),
-                            flags.getBit(1),
-                            flags.getBit(2),
-                            flags.getBit(3),
-                            flags.getBit(4),
-                            flags.getBit(5),
-                            flags.getBit(6),
-                            rawSrc,
-                            ver=ver)
+      self.initialize(inFlags.getBit(15),
+                      inFlags.getBit(14),
+                      inFlags.getBit(13),
+                      inFlags.getBit(12),
+                      inFlags.getBit(11),
+                      inFlags.getBit(10),
+                      inRawSrc,
+                      inFlags.getBit(9),
+                      inVer)
 
       return self
 
@@ -469,14 +463,35 @@ class ConstructedScript(object):
                    useP2SH    = bool,
                    chksumPres = bool,
                    ver        = int)
+   #############################################################################
    def initialize(self, scrTemp, pubSrcs, useP2SH, chksumPres,
                   ver=BTCID_CS_VERSION):
-      self.version         = ver[:] if ver else BTCID_CS_VERSION
+      self.version         = ver
       self.useP2SH         = useP2SH
       self.isChksumPresent = chksumPres
       self.pubKeyBundles   = []
 
       self.setTemplateAndPubKeySrcs(scrTemp, pubSrcs)
+
+
+   #############################################################################
+   def getDataNoChecksum(self):
+      # In BitSet, higher numbers are less significant bits.
+      # e.g., To get 0x0001, set bit 15 to 1.
+      flags = BitSet(16)
+      flags.setBit(15, self.useP2SH)
+      flags.setBit(14, self.isChksumPresent)
+
+      inner = BinaryPacker()
+      inner.put(UINT8,   self.version)
+      inner.put(BITSET,  flags, width = 2)
+      inner.put(VAR_STR, self.scriptTemplate)
+      inner.put(UINT8,   len(self.pubKeyBundles)) # Fix?
+      for keyItem in self.pubKeyBundles:
+         for keyItem2 in keyItem:
+            inner.put(VAR_STR, keyItem2.serialize())
+
+      return inner.getBinaryString()
 
 
    #############################################################################
@@ -565,16 +580,17 @@ class ConstructedScript(object):
       templateStr += getOpCode('OP_CHECKSIG')
 
       pks = PublicKeySource()
-      pks.initialize(isStatic=False,
-                     useCompr=(len(binRootPubKey)==33),
-                     use160=True,
-                     isSx=False,
-                     isUser=False,
-                     isExt=False,
-                     src=binRootPubKey)
+      pks.initialize(isStatic   = False,
+                     useCompr   = (len(binRootPubKey) == 33),
+                     use160     = True,
+                     isSx       = False,
+                     isUser     = False,
+                     isExt      = False,
+                     src        = binRootPubKey,
+                     chksumPres = False)
 
       cs = ConstructedScript()
-      cs.initialize(self, templateStr, [pks], False)
+      cs.initialize(templateStr, [pks], False, True)
       return cs
 
 
@@ -591,13 +607,14 @@ class ConstructedScript(object):
       templateStr += getOpCode('OP_CHECKSIG')
 
       pks = PublicKeySource()
-      pks.initialize(isStatic=False,
-                     useCompr=(len(binRootPubKey)==33),
-                     use160=hash160,
-                     isSx=False,
-                     isUser=False,
-                     isExt=False,
-                     src=binRootPubKey)
+      pks.initialize(isStatic   = False,
+                     useCompr   = (len(binRootPubKey) == 33),
+                     use160     = hash160,
+                     isSx       = False,
+                     isUser     = False,
+                     isExt      = False,
+                     src        = binRootPubKey,
+                     chksumPres = False)
 
       cs = ConstructedScript()
       cs.initialize(self, templateStr, [pks], False)
@@ -633,13 +650,14 @@ class ConstructedScript(object):
       pksList = []
       for rootPub in binRootList:
          pks = PublicKeySource()
-         pks.initialize(isStatic=False,
-                        useCompr=(len(rootPub)==33),
-                        use160=False,
-                        isSx=False,
-                        isUser=False,
-                        isExt=False,
-                        src=rootPub)
+         pks.initialize(isStatic   = False,
+                        useCompr   = (len(rootPub) == 33),
+                        use160     = False,
+                        isSx       = False,
+                        isUser     = False,
+                        isExt      = False,
+                        src        = rootPub,
+                        chksumPres = False)
          pksList.append(pks)
 
       cs = ConstructedScript()
@@ -681,13 +699,14 @@ class ConstructedScript(object):
       pksList = []
       for rootPub in binRootList:
          pks = PublicKeySource()
-         pks.initialize(isStatic=False,
-                        useCompr=(len(rootPub)==33),
-                        use160=False,
-                        isSx=False,
-                        isUser=False,
-                        isExt=False,
-                        src=rootPub)
+         pks.initialize(isStatic   = False,
+                        useCompr   = (len(rootPub) == 33),
+                        use160     = False,
+                        isSx       = False,
+                        isUser     = False,
+                        isExt      = False,
+                        src        = rootPub,
+                        chksumPres = False)
          pksList.append(pks)
 
       cs = ConstructedScript()
@@ -697,26 +716,14 @@ class ConstructedScript(object):
 
    #############################################################################
    def serialize(self):
-      flags = BitSet(16)
-      flags.setBit(15, self.useP2SH)
-      flags.setBit(14, self.isChksumPresent)
-
-      inner = BinaryPacker()
-      inner.put(UINT8,   self.version)
-      inner.put(BITSET,  flags, width=1)
-      inner.put(VAR_STR, self.scriptTemplate)
-      inner.put(UINT8,   sum(sum(keyList1) for keyList1 in self.pubKeyBundles))
-      for keyList2 in self.pubKeyBundles:
-         for keyItem in keyList2:
-            inner.put(VAR_STR, keyItem)
-      pkData = inner.getBinaryString()
-
       bp = BinaryPacker()
-      bp.put(VAR_STR, pkData)
+      dataStr = self.getDataNoChecksum()
+      bp.put(BINARY_CHUNK, dataStr)
+
       if self.isChksumPresent:
          # Place a checksum in the data. Somewhat redundant due to signatures.
          # Still useful because it protects data sent to signer.
-         chksum = computeChecksum(pkData, 4)
+         chksum = computeChecksum(dataStr, 4)
          bp.put(BINARY_CHUNK, chksum)
 
       return bp.getBinaryString()
@@ -724,51 +731,45 @@ class ConstructedScript(object):
 
    #############################################################################
    def unserialize(self, serData):
-      keyList = []
-      bu = makeBinaryUnpacker(serData)
-      pkData = bu.get(VAR_STR)
-      chksum = bu.get(BINARY_CHUNK, 4)
-
-      # verify func returns the up-to-one-byte-corrected version of the input
-      pkData = verifyChecksum(pkData, chksum)
-      if len(pkData) == 0:
-         raise UnserializeError('Error correction on key data failed')
-
-      inner   = BinaryUnpacker(pkData)
-      ver     = bu.get(UINT8)
-      flags   = bu.get(BITSET, 1)
-      scrTemp = bu.get(VAR_STR)
-      numKeys = bu.get(UINT8)
+      inKeyList = []
+#      bu = makeBinaryUnpacker(serData)  # Need to incorporate somehow?
+      inData    = BinaryUnpacker(serData)
+      inVer     = inData.get(UINT8)
+      inFlags   = inData.get(BITSET, 2)
+      inScrTemp = inData.get(VAR_STR)
+      inNumKeys = inData.get(UINT8)
       k = 0
-      while k < numKeys:
-         nextKey = bu.get(VAR_STR)
-         pks = PublicKeySource()
-         pks.initialize(isStatic=False,
-                        useCompr=(len(nextKey)==33),
-                        use160=False,
-                        isSx=False,
-                        isUser=False,
-                        isExt=False,
-                        src=nextKey)
-         keyList.append(pks)
+      while k < inNumKeys:
+         nextKey = inData.get(VAR_STR)
+         pks = PublicKeySource().unserialize(nextKey)
+#         pks.initialize(isStatic   = False,
+#                        useCompr   = (len(nextKey) == 33),
+#                        use160     = False,
+#                        isSx       = False,
+#                        isUser     = False,
+#                        isExt      = False,
+#                        src        = nextKey,
+#                        chksumPres = False)
+         inKeyList.append(pks)
          k += 1
 
-      if flags.getBit(1):
-         dataChunk  = inner.getBinaryString()[:-4]
+      if inFlags.getBit(14):
+         chksum = inData.get(BINARY_CHUNK, 4)
+         dataChunk  = inData.getBinaryString()[:-4]
          compChksum = computeChecksum(dataChunk)
          if chksum != compChksum:
             raise DataError('CS record checksum does not match real checksum')
 
-      if not ver == BTCID_CS_VERSION:
+      if not inVer == BTCID_CS_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('BTCID version does not match the loaded version')
 
       self.__init__()
-      self.initialize(self, scrTemp,
-                            keyList,
-                            flags.getBit(0),
-                            flags.getBit(1),
-                            ver=ver)
+      self.initialize(inScrTemp,
+                      inKeyList,
+                      inFlags.getBit(15),
+                      inFlags.getBit(14),
+                      inVer)
 
       return self
 
