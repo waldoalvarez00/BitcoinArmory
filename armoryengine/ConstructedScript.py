@@ -118,6 +118,11 @@ class MultiplierProof(object):
       return self
 
 
+   #############################################################################
+   def getMultList(self):
+      return self.rawMultList
+
+
 ################################################################################
 class SignableIDPayload(object):
    """
@@ -241,7 +246,7 @@ def ApplyProofToRootKey(startPubKey, multProofObj, expectFinalPub=None):
    if not hash256(finalPubKey)[:4] == multProofObj.dstFinger4:
       raise KeyDataError('Dst fingerprint of proof does not match root pub')
 
-   if expectFinalPub and not finalPubKey==expectFinalPub:
+   if expectFinalPub and not finalPubKey == expectFinalPub:
       raise KeyDataError('Computation did not yield expected public key!')
 
    return finalPubKey
@@ -298,7 +303,6 @@ class PublicKeySource(object):
    def __init__(self):
       self.version         = BTCID_PKS_VERSION
       self.isStatic        = False
-      self.useCompressed   = False
       self.useHash160      = False
       self.isStealth       = False
       self.isUserKey       = False
@@ -315,10 +319,10 @@ class PublicKeySource(object):
    #############################################################################
    def getDataNoChecksum(self):
       # In BitSet, higher numbers are less significant bits.
-      # e.g., To get 0x0001, set bit 15 to 1.
+      # e.g., To get 0x0002, set bit 14 to True (1).
       flags = BitSet(16)
       flags.setBit(15, self.isStatic)
-      flags.setBit(14, self.useCompressed)
+      flags.setBit(14, len(self.rawSource) == 33)
       flags.setBit(13, self.useHash160)
       flags.setBit(12, self.isStealth)
       flags.setBit(11, self.isUserKey)
@@ -334,7 +338,6 @@ class PublicKeySource(object):
 
    #############################################################################
    @VerifyArgTypes(isStatic   = bool,
-                   useCompr   = bool,
                    use160     = bool,
                    isSx       = bool,
                    isUser     = bool,
@@ -342,7 +345,7 @@ class PublicKeySource(object):
                    src        = [str, unicode],
                    chksumPres = bool,
                    ver        = int)
-   def initialize(self, isStatic, useCompr, use160, isSx, isUser, isExt, src,
+   def initialize(self, isStatic, use160, isSx, isUser, isExt, src,
                   chksumPres, ver=BTCID_PKS_VERSION):
       """
       Set all PKS values.
@@ -355,7 +358,6 @@ class PublicKeySource(object):
 
       self.version         = ver
       self.isStatic        = isStatic
-      self.useCompressed   = useCompr
       self.useHash160      = use160
       self.isStealth       = isSx
       self.isUserKey       = isUser
@@ -418,7 +420,6 @@ class PublicKeySource(object):
 
       self.__init__()
       self.initialize(inFlags.getBit(15),
-                      inFlags.getBit(14),
                       inFlags.getBit(13),
                       inFlags.getBit(12),
                       inFlags.getBit(11),
@@ -477,7 +478,7 @@ class ConstructedScript(object):
    #############################################################################
    def getDataNoChecksum(self):
       # In BitSet, higher numbers are less significant bits.
-      # e.g., To get 0x0001, set bit 15 to 1.
+      # e.g., To get 0x0010, set bit 11 to True (1).
       flags = BitSet(16)
       flags.setBit(15, self.useP2SH)
       flags.setBit(14, self.isChksumPresent)
@@ -486,7 +487,7 @@ class ConstructedScript(object):
       inner.put(UINT8,   self.version)
       inner.put(BITSET,  flags, width = 2)
       inner.put(VAR_STR, self.scriptTemplate)
-      inner.put(UINT8,   len(self.pubKeyBundles)) # Fix?
+      inner.put(UINT8,   sum(len(keyList) for keyList in self.pubKeyBundles)) # Fix?
       for keyItem in self.pubKeyBundles:
          for keyItem2 in keyItem:
             inner.put(VAR_STR, keyItem2.serialize())
@@ -554,7 +555,9 @@ class ConstructedScript(object):
       self.pubKeySrcList  = pubSrcs[:]
       self.pubKeyBundles  = []
 
-      # Slice up the pubkey src list into the bundles
+      # Slice up the pubkey src list into the bundles. Key order doesn't matter
+      # as long as the keys line up alongside the escaped bytes. Multisig keys
+      # will be lexicographically sorted ONLY in the final TxOut script.
       idx = 0
       for sz in escapedBytes:
          if sz > 0:
@@ -581,7 +584,6 @@ class ConstructedScript(object):
 
       pks = PublicKeySource()
       pks.initialize(isStatic   = False,
-                     useCompr   = (len(binRootPubKey) == 33),
                      use160     = True,
                      isSx       = False,
                      isUser     = False,
@@ -608,7 +610,6 @@ class ConstructedScript(object):
 
       pks = PublicKeySource()
       pks.initialize(isStatic   = False,
-                     useCompr   = (len(binRootPubKey) == 33),
                      use160     = hash160,
                      isSx       = False,
                      isUser     = False,
@@ -633,12 +634,14 @@ class ConstructedScript(object):
             if not CryptoECDSA().VerifyPublicKeyValid(sbdPublicKey):
                raise KeyDataError('Invalid pubkey received: Key=0x%s' % pk)
 
-      # Make sure there aren't too many keys.
+      # Make sure there aren't too many keys and that M <= N.
       N = len(binRootList)
-      if (not 0 < M <= LB_MAXM):
-         raise BadInputError('M value must be less than %d' % LB_MAXM)
+      if M > N:
+         raise BadInputError('M (%d) must be less than N (%d)' % (M, N))
+      elif (not 0 < M <= LB_MAXM):
+         raise BadInputError('M (%d) must be less than %d' % (M, LB_MAXM))
       elif (not 0 < N <= LB_MAXN):
-         raise BadInputError('N value must be less than %d' % LB_MAXN)
+         raise BadInputError('N (%d) must be less than %d' % (N, LB_MAXN))
 
       # Build a template for the standard multisig script.
       templateStr  = ''
@@ -651,7 +654,6 @@ class ConstructedScript(object):
       for rootPub in binRootList:
          pks = PublicKeySource()
          pks.initialize(isStatic   = False,
-                        useCompr   = (len(rootPub) == 33),
                         use160     = False,
                         isSx       = False,
                         isUser     = False,
@@ -661,7 +663,7 @@ class ConstructedScript(object):
          pksList.append(pks)
 
       cs = ConstructedScript()
-      cs.initialize(self, templateStr, pksList, True)
+      cs.initialize(templateStr, pksList, True, True)
       return cs
 
 
@@ -700,7 +702,6 @@ class ConstructedScript(object):
       for rootPub in binRootList:
          pks = PublicKeySource()
          pks.initialize(isStatic   = False,
-                        useCompr   = (len(rootPub) == 33),
                         use160     = False,
                         isSx       = False,
                         isUser     = False,
@@ -742,14 +743,6 @@ class ConstructedScript(object):
       while k < inNumKeys:
          nextKey = inData.get(VAR_STR)
          pks = PublicKeySource().unserialize(nextKey)
-#         pks.initialize(isStatic   = False,
-#                        useCompr   = (len(nextKey) == 33),
-#                        use160     = False,
-#                        isSx       = False,
-#                        isUser     = False,
-#                        isExt      = False,
-#                        src        = nextKey,
-#                        chksumPres = False)
          inKeyList.append(pks)
          k += 1
 
@@ -783,22 +776,19 @@ class PublicKeyRelationshipProof(object):
 
    #############################################################################
    def __init__(self):
-      self.version        = BTCID_PKRP_VERSION
-      self.numMults       = 0
-      self.pubKeyBundles  = []
+      self.version  = BTCID_PKRP_VERSION
+      self.multList = []
 
 
    #############################################################################
-   @VerifyArgTypes(numMults = int,
-                   multList = [str, unicode],
+   @VerifyArgTypes(multList = [str, unicode],
                    ver      = int)
-   def initialize(self, numMults, multList, ver=BTCID_PKRP_VERSION):
+   def initialize(self, multList, ver=BTCID_PKRP_VERSION):
       """
       Set all PKRP values.
       """
+      self.multList = multList
       self.version  = ver
-      self.numMults = numMults
-      self.multList = toBytes(multList)
 
 
    #############################################################################
@@ -810,8 +800,8 @@ class PublicKeyRelationshipProof(object):
    def serialize(self):
       bp = BinaryPacker()
       bp.put(UINT8,  self.version)
-      bp.put(VAR_INT, numMults, width=1)
-      for keyList2 in self.pubKeyBundles:
+      bp.put(VAR_INT, len(self.multList), width=1)
+      for keyList2 in self.multList:
          bp.put(VAR_STR, keyList2)
 
       return bp.getBinaryString()
@@ -819,25 +809,24 @@ class PublicKeyRelationshipProof(object):
 
    #############################################################################
    def unserialize(self, serData):
-      multList = []
-      inner  = BinaryUnpacker(serData)
-      ver    = bu.get(UINT8)
-      numMults = bu.get(VAR_INT, 1)
+      inMultList = []
+      inner      = BinaryUnpacker(serData)
+      inVer      = inner.get(UINT8)
+      inNumMults = inner.get(VAR_INT, 1)
 
       k = 0
-      while k < numMults:
-         nextMult = bu.get(VAR_STR)
-         multList.append(nextMult)
+      while k < inNumMults:
+         nextMult = inner.get(VAR_STR)
+         inMultList.append(nextMult)
          k += 1
 
-      if not ver == BTCID_PKRP_VERSION:
+      if not inVer == BTCID_PKRP_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('BTCID version does not match the loaded version')
 
       self.__init__()
-      self.initialize(self, numMults,
-                            multList,
-                            ver=ver)
+      self.initialize(inMultList,
+                      inVer)
 
       return self
 
@@ -852,21 +841,18 @@ class ScriptRelationshipProof(object):
    #############################################################################
    def __init__(self):
       self.version        = BTCID_SRP_VERSION
-      self.numPKRPs       = 0
       self.pkrpBundles  = []
 
 
    #############################################################################
-   @VerifyArgTypes(numPKRPs = int,
-                   pkrpList = [PublicKeyRelationshipProof],
+   @VerifyArgTypes(pkrpList = [PublicKeyRelationshipProof],
                    ver      = int)
-   def initialize(self, numPKRPs, pkrpList, ver=BTCID_SRP_VERSION):
+   def initialize(self, pkrpList, ver=BTCID_SRP_VERSION):
       """
       Set all SRP values.
       """
+      self.pkrpList = pkrpList
       self.version  = ver
-      self.numPKRPs = numPKRPs
-      self.pkrpList = toBytes(pkrpList)
 
 
    #############################################################################
@@ -878,7 +864,7 @@ class ScriptRelationshipProof(object):
    def serialize(self):
       bp = BinaryPacker()
       bp.put(UINT8,  self.version)
-      bp.put(VAR_INT, numPKRPs, width=1)
+      bp.put(VAR_INT, len(self.pkrpList), width = 1)
       for pkrpItem in self.pkrpList:
          bp.put(BINARY_CHUNK, pkrpItem.serialize())  # Revise this???
 
@@ -888,13 +874,13 @@ class ScriptRelationshipProof(object):
    #############################################################################
    def unserialize(self, serData):
       pkrpList = []
-      bu       = BinaryUnpacker(serData)
-      ver      = bu.get(UINT8)
-      numPKRPs = bu.get(VAR_INT, 1)
+      inner      = BinaryUnpacker(serData)
+      inVer      = inner.get(UINT8)
+      inNumPKRPs = inner.get(VAR_INT, 1)
 
       k = 0
-      while k < numPKRPs:
-         nextPKRP = PublicKeyRelationshipProof().unserialize(bu)
+      while k < inNumPKRPs:
+         nextPKRP = PublicKeyRelationshipProof().unserialize(inner)
          pkrpList.append(nextPKRP)
          k += 1
 
@@ -903,9 +889,8 @@ class ScriptRelationshipProof(object):
          raise VersionError('BTCID version does not match the loaded version')
 
       self.__init__()
-      self.initialize(self, numPKRPs,
-                            pkrpList,
-                            ver=ver)
+      self.initialize(pkrpList,
+                      ver)
 
       return self
 
