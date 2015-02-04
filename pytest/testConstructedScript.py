@@ -28,8 +28,12 @@ BIP32MasterPubKey2_D1     = hex_to_binary(
    "ea67a505 38b6f7d8 b5f7a1cc 657efd26 7cde8cc1 d8c0451d 1340a0fb 36427775 44")
 BIP32MasterPubKey2Comp_D1 = hex_to_binary(
    "02fc9e5a f0ac8d9b 3cecfe2a 888e2117 ba3d089d 8585886c 9c826b6b 22a98d12 ea")
+
+# Data related to BIP32MasterPubKey2.
 BIP32MasterPubKey2Multiplier = hex_to_binary(
    "60e3739c c2c3950b 7c4d7f32 cc503e13 b996d0f7 a45623d0 a914e1ef a7f811e0")
+BIP32MasterPubKey2Hash160 = hex_to_binary(
+   "654f3820 d428a35d e785a713 19adf7d6 1e168e86")
 
 # PKS serializations based on BIP32MasterPubKey2.
 PKS1Chksum_Uncomp_v0 = hex_to_binary(
@@ -64,12 +68,33 @@ PKRP2_v0 = hex_to_binary(
 
 # SRP serializations based on BIP32MasterPubKey2.
 SRP1_v0 = hex_to_binary(
-   "00010001 2060e373 9cc2c395 0b7c4d7f 32cc503e 13b996d0 f7a45623 d0a914e1"
-   "efa7f811 e0")
+   "00012300 012060e3 739cc2c3 950b7c4d 7f32cc50 3e13b996 d0f7a456 23d0a914"
+   "e1efa7f8 11e0")
 SRP2_v0 = hex_to_binary(
-   "00020001 2060e373 9cc2c395 0b7c4d7f 32cc503e 13b996d0 f7a45623 d0a914e1"
-   "efa7f811 e0000120 60e3739c c2c3950b 7c4d7f32 cc503e13 b996d0f7 a45623d0"
-   "a914e1ef a7f811e0")
+   "00022300 012060e3 739cc2c3 950b7c4d 7f32cc50 3e13b996 d0f7a456 23d0a914"
+   "e1efa7f8 11e02300 012060e3 739cc2c3 950b7c4d 7f32cc50 3e13b996 d0f7a456"
+   "23d0a914 e1efa7f8 11e0")
+
+# PR serializations based on BIP32MasterPubKey2.
+daneName1 = "pksrec1.btcshop.com"
+daneName2 = "pksrec2.btcshop.com"
+unvalidatedScript1 = hex_to_binary(
+   "76a9654f 3820d428 a35de785 a71319ad f7d61e16 8e8688ac")
+PR1_v0 = hex_to_binary(
+   "00000001 541876a9 654f3820 d428a35d e785a713 19adf7d6 1e168e86 88ac1370"
+   "6b737265 63312e62 74637368 6f702e63 6f6d2600 01230001 2060e373 9cc2c395"
+   "0b7c4d7f 32cc503e 13b996d0 f7a45623 d0a914e1 efa7f811 e0")
+PR2_v0 = hex_to_binary( # WRONG!
+   "00000002 a81876a9 654f3820 d428a35d e785a713 19adf7d6 1e168e86 88ac1876"
+   "a9654f38 20d428a3 5de785a7 1319adf7 d61e168e 8688ac13 706b7372 6563312e"
+   "62746373 686f702e 636f6d13 706b7372 6563312e 62746373 686f702e 636f6d26"
+   "00012300 012060e3 739cc2c3 950b7c4d 7f32cc50 3e13b996 d0f7a456 23d0a914"
+   "e1efa7f8 11e02600 01230001 2060e373 9cc2c395 0b7c4d7f 32cc503e 13b996d0"
+   "f7a45623 d0a914e1 efa7f811 e0")
+
+### TODO: Place this stuff where it belongs when it's time!
+# TxOutscript validator. From ArmoryUtils.py:512?
+# getTxOutScriptType(binScript)
 
 
 ################################################################################
@@ -180,7 +205,7 @@ class SRPClassTests(unittest.TestCase):
                        binary_to_hex(SRP1_v0))
 
       # 2 PKRPs. Both PKRPs are the same. This test just confirms that the
-      # serialization code works.
+      # serialization code works for multiple PKRPs.
       srp2 = ScriptRelationshipProof()
       srp2.initialize([pkrp1, pkrp1])
       stringSRP2 = srp2.serialize()
@@ -188,14 +213,53 @@ class SRPClassTests(unittest.TestCase):
                        binary_to_hex(SRP2_v0))
 
       # Unserialize and re-serialize to confirm unserialize works.
-#      srp1_unser = PublicKeyRelationshipProof().unserialize(SRP1_v0)
-#      srp2_unser = PublicKeyRelationshipProof().unserialize(SRP2_v0)
-#      stringSRP1_unser = srp1_unser.serialize()
-#      stringSRP2_unser = srp2_unser.serialize()
-#      self.assertEqual(binary_to_hex(stringSRP1_unser),
-#                       binary_to_hex(SRP1_v0))
-#      self.assertEqual(binary_to_hex(stringSRP2_unser),
-#                       binary_to_hex(SRP2_v0))
+      srp1_unser = PublicKeyRelationshipProof().unserialize(SRP1_v0)
+      srp2_unser = PublicKeyRelationshipProof().unserialize(SRP2_v0)
+      stringSRP1_unser = srp1_unser.serialize()
+      stringSRP2_unser = srp2_unser.serialize()
+      self.assertEqual(binary_to_hex(stringSRP1_unser),
+                       binary_to_hex(SRP1_v0))
+      self.assertEqual(binary_to_hex(stringSRP2_unser),
+                       binary_to_hex(SRP2_v0))
+
+
+################################################################################
+class PRClassTests(unittest.TestCase):
+   # Use serialize/unserialize to confirm that the data struct is correctly
+   # formed and can be correctly formed.
+   def testSerialization(self):
+      pkrp1 = PublicKeyRelationshipProof()
+      pkrp1.initialize([BIP32MasterPubKey2Multiplier])
+      srp1 = ScriptRelationshipProof()
+      srp1.initialize([pkrp1])
+
+      # 1 TxOut script.
+      pr1 = PaymentRequest()
+      pr1.initialize([unvalidatedScript1], [daneName1], [srp1.serialize()], 0)
+      stringPR1 = pr1.serialize()
+      self.assertEqual(binary_to_hex(stringPR1),
+                       binary_to_hex(PR1_v0))
+
+      # 2 TxOut scripts. Both scripts are the same. This test just confirms that
+      # the serialization code works for multiple TxOut scripts.
+      pr2 = PaymentRequest()
+      pr2.initialize([unvalidatedScript1, unvalidatedScript1],
+                     [daneName1, daneName1],
+                     [srp1.serialize(), srp1.serialize()],
+                     0)
+      stringPR2 = pr2.serialize()
+      self.assertEqual(binary_to_hex(stringPR2),
+                       binary_to_hex(PR2_v0))
+
+      # Unserialize and re-serialize to confirm unserialize works.
+      pr1_unser = PaymentRequest().unserialize(PR1_v0)
+      pr2_unser = PaymentRequest().unserialize(PR2_v0)
+      stringPR1_unser = pr1_unser.serialize()
+      stringPR2_unser = pr2_unser.serialize()
+      self.assertEqual(binary_to_hex(stringPR1),
+                       binary_to_hex(PR1_v0))
+      self.assertEqual(binary_to_hex(stringPR2),
+                       binary_to_hex(PR2_v0))
 
 
 ################################################################################

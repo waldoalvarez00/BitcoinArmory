@@ -416,7 +416,7 @@ class PublicKeySource(object):
 
       if not inVer == BTCID_PKS_VERSION:
          # In the future we will make this more of a warning, not error
-         raise VersionError('BTCID version does not match the loaded version')
+         raise VersionError('PKS version does not match the loaded version')
 
       self.__init__()
       self.initialize(inFlags.getBit(15),
@@ -755,7 +755,7 @@ class ConstructedScript(object):
 
       if not inVer == BTCID_CS_VERSION:
          # In the future we will make this more of a warning, not error
-         raise VersionError('BTCID version does not match the loaded version')
+         raise VersionError('CS version does not match the loaded version')
 
       self.__init__()
       self.initialize(inScrTemp,
@@ -822,7 +822,7 @@ class PublicKeyRelationshipProof(object):
 
       if not inVer == BTCID_PKRP_VERSION:
          # In the future we will make this more of a warning, not error
-         raise VersionError('BTCID version does not match the loaded version')
+         raise VersionError('PKRP version does not match the loaded version')
 
       self.__init__()
       self.initialize(inMultList,
@@ -866,7 +866,7 @@ class ScriptRelationshipProof(object):
       bp.put(UINT8,  self.version)
       bp.put(VAR_INT, len(self.pkrpList), width = 1)
       for pkrpItem in self.pkrpList:
-         bp.put(BINARY_CHUNK, pkrpItem.serialize())  # Revise this???
+         bp.put(VAR_STR, pkrpItem.serialize())  # Revise this???
 
       return bp.getBinaryString()
 
@@ -880,13 +880,13 @@ class ScriptRelationshipProof(object):
 
       k = 0
       while k < inNumPKRPs:
-         nextPKRP = PublicKeyRelationshipProof().unserialize(inner)
+         nextPKRP = PublicKeyRelationshipProof().unserialize(inner.get(VAR_STR))
          pkrpList.append(nextPKRP)
          k += 1
 
       if not ver == BTCID_SRP_VERSION:
          # In the future we will make this more of a warning, not error
-         raise VersionError('BTCID version does not match the loaded version')
+         raise VersionError('SRP version does not match the loaded version')
 
       self.__init__()
       self.initialize(pkrpList,
@@ -912,23 +912,26 @@ class PaymentRequest(object):
 
 
    #############################################################################
-   @VerifyArgTypes(numTxOutScripts    = int,
-                   reqSize            = int,
-                   unvalidatedScripts = [VAR_STR],
+   @VerifyArgTypes(unvalidatedScripts = [VAR_STR],
                    daneReqNames       = [VAR_STR],
-                   srpLists           = [ScriptRelationshipProof],
+                   srpLists           = [VAR_STR],
                    ver                = int)
-   def initialize(self, numTxOutScripts, reqSize, unvalidatedScripts,
-                  daneReqNames, srpLists, ver=None):
+   def initialize(self, unvalidatedScripts, daneReqNames, srpLists, ver=None):
       """
       Set all PR values.
       """
       self.version            = ver
-      self.numTxOutScripts    = numTxOutScripts
-      self.reqSize            = reqSize
-      self.unvalidatedScripts = toBytes(unvalidatedScripts)
-      self.daneReqNames       = toBytes(daneReqNames)
-      self.srpLists           = toBytes(srpLists)
+      self.numTxOutScripts    = len(unvalidatedScripts)
+      self.reqSize            = 0
+      self.unvalidatedScripts = unvalidatedScripts
+      self.daneReqNames       = daneReqNames
+      self.srpLists           = srpLists
+      for x in unvalidatedScripts:
+         self.reqSize += getTotalVarStrBytes(x)
+      for y in daneReqNames:
+         self.reqSize += getTotalVarStrBytes(y)
+      for z in srpLists:
+         self.reqSize += getTotalVarStrBytes(z)
 
 
    #############################################################################
@@ -946,13 +949,12 @@ class PaymentRequest(object):
       bp.put(BITSET, flags, width=2)
       bp.put(VAR_INT, self.numTxOutScripts, width=3)
       bp.put(VAR_INT, self.reqSize, width=3)
-      bp.put(VAR_INT, self.numTxOutScripts, width=3)
       for scriptItem in self.unvalidatedScripts:
-         bp.put(VAR_STR, scriptItem)  # Revise this???
+         bp.put(VAR_STR, scriptItem)
       for daneItem in self.daneReqNames:
-         bp.put(VAR_STR, daneItem)  # Revise this???
+         bp.put(VAR_STR, daneItem)
       for srpItem in self.srpLists:
-         bp.put(BINARY_CHUNK, srpItem.serialize())  # Revise this???
+         bp.put(VAR_STR, srpItem)
 
       return bp.getBinaryString()
 
@@ -963,39 +965,37 @@ class PaymentRequest(object):
       daneReqNames       = []
       srpList            = []
       bu                 = makeBinaryUnpacker(serData)
-      ver                = bu.get(UINT8)
-      flags              = bu.get(BitSet, 2)
-      numTxOutScripts    = bu.get(VAR_INT, 3)
-      reqSize            = bu.get(VAR_INT, 3)
+      inVer              = bu.get(UINT8)
+      inFlags            = bu.get(BITSET, 2)
+      inNumTxOutScripts  = bu.get(VAR_INT)
+      inReqSize          = bu.get(VAR_INT)
 
       k = 0
-      while k < numTxOutScripts:
+      while k < inNumTxOutScripts:
          nextScript = bu.get(VAR_STR)
          unvalidatedScripts.append(nextScript)
          k += 1
 
       l = 0
-      while l < numTxOutScripts:
+      while l < inNumTxOutScripts:
          daneName = bu.get(VAR_STR)
-         daneNames.append(daneName)
+         daneReqNames.append(daneName)
          l += 1
 
       m = 0
-      while m < numTxOutScripts:
-         nextSRPItem = ScriptRelationshipProof().serialize(bu)
+      while m < inNumTxOutScripts:
+         nextSRPItem = bu.get(VAR_STR)
          srpList.append(nextSRPItem)
          m += 1
 
-      if not readVersionInt(ver) == BTCID_PR_VERSION:
+      if not inVer == BTCID_PR_VERSION:
          # In the future we will make this more of a warning, not error
-         raise VersionError('BTCID version does not match the loaded version')
+         raise VersionError('PR version does not match the loaded version')
 
       self.__init__()
-      self.initialize(self, numTxOutScripts,
-                            reqSize,
-                            unvalidatedScripts,
-                            daneReqNames,
-                            srpList,
-                            ver=ver)
+      self.initialize(unvalidatedScripts,
+                      daneReqNames,
+                      srpList,
+                      inVer)
 
       return self
