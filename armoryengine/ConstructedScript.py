@@ -10,7 +10,7 @@ from BinaryPacker import *
 from BinaryUnpacker import *
 from Transaction import getOpCode
 from ArmoryEncryption import NULLSBD
-from CppBlockUtils import HDWalletCrypto
+from CppBlockUtils import HDWalletCrypto, CryptoECDSA
 import re
 
 # First "official" version will be 1. 0 is the prototype version.
@@ -284,7 +284,7 @@ def escapeFF(inputStr):
 
 
 ################################################################################
-def handleEscapedScript(escapedScript, pksList, srpList):
+def assembleScript(inEscapedScript, inPKSList, inPKRPList):
    # Steps:
    # Take binary string and split based on 0xff, which is removed.
    # Grab & remove 1st byte of string on the right.
@@ -294,7 +294,42 @@ def handleEscapedScript(escapedScript, pksList, srpList):
    #   Insert the key at the end of the string on the left.
    # Reassemble all the strings in the original order.
    # Return the resulting string.
-   pass
+
+   # Use a bytearray to treat the incoming binary data as a string. Split
+   # whenever 0xff is encountered. Save the 1st one and then iterate over the
+   # others, if any exist. This is where keys will be inserted and escaped 0xff
+   # characters restored.
+   numProcessedKeys = 0
+   scriptArray = bytearray(inEscapedScript)
+   scriptArrayList = scriptArray.split('\xff')
+   finalScript = scriptArrayList[0]
+   scriptIter = iter(scriptArrayList).next()
+
+   for fragment in scriptIter:
+      if fragment[0] == '\x00':
+         # Fix up escaped 0xff and save.
+         finalScript.append('\xff')
+         if len(fragment) > 1:
+            finalScript.append(fragment[1:])
+      else:
+         # Remove but keep 1st byte
+         numKeys = fragment[0]
+         keyList = []
+         for n in range(numKeys):
+            genKey = inPKSList[numProcessedKeys].generateKeyData(inPKRPList[numProcessedKeys])
+            keyList.append(genKey)
+
+         # Sort keys lexicographically and insert into the script before
+         # inserting the rest of the original fragment.
+         # !!!DISABLED!!! Assume only one key coming in for now.
+#         keyList.sort()
+         for key in keyList:
+            finalScript.append(key)
+         if len(fragment) > 1:
+            finalScript.append(fragment[1:])
+
+   # We're done!
+   return finalScript
 
 
 ################################ External Data #################################
@@ -447,9 +482,40 @@ class PublicKeySource(object):
 
 
    #############################################################################
-   # NOT IMPLEMENTED YET.
-   def generateScript(self, srpEntry):
-      pass
+   # Logic for generating the final key data is here.
+   def generateKeyData(self, pkrpEntry):
+      finalKeyData = None
+
+      # The logic determining the final key data is found here. This is really
+      # meant to be the jumping off point for other calls that do heavy lifting.
+      if self.isExternalSrc:
+         # Grab key data from elsewhere. Do nothing for now.
+         pass
+      elif self.isUserKey:
+         # User somehow provides their own key data. Do nothing for now.
+         pass
+      elif isStatic:
+         # The final key (e.g., vanity address) is already in the SRP object.
+         finalKeyData = self.sourceStr
+      elif isStealth:
+         # Use stealth data to generate an address. (See sx binary for an
+         # example.) Do nothing for now.
+         pass
+      else:
+         for mult in pkrpEntry.multList:
+            # Get the final public key. If necessary, compress it and/or apply
+            # Hash160 to it.
+            finalKeyData = HDWalletCrypto().getChildKeyFromOps_SWIG(
+                                                       self.sourceStr,
+                                                       multProofObj.rawMultList)
+            if self.useCompressed:
+               secFinalKeyData = SecureBinaryData(finalKeyData)
+               finalKeyData = CryptoECDSA().CompressPoint(secFinalKeyData)
+            if self.useHash160:
+               finalKeyData = hash160(finalKeyData)
+
+      # We're done! Return the key data.
+      return finalKeyData
 
 
 ################################################################################
@@ -485,7 +551,6 @@ class ConstructedScript(object):
                    useP2SH    = bool,
                    chksumPres = bool,
                    ver        = int)
-   #############################################################################
    def initialize(self, scrTemp, pubSrcs, useP2SH, chksumPres,
                   ver=BTCAID_CS_VERSION):
       self.version         = ver
@@ -789,9 +854,19 @@ class ConstructedScript(object):
 
 
    #############################################################################
-   # Generate the TxOut script using an SRP taken from a payment request.
-   def generateScript(self, srpEntry):
-      pass
+   # Logic for generating the final script.
+   def generateScript(self, srpList):
+      inPKRPList = []
+
+      # Get the PKRPs from the SRP array passed in.
+      for c in len(srpList):
+         inPKRPList.append(srpList[c].pkrpList)
+
+      # Generate and return the final script.
+      finalScript = assembleScript(self.scriptTemplate,
+                                   self.pubKeyBundles,
+                                   inPKRPList)
+      return finalScript
 
 
 ################################################################################
@@ -867,8 +942,8 @@ class ScriptRelationshipProof(object):
 
    #############################################################################
    def __init__(self):
-      self.version        = BTCAID_SRP_VERSION
-      self.pkrpBundles  = []
+      self.version  = BTCAID_SRP_VERSION
+      self.pkrpList = []
 
 
    #############################################################################
