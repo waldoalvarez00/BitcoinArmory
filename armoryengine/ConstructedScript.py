@@ -14,20 +14,21 @@ from CppBlockUtils import HDWalletCrypto
 import re
 
 # First "official" version will be 1. 0 is the prototype version.
-BTCID_PKS_VERSION = 0
-BTCID_CS_VERSION = 0
-BTCID_PKRP_VERSION = 0
-BTCID_SRP_VERSION = 0
-BTCID_PR_VERSION = 0
+BTCAID_PKS_VERSION = 0
+BTCAID_CS_VERSION = 0
+BTCAID_PKRP_VERSION = 0
+BTCAID_SRP_VERSION = 0
+BTCAID_PR_VERSION = 0
 
-BTCID_PAYLOAD_TYPE = enum('KeySource', 'ConstructedScript')
+BTCAID_PAYLOAD_TYPE = enum('KeySource', 'ConstructedScript', 'InvalidRec')
 ESCAPECHAR  = '\xff'
 ESCESC      = '\x00'
 
 # Use in SignableIDPayload
-BTCID_PAYLOAD_BYTE = { \
-   BTCID_PAYLOAD_TYPE.KeySource:         '\x00',
-   BTCID_PAYLOAD_TYPE.ConstructedScript: '\x01'
+BTCAID_PAYLOAD_BYTE = { \
+   BTCAID_PAYLOAD_TYPE.PublicKeySource:   '\x00',
+   BTCAID_PAYLOAD_TYPE.ConstructedScript: '\x01',
+   BTCAID_PAYLOAD_TYPE.InvalidRec:        '\xff'
 }
 
 class VersionError(Exception): pass
@@ -282,6 +283,20 @@ def escapeFF(inputStr):
    return convStr
 
 
+################################################################################
+def handleEscapedScript(escapedScript, pksList, srpList):
+   # Steps:
+   # Take binary string and split based on 0xff, which is removed.
+   # Grab & remove 1st byte of string on the right.
+   # - If byte = 0x00, place 0xff at the end of the string on the left.
+   # - Else, confirm # equals the # of PKS & SRP entries.
+   #   For each entry, get the public key and apply the SRP.
+   #   Insert the key at the end of the string on the left.
+   # Reassemble all the strings in the original order.
+   # Return the resulting string.
+   pass
+
+
 ################################ External Data #################################
 ################################################################################
 class PublicKeySource(object):
@@ -301,7 +316,7 @@ class PublicKeySource(object):
 
    #############################################################################
    def __init__(self):
-      self.version         = BTCID_PKS_VERSION
+      self.version         = BTCAID_PKS_VERSION
       self.isStatic        = False
       self.useHash160      = False
       self.isStealth       = False
@@ -346,7 +361,7 @@ class PublicKeySource(object):
                    chksumPres = bool,
                    ver        = int)
    def initialize(self, isStatic, use160, isSx, isUser, isExt, src,
-                  chksumPres, ver=BTCID_PKS_VERSION):
+                  chksumPres, ver=BTCAID_PKS_VERSION):
       """
       Set all PKS values.
       """
@@ -414,7 +429,7 @@ class PublicKeySource(object):
          if chksum != compChksum:
             raise DataError('PKS record checksum does not match real checksum')
 
-      if not inVer == BTCID_PKS_VERSION:
+      if not inVer == BTCAID_PKS_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('PKS version does not match the loaded version')
 
@@ -429,6 +444,12 @@ class PublicKeySource(object):
                       inVer)
 
       return self
+
+
+   #############################################################################
+   # NOT IMPLEMENTED YET.
+   def generateScript(self, srpEntry):
+      pass
 
 
 ################################################################################
@@ -450,7 +471,7 @@ class ConstructedScript(object):
    """
 
    def __init__(self):
-      self.version         = BTCID_CS_VERSION
+      self.version         = BTCAID_CS_VERSION
       self.scriptTemplate  = None
       self.pubKeySrcList   = None
       self.useP2SH         = None
@@ -466,7 +487,7 @@ class ConstructedScript(object):
                    ver        = int)
    #############################################################################
    def initialize(self, scrTemp, pubSrcs, useP2SH, chksumPres,
-                  ver=BTCID_CS_VERSION):
+                  ver=BTCAID_CS_VERSION):
       self.version         = ver
       self.useP2SH         = useP2SH
       self.isChksumPresent = chksumPres
@@ -753,7 +774,7 @@ class ConstructedScript(object):
          if chksum != compChksum:
             raise DataError('CS record checksum does not match real checksum')
 
-      if not inVer == BTCID_CS_VERSION:
+      if not inVer == BTCAID_CS_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('CS version does not match the loaded version')
 
@@ -767,6 +788,12 @@ class ConstructedScript(object):
       return self
 
 
+   #############################################################################
+   # Generate the TxOut script using an SRP taken from a payment request.
+   def generateScript(self, srpEntry):
+      pass
+
+
 ################################################################################
 class PublicKeyRelationshipProof(object):
    """
@@ -776,14 +803,14 @@ class PublicKeyRelationshipProof(object):
 
    #############################################################################
    def __init__(self):
-      self.version  = BTCID_PKRP_VERSION
+      self.version  = BTCAID_PKRP_VERSION
       self.multList = []
 
 
    #############################################################################
    @VerifyArgTypes(multList = [str, unicode],
                    ver      = int)
-   def initialize(self, multList, ver=BTCID_PKRP_VERSION):
+   def initialize(self, multList, ver=BTCAID_PKRP_VERSION):
       """
       Set all PKRP values.
       """
@@ -820,7 +847,7 @@ class PublicKeyRelationshipProof(object):
          inMultList.append(nextMult)
          k += 1
 
-      if not inVer == BTCID_PKRP_VERSION:
+      if not inVer == BTCAID_PKRP_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('PKRP version does not match the loaded version')
 
@@ -840,14 +867,14 @@ class ScriptRelationshipProof(object):
 
    #############################################################################
    def __init__(self):
-      self.version        = BTCID_SRP_VERSION
+      self.version        = BTCAID_SRP_VERSION
       self.pkrpBundles  = []
 
 
    #############################################################################
    @VerifyArgTypes(pkrpList = [PublicKeyRelationshipProof],
                    ver      = int)
-   def initialize(self, pkrpList, ver=BTCID_SRP_VERSION):
+   def initialize(self, pkrpList, ver=BTCAID_SRP_VERSION):
       """
       Set all SRP values.
       """
@@ -884,7 +911,7 @@ class ScriptRelationshipProof(object):
          pkrpList.append(nextPKRP)
          k += 1
 
-      if not ver == BTCID_SRP_VERSION:
+      if not ver == BTCAID_SRP_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('SRP version does not match the loaded version')
 
@@ -903,7 +930,7 @@ class PaymentRequest(object):
 
    #############################################################################
    def __init__(self):
-      self.version            = BTCID_PR_VERSION
+      self.version            = BTCAID_PR_VERSION
       self.numTxOutScripts    = 0
       self.reqSize            = 0
       self.unvalidatedScripts = None
@@ -988,7 +1015,7 @@ class PaymentRequest(object):
          srpList.append(nextSRPItem)
          m += 1
 
-      if not inVer == BTCID_PR_VERSION:
+      if not inVer == BTCAID_PR_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('PR version does not match the loaded version')
 
