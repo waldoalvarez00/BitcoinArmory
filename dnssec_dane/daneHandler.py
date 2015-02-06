@@ -6,22 +6,12 @@
 #                                                                              #
 ################################################################################
 
-#from armoryengine.ArmoryUtils import UNINITIALIZED, UnitializedBlockDataError, \
-#   hash256, LITTLEENDIAN, BIGENDIAN, binary_switchEndian, binary_to_hex, \
-#   binaryBits_to_difficulty
+#from armoryengine.ArmoryUtils import binary_to_hex
 #import getdns
-from armoryengine.ArmoryUtils import binary_to_hex # WRONG?
 from armoryengine.ConstructedScript import PublicKeySource, ConstructedScript, \
    ScriptRelationshipProof, PublicKeyRelationshipProof, BTCAID_PR_VERSION, \
    BTCAID_PAYLOAD_TYPE
-
-PKS1NoChksum_Comp_v0 = hex_to_binary(
-   "00000221 03cbcaa9 c98c877a 26977d00 825c956a 238e8ddd fbd322cc e4f74b0b"
-   "5bd6ace4 a7")
-CS1Chksum_Uncomp_v0 = hex_to_binary(
-   "00000206 76a9ff01 88ac0145 00000441 04cbcaa9 c98c877a 26977d00 825c956a"
-   "238e8ddd fbd322cc e4f74b0b 5bd6ace4 a77bd330 5d363c26 f82c1e41 c667e4b3"
-   "561c06c6 0a2104d2 b548e6dd 059056aa 51142038 ce")
+from pytest.testConstructedScript import PKS1NoChksum_Comp_v0, CS1Chksum_Comp_v0
 
 # Function that takes a wallet ID payment request and validates it. This is the
 # entry function that launches all the steps required to regenerate all the
@@ -29,31 +19,34 @@ CS1Chksum_Uncomp_v0 = hex_to_binary(
 #
 # INPUT:  A PaymentRequest object received from elsewhere.
 # OUTPUT: None
-# RETURN: The 
+# RETURN: -1 if an error prevented validation from completing, 0 if the
+#         generated script didn't match the unvalidated script, and 1 if the
+#         generated and unvalidated scripts match.
 def validatePaymentRequest(inPayReq):
+   retCode = -1
    ctr = 0
 
    # Use the number of TxOut requests as our guide. The number of list entries
    # MUST match the number of TxOut requests. If they don't, something's wrong.
    # Also, while we're here, let's go ahead and check for all other fatal errors.
    if inPayReq.version != BTCAID_PR_VERSION:
-      print 'Uh oh!'
+      print 'Payment Request validation fails: Incorrect version'
    elif inPayReq.numTxOutScripts > 65535:
-      print 'Uh oh!'
+      print 'Payment Request validation fails: Too many TxOuts'
    elif inPayReq.reqSize > 65535:
-      print 'Uh oh!'
+      print 'Payment Request validation fails: Request is too large'
    elif inPayReq.numTxOutScripts != len(inPayReq.unvalidatedScripts):
-      print 'Uh oh!'
+      print 'Payment Request validation fails: TxOut script template amount mismatch'
    elif inPayReq.numTxOutScripts != len(inPayReq.daneReqNames):
-      print 'Uh oh!'
+      print 'Payment Request validation fails: DANE name amount mismatch'
    elif inPayReq.numTxOutScripts != len(inPayReq.srpLists):
-      print 'Uh oh!'
+      print 'Payment Request validation fails: SRP amount mismatch'
    else:
       while ctr < inPayReq.numTxOutScripts:
          # Get the DANE record.
          # HACK ALERT: This call is a hack for now. Will change very soon.
-         recType, daneReq = getDANERecord(inPayReq.daneRecName[ctr],
-                                          'ConstructedScript')
+         recType, daneReq = getDANERecord(inPayReq.daneReqNames[ctr],
+                                          BTCAID_PAYLOAD_TYPE.ConstructedScript)
 
          # Have the record type recreate the script. If we receive a PKS, assume
          # a P2PKH record must be created. If we receive a CS, generate whatever
@@ -63,16 +56,23 @@ def validatePaymentRequest(inPayReq):
          finalKey = None
          finalScript = None
          if recType == BTCAID_PAYLOAD_TYPE.InvalidRec:
-            print 'Uh oh!'
+            print 'Payment Request validation fails: DANE record is invalid.'
          else:
             if recType == BTCAID_PAYLOAD_TYPE.PublicKeySource:
                # Get key and then generate a P2PKH TxOut script from it.
                finalKey = daneReq.generateKeyData(inPayReq.srpLists[ctr].pkrpList)
+               retCode = 1
             elif recType == BTCAID_PAYLOAD_TYPE.ConstructedScript:
                finalScript = daneReq.generateScript(inPayReq.srpLists[ctr])
+               if inPayReq.unvalidatedScripts[ctr] != finalScript:
+                  retCode = 0
+               else:
+                  retCode = 1
 
          # We're done.
          ctr += 1
+
+   return retCode
 
 
 # Function that obtains a DANE record for a given record name.
@@ -94,11 +94,13 @@ def getDANERecord(daneRecName, desiredRecType):
    retRec = None
 
    # THIS CODE WILL BE REPLACED WITH PROPER DNS CODE EVENTUALLY!!!
+   # For now, it returns a PKS or CS based on the second master pub key from the
+   # BIP32 test vector. Any code that doesn't account for this will fail.
    if desiredRecType == BTCAID_PAYLOAD_TYPE.PublicKeySource:
-      retRec = PKS1NoChksum_Comp_v0
+      retRec = PublicKeySource().unserialize(PKS1NoChksum_Comp_v0)
       retType = BTCAID_PAYLOAD_TYPE.PublicKeySource
    elif desiredRecType == BTCAID_PAYLOAD_TYPE.ConstructedScript:
-      retRec = CS1NoChksum_Comp_v0
+      retRec = ConstructedScript().unserialize(CS1Chksum_Comp_v0)
       retType = BTCAID_PAYLOAD_TYPE.ConstructedScript
    else:
       print 'Wrong BTCA record type requested.'
