@@ -1,19 +1,12 @@
 
 import sys
 sys.path.append('..')
-import hashlib
-import locale
-from random import shuffle
-import time
 import unittest
 
 from CppBlockUtils import HDWalletCrypto
 from armoryengine.ArmoryUtils import *
 from armoryengine.BinaryPacker import *
 from armoryengine.BinaryUnpacker import *
-import armoryengine.ArmoryUtils
-from armoryengine import ArmoryUtils
-from armoryengine import ArmoryUtils
 from armoryengine.ConstructedScript import *
 
 ############# Various constants we wish to use throughout the tests.
@@ -32,8 +25,8 @@ BIP32MasterPubKey2Comp_D1 = hex_to_binary(
 # Data related to BIP32MasterPubKey2.
 BIP32MasterPubKey2Multiplier = hex_to_binary(
    "60e3739c c2c3950b 7c4d7f32 cc503e13 b996d0f7 a45623d0 a914e1ef a7f811e0")
-BIP32MasterPubKey2Hash160 = hex_to_binary(
-   "654f3820 d428a35d e785a713 19adf7d6 1e168e86")
+BIP32MasterPubKey2_D1Hash160 = hex_to_binary(
+   "5a61ff8e b7aaca30 10db97eb da761216 10b78096")
 
 # PKS serializations based on BIP32MasterPubKey2.
 PKS1Chksum_Uncomp_v0 = hex_to_binary(
@@ -49,6 +42,9 @@ CS1Chksum_Uncomp_v0 = hex_to_binary(
    "00000206 76a9ff01 88ac0145 00000441 04cbcaa9 c98c877a 26977d00 825c956a"
    "238e8ddd fbd322cc e4f74b0b 5bd6ace4 a77bd330 5d363c26 f82c1e41 c667e4b3"
    "561c06c6 0a2104d2 b548e6dd 059056aa 51142038 ce")
+CS1Chksum_Comp_v0 = hex_to_binary(
+   "00000206 76a9ff01 88ac0125 00000621 03cbcaa9 c98c877a 26977d00 825c956a"
+   "238e8ddd fbd322cc e4f74b0b 5bd6ace4 a744677b 26")
 CS1NoChksum_Comp_v0 = hex_to_binary(
    "00000006 76a9ff01 88ac0125 00000621 03cbcaa9 c98c877a 26977d00 825c956a"
    "238e8ddd fbd322cc e4f74b0b 5bd6ace4 a7")
@@ -79,14 +75,14 @@ SRP2_v0 = hex_to_binary(
 daneName1 = "pksrec1.btcshop.com"
 daneName2 = "pksrec2.btcshop.com"
 unvalidatedScript1 = hex_to_binary(
-   "76a9654f 3820d428 a35de785 a71319ad f7d61e16 8e8688ac")
+   "76a95a61 ff8eb7aa ca3010db 97ebda76 121610b7 809688ac")
 PR1_v0 = hex_to_binary(
-   "00000001 541876a9 654f3820 d428a35d e785a713 19adf7d6 1e168e86 88ac1370"
+   "00000001 541876a9 5a61ff8e b7aaca30 10db97eb da761216 10b78096 88ac1370"
    "6b737265 63312e62 74637368 6f702e63 6f6d2600 01230001 2060e373 9cc2c395"
    "0b7c4d7f 32cc503e 13b996d0 f7a45623 d0a914e1 efa7f811 e0")
-PR2_v0 = hex_to_binary( # WRONG!
-   "00000002 a81876a9 654f3820 d428a35d e785a713 19adf7d6 1e168e86 88ac1876"
-   "a9654f38 20d428a3 5de785a7 1319adf7 d61e168e 8688ac13 706b7372 6563312e"
+PR2_v0 = hex_to_binary( # WRONG?
+   "00000002 a81876a9 5a61ff8e b7aaca30 10db97eb da761216 10b78096 88ac1876"
+   "a95a61ff 8eb7aaca 3010db97 ebda7612 1610b780 9688ac13 706b7372 6563312e"
    "62746373 686f702e 636f6d13 706b7372 6563312e 62746373 686f702e 636f6d26"
    "00012300 012060e3 739cc2c3 950b7c4d 7f32cc50 3e13b996 d0f7a456 23d0a914"
    "e1efa7f8 11e02600 01230001 2060e373 9cc2c395 0b7c4d7f 32cc503e 13b996d0"
