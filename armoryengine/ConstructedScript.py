@@ -20,7 +20,7 @@ BTCAID_PKRP_VERSION = 0
 BTCAID_SRP_VERSION = 0
 BTCAID_PR_VERSION = 0
 
-BTCAID_PAYLOAD_TYPE = enum('KeySource', 'ConstructedScript', 'InvalidRec')
+BTCAID_PAYLOAD_TYPE = enum('PublicKeySource', 'ConstructedScript', 'InvalidRec')
 ESCAPECHAR  = '\xff'
 ESCESC      = '\x00'
 
@@ -117,11 +117,6 @@ class MultiplierProof(object):
          self.initialize(False, srcFinger4B, dstFinger4B, multList)
 
       return self
-
-
-   #############################################################################
-   def getMultList(self):
-      return self.rawMultList
 
 
 ################################################################################
@@ -300,12 +295,12 @@ def assembleScript(inEscapedScript, inPKSList, inPKRPList):
    # others, if any exist. This is where keys will be inserted and escaped 0xff
    # characters restored.
    numProcessedKeys = 0
-   scriptArray = bytearray(inEscapedScript)
+   scriptArray = bytes(inEscapedScript)
    scriptArrayList = scriptArray.split('\xff')
-   finalScript = scriptArrayList[0]
-   scriptIter = iter(scriptArrayList).next()
+   finalScriptList = []
+   finalScriptList.append(scriptArrayList[0])
 
-   for fragment in scriptIter:
+   for fragment in scriptArrayList[1:]:
       if fragment[0] == '\x00':
          # Fix up escaped 0xff and save.
          finalScript.append('\xff')
@@ -313,23 +308,24 @@ def assembleScript(inEscapedScript, inPKSList, inPKRPList):
             finalScript.append(fragment[1:])
       else:
          # Remove but keep 1st byte
-         numKeys = fragment[0]
+         numKeys = binary_to_int(fragment[0])
          keyList = []
-         for n in range(numKeys):
-            genKey = inPKSList[numProcessedKeys].generateKeyData(inPKRPList[numProcessedKeys])
-            keyList.append(genKey)
+         for innerPKSList in inPKSList:
+            for innerPKSItem in innerPKSList:
+               genKey = innerPKSItem.generateKeyData(inPKRPList[numProcessedKeys])
+               keyList.append(genKey)
 
          # Sort keys lexicographically and insert into the script before
          # inserting the rest of the original fragment.
          # !!!DISABLED!!! Assume only one key coming in for now.
 #         keyList.sort()
          for key in keyList:
-            finalScript.append(key)
+            finalScriptList.append(key)
          if len(fragment) > 1:
-            finalScript.append(fragment[1:])
+            finalScriptList.append(fragment[1:])
 
-   # We're done!
-   return finalScript
+   # We're done! Return the final script.
+   return ''.join(finalScriptList)
 
 
 ################################ External Data #################################
@@ -370,6 +366,7 @@ class PublicKeySource(object):
    def getDataNoChecksum(self):
       # In BitSet, higher numbers are less significant bits.
       # e.g., To get 0x0002, set bit 14 to True (1).
+      # NB: For now, the compression relies on if the raw source is compressed.
       flags = BitSet(16)
       flags.setBit(15, self.isStatic)
       flags.setBit(14, len(self.rawSource) == 33)
@@ -483,7 +480,7 @@ class PublicKeySource(object):
 
    #############################################################################
    # Logic for generating the final key data is here.
-   def generateKeyData(self, pkrpEntry):
+   def generateKeyData(self, inPKRPList):
       finalKeyData = None
 
       # The logic determining the final key data is found here. This is really
@@ -494,23 +491,25 @@ class PublicKeySource(object):
       elif self.isUserKey:
          # User somehow provides their own key data. Do nothing for now.
          pass
-      elif isStatic:
+      elif self.isStatic:
          # The final key (e.g., vanity address) is already in the SRP object.
-         finalKeyData = self.sourceStr
-      elif isStealth:
+         finalKeyData = self.rawSource
+      elif self.isStealth:
          # Use stealth data to generate an address. (See sx binary for an
          # example.) Do nothing for now.
          pass
       else:
-         for mult in pkrpEntry.multList:
+         for pkrp in inPKRPList:
             # Get the final public key. If necessary, compress it and/or apply
             # Hash160 to it.
             finalKeyData = HDWalletCrypto().getChildKeyFromOps_SWIG(
-                                                       self.sourceStr,
-                                                       multProofObj.rawMultList)
-            if self.useCompressed:
+                                                       self.rawSource,
+                                                       pkrp.multList)
+            # May need a self.useCompressed flag or something similar eventually.
+            if len(self.rawSource) == 33:
                secFinalKeyData = SecureBinaryData(finalKeyData)
-               finalKeyData = CryptoECDSA().CompressPoint(secFinalKeyData)
+               finalKeyDataSBD = CryptoECDSA().CompressPoint(secFinalKeyData)
+               finalKeyData = finalKeyDataSBD.toBinStr()
             if self.useHash160:
                finalKeyData = hash160(finalKeyData)
 
@@ -855,12 +854,12 @@ class ConstructedScript(object):
 
    #############################################################################
    # Logic for generating the final script.
-   def generateScript(self, srpList):
+   def generateScript(self, inSRPData):
       inPKRPList = []
 
       # Get the PKRPs from the SRP array passed in.
-      for c in len(srpList):
-         inPKRPList.append(srpList[c].pkrpList)
+      curSRP = ScriptRelationshipProof().unserialize(inSRPData)
+      inPKRPList.append(curSRP.pkrpList)
 
       # Generate and return the final script.
       finalScript = assembleScript(self.scriptTemplate,
@@ -986,13 +985,13 @@ class ScriptRelationshipProof(object):
          pkrpList.append(nextPKRP)
          k += 1
 
-      if not ver == BTCAID_SRP_VERSION:
+      if not inVer == BTCAID_SRP_VERSION:
          # In the future we will make this more of a warning, not error
          raise VersionError('SRP version does not match the loaded version')
 
       self.__init__()
       self.initialize(pkrpList,
-                      ver)
+                      inVer)
 
       return self
 
