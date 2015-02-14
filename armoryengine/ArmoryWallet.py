@@ -54,24 +54,27 @@ class ArmoryFileHeader(object):
       # This file may actually be used for a variety of wallet-related 
       # things -- such as transferring observer chains, exchanging linked-
       # wallet info, containing just comments/labels/P2SH script -- but 
-      # not actually be used as a proper wallet.
+      # not actually be used as a loadable wallet.
       self.isTransferWallet = False
       self.isSupplemental = False
 
    
    #############################################################################
-   def initialize(self, flags, wltName, timeCreate=0, blkCreate=0):
+   def initialize(self, wltName, timeCreate=0, blkCreate=0, flags=None):
       if isinstance(wltName, str):
          LOGWARN('Name argument supplied as plain str, converting to unicode')
 
       self.__init__()
-      self.flags = flags
+      self.flags = flags if flags else BitSet.CreateFromInteger(0, numBits=32)
       self.wltUserName = toUnicode(wltName)
       self.createTime = timeCreate
       self.createBlock = blkCreate
 
       self.isTransferWallet = self.flags.getBit(0)
       self.isSupplemental   = self.flags.getBit(1)
+
+      if self.isTransferWallet or self.isSupplemental:
+         raise UnserializeError('Transfer/supplemental wallets not supported!')
 
 
    #############################################################################
@@ -190,7 +193,7 @@ class ArmoryFileHeader(object):
 
       wltName = toUnicode(wltNamePad[:nameLen])
 
-      afh.initialize(wltFlags, wltName, timeCreate, blkCreate)
+      afh.initialize(wltName, timeCreate, blkCreate, wltFlags)
       return afh
      
 
@@ -1202,9 +1205,7 @@ class ArmoryWalletFile(object):
 
       try: 
          newRoot = rootClass()
-         newRoot.wltFileRef = self
-         newRoot.privCryptInfo = encryptInfo.copy()
-         newRoot.masterEkeyRef = ekeyObj
+         newRoot.setWalletAndCryptInfo(self, encryptInfo, ekeyObj)
          newRoot.initializeFromSeed(newSeed)
          newRoot.parEntryID = newRoot.getScrAddr()
          newRoot.wltParentRef = newRoot
@@ -1217,7 +1218,74 @@ class ArmoryWalletFile(object):
        
 
 
+   #############################################################################
+   def addAkpBranchToWallet(self, rootNodeOfBranch, errorIfDup=True):
+      # In the absence of error checking, this method simply passes 
+      # through to the AKP method that does this for us (it assumes that the
+      # wallet reference is already set).
+      if rootNodeOfBranch.wltFileRef is None:
+         rootNodeOfBranch.wltFileRef = self
+
+      # By default, we need to confirm no duplicate addrs in the wallet file
+      if errorIfDup:
+         # Create a recursive method to check all branch nodes
+         def checkAlreadyInMap(wlt, node):
+            if node.getEntryID() in wlt.masterScrAddrMap:
+               raise WalletUpdateError('Addr already in wallet file! %s' % \
+                     scrAddr_to_addrStr(node.getEntryID()))
+            for idx,child in node.akpChildByIndex.iteritems():
+               checkAlreadyInMap(child)
+
+         checkAlreadyInMap(self, rootNodeOfBranch)
+            
+      # In the absence of the above error checking, this method simply passes
+      # through to the AKP method.
+      rootNodeOfBranch.akpBranchQueueFsync()
       
+      
+      
+   #############################################################################
+   @VerifyArgTypes(ekeyObj=[EncryptionKey, MultiPwdEncryptionKey],
+                   kdfObj=[None, KdfObject, list, tuple])
+   def addCryptObjsToWallet(self, parent, ekeyObj, kdfObj=None, errorIfDup=True):
+      """
+      We only supply a kdfObj as a separate arg when the ekeyObj doesn't have 
+      one (or more) defined internally (i.e., only if not chained encryption).
+      """
+      toAddToWallet = [ekeyObj]
+      if isinstance(kdfObj, (list, tuple)):
+         toAddToWallet.extend(kdfObj)
+      elif isinstance(kdfObj, KdfObject):
+         toAddToWallet.append(kdfObj)
+
+      if isinstance(ekeyObj, EncryptionKey) and ekeyObj.kdfRef:
+         toAddToWallet.append(ekeyObj.kdfRef)
+      elif isinstance(ekeyObj, MultiPwdEncryptionKey) and ekeyObj.kdfRefList:
+         toAddToWallet.extend(ekeyObj.kdfRefList)
+
+      # By default, confirm that the data to add isn't already part of this 
+      # wallet, or linked to another wallet
+      if errorIfDup:
+         for we in toAddToWallet:
+            weID = we.getEntryID()
+            weIDHex = binary_to_hex(weID)
+            if we.wltFileRef or we.wltByteLoc:
+               raise WalletUpdateError('WE already linked: %s' % weIDHex)
+   
+            if self.ekeyMap.get(weID) or self.kdfMap.get(weID):
+               raise WalletUpdateError('WE already in wallet: %s' % weIDHex)
+
+      
+      for we in toAddToWallet:
+         we.parEntryID = parent.getScrAddr()
+         we.wltParentRef = parent
+         we.wltFileRef = self
+         we.queueFsync()
+
+   
+      self.fsyncUpdates()
+      
+
 
    #############################################################################
    def unlockWalletEkey(self, ekeyID, **unlockArgs):
@@ -1455,44 +1523,68 @@ class ArmoryWalletFile(object):
                         walletPath,
                         walletName=u'',
                         newRootClass=ABEK_BIP44Seed,
-                        isWatchOnly=True,
                         sbdPlainSeed=None,
                         encryptInfo=None,
                         ekeyRef=None,
-                        kdfRef=None):
+                        kdfRef=None,
+                        createTime=0,
+                        createBlock=0,
+                        prgFunc=emptyFunc):
 
       """
       We skip the atomic file operations since we don't even have a wallet 
       file yet to safely update.
+
+      If an ekeyRef is provided, the ekey needs to be unassociated (so far)
+      with any wallet, and it must be unlocked
+
+      Use this for "restoring" wallets.  In the case of a new wallet, the
+      seed is secure-randomly generated by the calling method and passed
+      in as an argument.  You can create it unencrypted by simply leaving
+      the default None for the last 3 args.
+      
+      createTime and createBlock are also rarely used... we avoid using them
+      unless we're absolutely sure about both.  By setting them too high, we
+      may end up permanently missing history and/or unspent coins for this
+      wallet.  
 
       Note: the kdfRef argument is rarely used, because the relevant kdf is
             already part of the ekey object, and will get called by the 
             encryption chaining.  See the comments in the setWalletAndCryptInfo
             method in ArmoryKeyPair.py.
       """
+      if ekeyRef and ekeyRef.isLocked():
+         raise WalletLockError('Cannot create encrypted root with locked ekey')
 
       LOGINFO('***Creating new wallet')
       newWlt = ArmoryWalletFile(walletPath, createNew=True)
-
+      newWlt.fileHeader.initialize(walletName, createTime, createBlock)
 
       #####
       # Create a new root object of the specified ArmorySeededKeyPair class
+      # We set the wallet file ref in the setWalletAndCryptInfo call, which
+      # then gets passed to all nodes in the tree when the keypool is filled
       newRoot = newRootClass()
       newRoot.setWalletAndCryptInfo(newWlt, encryptInfo, ekeyRef, kdfRef)
-
-      if isWatchOnly:
-         newRoot.initializeWatchOnly()
-      else:
-         newRoot.initializeFromSeed()
-      
+      newRoot.initializeFromSeed(sbdPlainSeed, fillPool=False)
       LOGINFO('Created new root of type: %s' % newRoot.getName())
 
+      # Don't fsync anything yet, fill the keypool in RAM first, with progress
+      newRoot.fillKeyPool(fsync=False, progressUpdater=prgFunc)
 
+      # Confirm this root and its children are not in the wallet yet, then add
+      newWlt.addAkpBranchToWallet(newRoot)
 
-      # Create the root address object
-      if createType in [CREATEWALLET.NEW_CRYPT, CREATEWALLET.NEW_PLAIN]:
-         rootAddr = self.createNewRoot(newRootClass, extraEntropy, encryptInfo, 
-                                    preGeneratedSeed=None)
+      # Confirm the ekey and kdf(s) are not in wallet yet, then add
+      newWlt.addCryptObjsToWallet(newRoot, ekeyRef, kdfRef)
+   
+      # Finally, make sure all the above operations are fsync'd
+      newWlt.fsyncUpdates()  
+
+      # Return the disk-syncrhonized wallet object
+      return newWlt
+      
+
 
       '''
       rootAddr.markAsRootAddr(chaincode)

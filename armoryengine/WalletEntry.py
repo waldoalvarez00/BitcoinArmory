@@ -435,7 +435,7 @@ class WalletEntry(object):
          LOGERROR('Attempted to rewrite WE object but no wlt file ref.')
          return
 
-      if self.wltByteLoc<=0:
+      if self.wltByteLoc is None or self.wltByteLoc<=0:
          self.wltFileRef.addFileOperationToQueue('AddEntry', self)
       else:
          self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)

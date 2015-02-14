@@ -189,7 +189,20 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   def fillKeyPool(self, fsync=True):
+   def fillKeyPool(self, fsync=True, progressUpdater=emptyFunc):
+      """
+      TODO:  progressUpdater needs to be integrated into this method...somehow. 
+             It is typically a function prepared by the GUI, that can be 
+             called with two arguments, current & total, which triggers GUI
+             progress bar updates.  However, given the recursive nature of
+             this method, we might have to get creative to be able to make
+             meaningful updates via this callback. (perhaps class reflection
+             combined with DEFAULT_CHILDPOOLSIZEs to figure out the total 
+             count, and then only call this method from if self is of a 
+             given class/type? perhaps only if it is a registered display
+             storage class...?)
+      """
+
       if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
          raise UninitializedError('AKP object not init, cannot fill pool')
 
@@ -203,7 +216,7 @@ class ArmoryKeyPair(WalletEntry):
 
       # Now recurse to each child
       for scrAddr,childAKP in self.akpChildByScrAddr.iteritems():
-         childAKP.fillKeyPool(fsync=fsync)
+         childAKP.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
 
          
          
@@ -1096,7 +1109,7 @@ class ArmoryKeyPair(WalletEntry):
    def akpBranchQueueFsync(self):
       self.queueFsync()
       for idx,child in self.akpChildByIndex.iteritems():
-         child.queueFsync()
+         child.akpBranchQueueFsync()
 
 
    #############################################################################
@@ -1914,15 +1927,11 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
          return childAddr
 
       # This sets the priv key (if non-empty)
-      # NOTE: this call must come after setting the public key, as it uses the
-      #       public key to compute the IV to encrypt new priv.  Because this
-      #       is fragile, we should consider making setPlainKeyData() a
-      #       method that sets the pubkey and chaincode, too, to make sure this
-      #       is done correctly.
       childAddr.setPlainKeyData(self.privCryptInfo,
                                 extend1.getPrivateKey(False),
                                 extend1.getPublicKey(),
                                 extend1.getChaincode())
+
       childAddr.masterEkeyRef = self.masterEkeyRef
       childAddr.masterKdfRef  = self.masterKdfRef
       childAddr.privKeyNextUnlock = nextUnlockFlag
