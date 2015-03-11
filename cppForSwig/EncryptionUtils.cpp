@@ -159,6 +159,23 @@ SecureBinaryData SecureBinaryData::XOR(uint8_t xorValue) {
    return out;
 }
 
+/////////////////////////////////////////////////////////////////////////////
+SecureBinaryData SecureBinaryData::XOR(SecureBinaryData const & sbd1,
+                                       SecureBinaryData const & sbd2)
+{
+   if(sbd1.getSize() != sbd2.getSize())
+   {
+      LOGERR << "Attempted to XOR two SBD objects of different lengths";
+      return SecureBinaryData(0);
+   }
+
+   SecureBinaryData sbdOut(sbd1.getSize());
+   for(uint32_t b=0; b<sbd1.getSize(); b++)
+      *(sbdOut.getPtr()+b) = *(sbd1.getPtr()+b) ^ *(sbd2.getPtr()+b);
+
+   return sbdOut;
+}
+
 
 // Get the Hash256 of the SecureBinaryData obj.
 /////////////////////////////////////////////////////////////////////////////
