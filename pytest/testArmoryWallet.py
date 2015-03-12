@@ -213,7 +213,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       
       afh = ArmoryFileHeader()
       
-      afh.isTransferWallet = True
+      afh.isTransferWallet = False
       afh.isSupplemental = False
       afh.createTime  = long(1.4e9)
       afh.createBlock = 320000
@@ -227,10 +227,10 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
 
       fl = BitSet(32)
-      fl.setBit(0, True)
+      fl.setBit(0, False)
       fl.setBit(1, False)
       afh2 = ArmoryFileHeader()
-      afh2.initialize(fl, u'', long(1.4e9), 320000)
+      afh2.initialize(u'', long(1.4e9), 320000, fl)
 
       self.cmp2afh(afh, afh2)
       self.roundTripTest(afh)
@@ -240,13 +240,19 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       fl.setBit(0, True)
       fl.setBit(1, True)
       afh3 = ArmoryFileHeader()
-      afh3.initialize(fl, u'Armory Wallet Test\u2122', 0, 0)
+      self.assertRaises(UnserializeError, afh3.initialize, u'Armory Wallet Test\u2122', 0, 0, fl)
 
       fl = BitSet(32)
-      fl.setBit(0, True)
-      fl.setBit(1, True)
+      fl.setBit(0, False)
+      fl.setBit(1, False)
+      afh3 = ArmoryFileHeader()
+      afh3.initialize(u'Armory Wallet Test\u2122', 0, 0, fl)
+
+      fl = BitSet(32)
+      fl.setBit(0, False)
+      fl.setBit(1, False)
       afh4 = ArmoryFileHeader()
-      afh4.initialize(fl, u'', 0, 0)
+      afh4.initialize(u'', 0, 0, fl)
 
       self.assertEqual( afh3.serializeHeaderData(), 
                         afh4.serializeHeaderData(altName=u'Armory Wallet Test\u2122'))
@@ -255,10 +261,10 @@ class ArmoryFileHeaderTests(unittest.TestCase):
    #############################################################################
    def test_MagicFail(self):
       fl = BitSet(32)
-      fl.setBit(0, True)
+      fl.setBit(0, False)
       fl.setBit(1, False)
       afh = ArmoryFileHeader()
-      afh.initialize(fl, u'Armory Wallet Test\u2122', long(1.4e9), 320000)
+      afh.initialize(u'Armory Wallet Test\u2122', long(1.4e9), 320000, fl)
 
       mgcC = '\xffARMORY\xff'
       mgcW = '\xbaWALLET\x00'
