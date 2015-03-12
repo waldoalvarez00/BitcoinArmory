@@ -43,6 +43,7 @@ DEFAULT_CHILDPOOLSIZE['ArmoryImportedRoot']    = 0
 
 # A key type with no constraints on child generation, mainly for testing
 DEFAULT_CHILDPOOLSIZE['ABEK_Generic'] = 5
+DEFAULT_SEED_SIZE = 16
 
 #                        0          1             2             3             4
 PRIV_KEY_AVAIL = enum('Uninit', 'WatchOnly', 'Available', 'NeedDecrypt', 'NextUnlock')
@@ -189,7 +190,20 @@ class ArmoryKeyPair(WalletEntry):
 
 
    #############################################################################
-   def fillKeyPool(self, fsync=True):
+   def fillKeyPool(self, fsync=True, progressUpdater=emptyFunc):
+      """
+      TODO:  progressUpdater needs to be integrated into this method...somehow. 
+             It is typically a function prepared by the GUI, that can be 
+             called with two arguments, current & total, which triggers GUI
+             progress bar updates.  However, given the recursive nature of
+             this method, we might have to get creative to be able to make
+             meaningful updates via this callback. (perhaps class reflection
+             combined with DEFAULT_CHILDPOOLSIZEs to figure out the total 
+             count, and then only call this method from if self is of a 
+             given class/type? perhaps only if it is a registered display
+             storage class...?)
+      """
+
       if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
          raise UninitializedError('AKP object not init, cannot fill pool')
 
@@ -203,7 +217,7 @@ class ArmoryKeyPair(WalletEntry):
 
       # Now recurse to each child
       for scrAddr,childAKP in self.akpChildByScrAddr.iteritems():
-         childAKP.fillKeyPool(fsync=fsync)
+         childAKP.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
 
          
          
@@ -712,6 +726,7 @@ class ArmoryKeyPair(WalletEntry):
          return mapOut
 
       if cryptInfoObj.getEncryptIVSrc()[0] == CRYPT_IV_SRC.PUBKEY20:
+         # Stored IV data is 8 bytes, but when supplied externally it's 16
          mapOut['ivData'] = hash256(self.sbdPublicKey33.toBinStr())[:16]
          mapOut['ivData'] = SecureBinaryData(mapOut['ivData'])
       else:
@@ -720,7 +735,7 @@ class ArmoryKeyPair(WalletEntry):
          mapOut['ivData']  = None
 
       # Not normal for an AKP to have a direct KDF obj, but it might
-      mapOut['ekeyObj']  = self.masterEkeyRef
+      mapOut['ekeyObj'] = self.masterEkeyRef
       mapOut['kdfObj']  = self.masterKdfRef
 
       return mapOut
@@ -1096,7 +1111,7 @@ class ArmoryKeyPair(WalletEntry):
    def akpBranchQueueFsync(self):
       self.queueFsync()
       for idx,child in self.akpChildByIndex.iteritems():
-         child.queueFsync()
+         child.akpBranchQueueFsync()
 
 
    #############################################################################
@@ -1140,7 +1155,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
 
 
    #############################################################################
-   def initializeFromSeed(self, sbdPlainSeed, fsync=True):
+   def initializeFromSeed(self, *args, **kwargs):
       raise NotImplementedError('"%s" needs to implement initializeFromSeed()' % \
                                                              self.getName())
 
@@ -1629,7 +1644,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
    #############################################################################
    @EkeyMustBeUnlocked('masterEkeyRef')
    @VerifyArgTypes(sbdPlainSeed=SecureBinaryData)
-   def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True):
+   def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True, fsync=True):
       """
       We must already have a master encryption key created, and a reference to
       it set in this object (so that the EkeyMustBeUnlocked decorator passes)
@@ -1648,8 +1663,6 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
          sbdPub    = CryptoECDSA().ComputePublicKey(sbdPriv)
          sbdChain  = DeriveChaincodeFromRootKey_135(sbdPriv)
 
-      # Make sure the public key is properly set
-
       # Set new priv key with encryption (must be set after pub key)
       self.setPlainKeyData(self.privCryptInfo, sbdPriv, sbdPub, sbdChain)
 
@@ -1658,15 +1671,6 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
          if not self.sbdPublicKey33 == CryptoECDSA().CompressPoint(verifyPub):
             raise KeyDataError('Public key from seed does not match expected')
 
-      # EDIT:  Since this is recoverable from the priv&chain fields, don't save
-      """
-      # Now store the seed data along with the everything else
-      self.seedNumBytes = sbdPlainSeed.getSize()
-      self.seedCryptInfo = self.privCryptInfo.copy()
-      self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
-      self.sbdSeedData = self.seedCryptInfo.encrypt(sbdPlainSeed, 
-                                                     ekeyObj=self.masterEkeyRef)
-      """
 
       self.isWatchOnly     = False
       self.useCompressPub  = False
@@ -1681,7 +1685,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       self.recomputeScrAddr()
 
       if fillPool:
-         self.fillKeyPool()
+         self.fillKeyPool(fsync=fsync)
          
 
 
@@ -1914,15 +1918,11 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
          return childAddr
 
       # This sets the priv key (if non-empty)
-      # NOTE: this call must come after setting the public key, as it uses the
-      #       public key to compute the IV to encrypt new priv.  Because this
-      #       is fragile, we should consider making setPlainKeyData() a
-      #       method that sets the pubkey and chaincode, too, to make sure this
-      #       is done correctly.
       childAddr.setPlainKeyData(self.privCryptInfo,
                                 extend1.getPrivateKey(False),
                                 extend1.getPublicKey(),
                                 extend1.getChaincode())
+
       childAddr.masterEkeyRef = self.masterEkeyRef
       childAddr.masterKdfRef  = self.masterKdfRef
       childAddr.privKeyNextUnlock = nextUnlockFlag
@@ -2033,7 +2033,7 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
    #############################################################################
    @EkeyMustBeUnlocked('masterEkeyRef')
    @VerifyArgTypes(sbdPlainSeed=SecureBinaryData)
-   def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True):
+   def initializeFromSeed(self, sbdPlainSeed, verifyPub=None, fillPool=True, fsync=True):
       """
       We must already have a master encryption key created, and a reference to
       it set in this object (so the EkeyMustBeUnlocked decorator returns True)
@@ -2058,6 +2058,7 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
 
       self.seedNumBytes = sbdPlainSeed.getSize()
       self.seedCryptInfo = self.privCryptInfo.copy()
+
       # Normally PUBKEY20 is IV for priv, but need different new IV for the seed
       self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8).toBinStr()
       self.seedNumBytes = sbdPlainSeed.getSize()
@@ -2080,13 +2081,13 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       self.recomputeScrAddr()
 
       if fillPool:
-         self.fillKeyPool()
+         self.fillKeyPool(fsync=fsync)
 
 
    #############################################################################
    @EkeyMustBeUnlocked('masterEkeyRef')
    @VerifyArgTypes(extraEntropy=SecureBinaryData)
-   def createNewSeed(self, seedSize, extraEntropy, fillPool=True):
+   def createNewSeed(self, seedSize, extraEntropy, fillPool=True, fsync=True):
       """
       This calls initializeFromSeed(), which requires you already set the 
       masterEkeyRef object and have it unlocked before calling this function.
@@ -2101,9 +2102,25 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       if extraEntropy.getSize()<16:
          raise KeyDataError('Must provide >= 16B extra entropy for seed gen')
 
-      newSeed = SecureBinaryData().GenerateRandom(seedSize, extraEntropy)
-      self.initializeFromSeed(newSeed, fillPool=fillPool)
-      newSeed.destroy()
+      # NIST (SP8800-133) has recommended K=U XOR V, where U is output of an 
+      # RNG, V is an indepedently-generated string.  Previously recommended 
+      # generating 1.5x the desired bytes and hashing it to the right length.  
+      # So here we combine the concepts by just doing TWO 1x RNG pulls, 
+      # and XOR them together.  Our RNG was likely seeded with more than the
+      # default 16 bytes of entropy, anyway.
+      newSeedU = SecureBinaryData().GenerateRandom(seedSize, extraEntropy)
+      newSeedV = SecureBinaryData().GenerateRandom(seedSize)
+      newSeedK = SecureBinaryData().XOR(newSeedU, newSeedV)
+
+      if newSeedK.getSize() < seedSize:
+         raise KeyDataError('Generation of key material failed!')
+
+      self.initializeFromSeed(newSeedK, fillPool=fillPool, fsync=fsync)
+
+      # Clean up
+      newSeedU.destroy()
+      newSeedV.destroy()
+      newSeedK.destroy()
 
 
 ################################################################################

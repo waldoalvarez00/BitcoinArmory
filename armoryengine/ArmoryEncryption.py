@@ -655,6 +655,9 @@ class KdfObject(WalletEntry):
    def getKdfID(self):
       return computeChecksum(self.serialize(), 8)
       
+   #############################################################################
+   def getEntryID(self):
+      return self.getKdfID()
 
    #############################################################################
    def serialize(self):
@@ -824,6 +827,10 @@ class EncryptionKey(WalletEntry):
 
          self.ekeyID = calcEKeyID(self.masterKeyPlain)
       return self.ekeyID
+
+   #############################################################################
+   def getEntryID(self):
+      return self.getEncryptionKeyID()
 
    #############################################################################
    @VerifyArgTypes(passphrase=SecureBinaryData)
@@ -1027,6 +1034,8 @@ class EncryptionKey(WalletEntry):
          #        the claimant will have to put (masterKey||testStrEncr) 
          #        onto the stack, which will be hashed three times and 
          #        compared against self.keyTripleHash.
+         # Note3: Disabled test-string related code because ... it's very
+         #        low priority, and probably not really worth the effort!
          raise NotImplementedError
          minfo = ArmoryCryptInfo(NULLKDF, encryptEKeyAlgo, 'RAWKEY32', self.ekeyID)
          rand16 = SecureBinaryData().GenerateRandom(16)

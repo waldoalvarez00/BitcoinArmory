@@ -185,6 +185,9 @@ public:
    void reserve(size_t sz) { BinaryData::reserve(sz); lockData(); }
 
    SecureBinaryData XOR(uint8_t xorValue);
+   
+   SecureBinaryData XOR(SecureBinaryData const & sbd1,
+                        SecureBinaryData const & sbd2);
 
    BinaryData    getRawCopy() const { return BinaryData(getPtr(), getSize()); }
    BinaryDataRef getRawRef()  { return BinaryDataRef(getPtr(), getSize()); }

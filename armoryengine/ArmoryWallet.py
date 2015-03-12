@@ -54,24 +54,27 @@ class ArmoryFileHeader(object):
       # This file may actually be used for a variety of wallet-related 
       # things -- such as transferring observer chains, exchanging linked-
       # wallet info, containing just comments/labels/P2SH script -- but 
-      # not actually be used as a proper wallet.
+      # not actually be used as a loadable wallet.
       self.isTransferWallet = False
       self.isSupplemental = False
 
    
    #############################################################################
-   def initialize(self, flags, wltName, timeCreate=0, blkCreate=0):
+   def initialize(self, wltName, timeCreate=0, blkCreate=0, flags=None):
       if isinstance(wltName, str):
          LOGWARN('Name argument supplied as plain str, converting to unicode')
 
       self.__init__()
-      self.flags = flags
+      self.flags = flags if flags else BitSet.CreateFromInteger(0, numBits=32)
       self.wltUserName = toUnicode(wltName)
       self.createTime = timeCreate
       self.createBlock = blkCreate
 
       self.isTransferWallet = self.flags.getBit(0)
       self.isSupplemental   = self.flags.getBit(1)
+
+      if self.isTransferWallet or self.isSupplemental:
+         raise UnserializeError('Transfer/supplemental wallets not supported!')
 
 
    #############################################################################
@@ -190,7 +193,7 @@ class ArmoryFileHeader(object):
 
       wltName = toUnicode(wltNamePad[:nameLen])
 
-      afh.initialize(wltFlags, wltName, timeCreate, blkCreate)
+      afh.initialize(wltName, timeCreate, blkCreate, wltFlags)
       return afh
      
 
@@ -1088,136 +1091,77 @@ class ArmoryWalletFile(object):
 
       return True
 
+
    #############################################################################
-   @CheckFsyncArgument
-   @VerifyArgTypes(securePwd=SecureBinaryData,
-                   extraEntropy=[SecureBinaryData, None])
-   def generateNewSinglePwdSeedEkeyKDF(self, rootClass, 
-                                             securePwd, 
-                                             extraEntropy, 
-                                             kdfAlgo='ROMIXOV2', 
-                                             kdfTargSec=0.25, 
-                                             kdfMaxMem=32*MEGABYTE, 
-                                             encrAlgo='AE256CBC',
-                                             fillPool=True, 
-                                             fsync=None):
+   def addAkpBranchToWallet(self, rootNodeOfBranch, errorIfDup=True):
+      # In the absence of error checking, this method simply passes 
+      # through to the AKP method that does this for us (it assumes that the
+      # wallet reference is already set).
+      if rootNodeOfBranch.wltFileRef is None:
+         rootNodeOfBranch.wltFileRef = self
+
+      # By default, we need to confirm no duplicate addrs in the wallet file
+      if errorIfDup:
+         # Create a recursive method to check all branch nodes
+         def checkAlreadyInMap(wlt, node):
+            if node.getEntryID() in wlt.masterScrAddrMap:
+               raise WalletUpdateError('Addr already in wallet file! %s' % \
+                     scrAddr_to_addrStr(node.getEntryID()))
+            for idx,child in node.akpChildByIndex.iteritems():
+               checkAlreadyInMap(child)
+
+         checkAlreadyInMap(self, rootNodeOfBranch)
+            
+      # In the absence of the above error checking, this method simply passes
+      # through to the AKP method.
+      rootNodeOfBranch.akpBranchQueueFsync()
       
+      
+      
+   #############################################################################
+   @VerifyArgTypes(ekeyObj=[EncryptionKey, MultiPwdEncryptionKey],
+                   kdfObj=[None, KdfObject, list, tuple])
+   def addCryptObjsToWallet(self, parent, ekeyObj, kdfObj=None, errorIfDup=True):
+      """
+      We only supply a kdfObj as a separate arg when the ekeyObj doesn't have 
+      one (or more) defined internally (i.e., only if not chained encryption).
+      """
+      toAddToWallet = [ekeyObj]
+      if isinstance(kdfObj, (list, tuple)):
+         toAddToWallet.extend(kdfObj)
+      elif isinstance(kdfObj, KdfObject):
+         toAddToWallet.append(kdfObj)
+
+      if isinstance(ekeyObj, EncryptionKey) and ekeyObj.kdfRef:
+         toAddToWallet.append(ekeyObj.kdfRef)
+      elif isinstance(ekeyObj, MultiPwdEncryptionKey) and ekeyObj.kdfRefList:
+         toAddToWallet.extend(ekeyObj.kdfRefList)
+
+      # By default, confirm that the data to add isn't already part of this 
+      # wallet, or linked to another wallet
+      if errorIfDup:
+         for we in toAddToWallet:
+            weID = we.getEntryID()
+            weIDHex = binary_to_hex(weID)
+            if we.wltFileRef or we.wltByteLoc:
+               raise WalletUpdateError('WE already linked: %s' % weIDHex)
    
-      LOGINFO('Creating new single-password wallet seed')
-
-      # Create a KDF
-      LOGINFO('Creating new KDF with params: time=%0.2fs, maxmem=%0.2fMB', 
-                                        kdfTargSec, kdfMaxMem/float(MEGABYTE))
-
-      newKdf = KdfObject.createNewKDF(kdfAlgo, kdfTargSec, kdfMaxMem)
-
-      tstart = RightNow()
-      newKdf.execKDF(SecureBinaryData('TestPassword'))
-      tend = RightNow()
-
-      LOGINFO('KDF ID=%s uses %0.2fMB and a test password took %0.2fs',
-                     binary_to_hex(newKdf.getKdfID()), 
-                     newKdf.memReqd/float(MEGABYTE), (tend-tstart))
+            if self.ekeyMap.get(weID) or self.kdfMap.get(weID):
+               raise WalletUpdateError('WE already in wallet: %s' % weIDHex)
 
       
-      # Create an Ekey
-      LOGINFO('Creating new master encryption key')
-      newEkey = EncryptionKey().createNewMasterKey(newKdf, encrAlgo, securePwd)
-      LOGINFO('New Ekey has ID=%s',  binary_to_hex(newEkey.ekeyID))
+      for we in toAddToWallet:
+         # All crypt objects are their own parent (root objs).  They may be
+         # shared across multiple wallet/root/AKP/AWD objects
+         we.parEntryID = we.getEntryID()
+         we.wltParentRef = we
+         we.wltFileRef = self
+         we.queueFsync()
 
-
-      # Create the cryptinfo object for both the above
-      newCryptInfo = ArmoryCryptInfo(NULLKDF, encrAlgo, newEkey.ekeyID, 'PUBKEY20')
-
-      # Create a root that will be encrypted with the above masterkey.
-      # Ekey must be unlocked before creating the root with it.
-      newEkey.unlock(securePwd)
-      try:
-         newEkey.markKeyInUse()
-         newRoot = self.createNewRoot(rootClass, extraEntropy, newCryptInfo, newEkey)
-      finally:
-         newEkey.finishedWithKey()
-
-      # Recursively fill the keypool
-      if fillPool:
-         newRoot.fillKeyPool(fsync=fsync)
-      
-      # Now add all the objects to the wallet file 
-      if fsync:
-         self.addFileOperationToQueue('AddEntry', newKdf)
-         self.addFileOperationToQueue('AddEntry', newEkey)
-         self.addFileOperationToQueue('AddEntry', newRoot)
-         self.fsyncUpdates()
-
-      
+   
+      self.fsyncUpdates()
       
 
-   #############################################################################
-   @VerifyArgTypes(extraEntropy=[SecureBinaryData, None],
-                   preGeneratedSeed=[SecureBinaryData, None])
-   def createNewRoot(self, rootClass, extraEntropy, encryptInfo, 
-                               preGeneratedSeed=None):
-      """
-      If this new master seed is being protected with encryption that isn't
-      already defined in the wallet, then the new Ekey & KDF objects needs 
-      to be created and added to the wallet before calling this function.  
-      Additioanlly, the ekey needs to be unlocked.
-      
-      "extraEntropy" is a required argument here, because we should *always*
-      be sending extra entropy into the secure (P)RNG for seed creation.  
-      Never fully trust the operating system, and there's no way to make its 
-      seed generation worse, so we will require it even if the caller decides
-      to pass in all zero bytes.  ArmoryQt.getExtraEntropyForKeyGen() (as 
-      of this writing) provides a 32-byte SecureBinaryData object which is 
-      the hash of system files, key- and mouse-press timings, and a screenshot 
-      of the user's desktop.
-
-      Note if you pass in a pregenerated seed, you can then pass in None for 
-      extraEntropy arg
-      """
-
-      if not issubclass(rootClass, ArmorySeededKeyPair):
-         raise TypeError('Must provide a seeded/root key pair class type')
-      
-
-      ekeyObj = None
-      if encryptInfo.useEncryption():
-         ekeyID  = encryptInfo.keySource
-         ekeyObj = self.ekeyMap.get(ekeyID)
-         if ekeyObj is None:
-            raise KeyDataError('Unrecognized ekey: %s' % binary_to_hex(ekeyID))
-
-         if ekeyObj.isLocked():
-            raise WalletLockError('Ekey must be unlocked to create new root')
-
-      # Copy all sensitive data into newSeed and destroy at the end.  If a SBD
-      # object was created to be passed into pregen arg, caller can destroy it.
-      if preGeneratedSeed is None:
-         if extraEntropy is None or extraEntropy.getSize() < 16:
-            raise KeyDataError('Must provide 16+ bytes of extra entropy')
-
-         newSeed = SecureBinaryData().GenerateRandom(32, extraEntropy)
-      else:
-         newSeed = preGeneratedSeed.copy()
-
-      try: 
-         newRoot = rootClass()
-         newRoot.wltFileRef = self
-         newRoot.privCryptInfo = encryptInfo.copy()
-         newRoot.masterEkeyRef = ekeyObj
-         newRoot.initializeFromSeed(newSeed)
-         newRoot.parEntryID = newRoot.getScrAddr()
-         newRoot.wltParentRef = newRoot
-         return newRoot
-
-      finally:
-         LOGEXCEPT('Error during seed creation and addition to wallet')
-         newSeed.destroy()
-      
-       
-
-
-      
 
    #############################################################################
    def unlockWalletEkey(self, ekeyID, **unlockArgs):
@@ -1416,174 +1360,241 @@ class ArmoryWalletFile(object):
          node.awdObj.fsyncUpdates()
       
 
-   #############################################################################
-   @staticmethod
-   @VerifyArgTypes(sbdPassphrase=SecureBinaryData)
-   def CreateWalletFile_NewSingleCrypt(self, 
-                                       walletName,
-                                       sbdPassphrase,
-                                       newRootClass=ABEK_BIP44Seed,
-                                       encryptAlgo='AE256CFB',
-                                       kdfAlgo='ROMIXOV2',
-                                       kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET,
-                                       kdfMaxMem=DEFAULT_MAXMEM_LIMIT):
 
-      ekeyMap = {}
-      kdfMap  = {}
-                                       
-      LOGINFO('Creating new KDF object')
-      newKDF = KdfObject().createNewKDF(kdfAlgo, kdfTargSec, kdfMaxMem)
-      kdfID = newKDF.getKdfID()
-      kdfMap[kdfID] = newKDF
-      LOGINFO('Finished creating new KDF obj, ID=%s' % binary_to_hex(kdfID))
+
+   #############################################################################
+   #############################################################################
+   #
+   # Wallet-creation methods
+   #
+   #############################################################################
+   #############################################################################
+
+   #############################################################################
+   @VerifyArgTypes(extraEntropy=[SecureBinaryData, None],
+                   sbdPregeneratedSeed=[SecureBinaryData, None])
+   def createNewRootObject(self, rootClass, encryptInfo, ekeyRef, 
+                           sbdExtraEntropy=None, sbdPregeneratedSeed=None, 
+                           fillPool=True, fsync=True, kdfRef=None):
+      """
+      If this new master seed is being protected with encryption that isn't
+      already defined in the wallet, then the new Ekey & KDF objects needs 
+      to be created and added to the wallet before calling this function.  
+      Additioanlly, the ekey needs to be unlocked.
+      
+      In the event that no pregenerated seed data is passed to this function,
+      "sbdExtraEntropy" is a required argument here, because we should *always*
+      be sending extra entropy into the secure (P)RNG for seed creation.  
+      Never fully trust the operating system, and there's no way to make its 
+      seed generation worse, so we will require it even if the caller decides
+      to pass in all zero bytes.  ArmoryQt.getExtraEntropyForKeyGen() (as 
+      of this writing) provides a 32-byte SecureBinaryData object which is 
+      the hash of system files, key- and mouse-press timings, and a screenshot 
+      of the user's desktop.
+
+      Note if you pass in a pregenerated seed, you can then pass in None for 
+      sbdExtraEntropy arg.
+      
+      See ArmoryKeyPair::setWalletAndCryptInfo for explanation of ekeyRef and
+      kdfRef args.  Typically the KDF will already be part of the ekeyRef and 
+      you pass in None for kdfRef in this method
+      """
+
+      if not issubclass(rootClass, ArmorySeededKeyPair):
+         raise TypeError('Must provide a seeded/root key pair class type')
+      
+      if encryptInfo.useEncryption() and (ekeyRef is None or ekeyRef.isLocked()):
+         raise WalletLockError('Ekey must exist and be unlocked to create root')
+
+      if (sbdPregeneratedSeed is None) == (sbdExtraEntropy is None):
+         raise KeyDataError('Must supply only one: pregen seed or extra entropy')
+
+
+      # Create a new root of the desired type
+      newRoot = rootClass()
+
+      # Setting cryptInfo with None for ekey and kdf is fine (no encryption)
+      newRoot.setWalletAndCryptInfo(self, encryptInfo, ekeyRef, kdfRef)
+
+      if sbdPregeneratedSeed is None:
+         if sbdExtraEntropy is None or sbdExtraEntropy.getSize() < 16:
+            raise KeyDataError('Must provide 16+ bytes of extra entropy')
+
+         newRoot.createNewSeed(DEFAULT_SEED_SIZE, sbdExtraEntropy, fillPool=fillPool)
+      else:
+         newRoot.initializeFromSeed(sbdPregeneratedSeed, fillPool=fillPool)
+
+      newRoot.parEntryID = newRoot.getScrAddr()
+      newRoot.wltParentRef = newRoot  # root address has self-reference
+      return newRoot
+      
+
+   #############################################################################
+   @CheckFsyncArgument
+   @VerifyArgTypes(sbdPassphrase=SecureBinaryData,
+                   sbdExtraEntropy=[SecureBinaryData, None])
+   def generateNewSinglePwdMasterEKey(self, sbdPassphrase, 
+                                            kdfAlgo='ROMIXOV2', 
+                                            kdfTargSec=0.25, 
+                                            kdfMaxMem=32*MEGABYTE, 
+                                            encryptAlgo='AE256CBC'):
 
       #####
-      # If a secure passphrase was supplied, create a new master encryption key
+      LOGINFO('Creating new KDF with params: time=%0.2fs, maxmem=%0.2fMB', 
+                                        kdfTargSec, kdfMaxMem/float(MEGABYTE))
+      newKDF = KdfObject().createNewKDF(kdfAlgo, kdfTargSec, kdfMaxMem)
+      kdfID = newKDF.getKdfID()
+      LOGINFO('Finished creating new KDF obj, ID=%s' % binary_to_hex(kdfID))
+
+      tstart = RightNow()
+      newKdf.execKDF(SecureBinaryData('TestPassword'))
+      tend = RightNow()
+
+      LOGINFO('KDF ID=%s uses %0.2fMB and a test password took %0.2fs',
+                     binary_to_hex(newKdf.getKdfID()), 
+                     newKdf.memReqd/float(MEGABYTE), (tend-tstart))
+
+      #####
       LOGDEBUG('Creating new master encryption key')
       newEKey = EncryptionKey().createNewMasterKey(newKDF, encryptAlgo, sbdPassphrase)
       ekeyID = newEkey.getEncryptionKeyID()
-      ekeyMap[ekeyID] = newEKey
       LOGINFO('Finished creating new EKEY obj, ID=%s' % binary_to_hex(ekeyID))
 
+      #####
+      # The following ACI is provided for any AKP objects that will be 
+      # encrypted with this master ekey (KDF is null because it's part of 
+      # the ekey object)
+      aci = ArmoryCryptInfo(NULLKDF, encryptAlgo, ekeyID, 'PUBKEY20')
+   
+      return [aci, newEKey]
 
-      #aci = ArmoryCryptInfo(kdfID, encryptAlgo, 
+
+
 
 
    #############################################################################
    @staticmethod
-   def CreateWalletFile(self, 
+   def CreateWalletFile_BASE(
                         walletPath,
                         walletName=u'',
                         newRootClass=ABEK_BIP44Seed,
-                        isWatchOnly=True,
-                        sbdPlainSeed=None,
+                        sbdExtraEntropy=None,
+                        sbdPregeneratedSeed=None,
                         encryptInfo=None,
                         ekeyRef=None,
-                        kdfRef=None):
+                        kdfRef=None,
+                        createTime=0,
+                        createBlock=0,
+                        prgFunc=emptyFunc):
 
       """
       We skip the atomic file operations since we don't even have a wallet 
       file yet to safely update.
+
+      If an ekeyRef is provided, the ekey needs to be unassociated (so far)
+      with any wallet, and it must be unlocked
+
+      Use this for "restoring" wallets.  In the case of a new wallet, the
+      seed is secure-randomly generated by the calling method and passed
+      in as an argument.  You can create it unencrypted by simply leaving
+      the default None for the last 3 args.
+      
+      createTime and createBlock are also rarely used... we avoid using them
+      unless we're absolutely sure about both.  By setting them too high, we
+      may end up permanently missing history and/or unspent coins for this
+      wallet.  
 
       Note: the kdfRef argument is rarely used, because the relevant kdf is
             already part of the ekey object, and will get called by the 
             encryption chaining.  See the comments in the setWalletAndCryptInfo
             method in ArmoryKeyPair.py.
       """
+      if ekeyRef and ekeyRef.isLocked():
+         raise WalletLockError('Cannot create encrypted root with locked ekey')
 
       LOGINFO('***Creating new wallet')
       newWlt = ArmoryWalletFile(walletPath, createNew=True)
-
+      newWlt.fileHeader.initialize(walletName, createTime, createBlock)
 
       #####
       # Create a new root object of the specified ArmorySeededKeyPair class
-      newRoot = newRootClass()
-      newRoot.setWalletAndCryptInfo(newWlt, encryptInfo, ekeyRef, kdfRef)
-
-      if isWatchOnly:
-         newRoot.initializeWatchOnly()
-      else:
-         newRoot.initializeFromSeed()
-      
+      newRoot = newWlt.createNewRootObject(newRootClass, encryptInfo, ekeyRef,
+                                           sbdExtraEntropy, sbdPregeneratedSeed, 
+                                           fsync=False, kdfRef=kdfRef)
       LOGINFO('Created new root of type: %s' % newRoot.getName())
 
 
+      # Don't fsync anything yet, fill the keypool in RAM first, with progress
+      newRoot.fillKeyPool(fsync=False, progressUpdater=prgFunc)
 
-      # Create the root address object
-      if createType in [CREATEWALLET.NEW_CRYPT, CREATEWALLET.NEW_PLAIN]:
-         rootAddr = self.createNewRoot(newRootClass, extraEntropy, encryptInfo, 
-                                    preGeneratedSeed=None)
+      # Confirm this root and its children are not in the wallet yet, then add
+      newWlt.addAkpBranchToWallet(newRoot)
 
-      '''
-      rootAddr.markAsRootAddr(chaincode)
+      # Confirm the ekey and kdf(s) are not in wallet yet, then add
+      newWlt.addCryptObjsToWallet(newRoot, ekeyRef, kdfRef)
+   
+      # Finally, make sure all the above operations are fsync'd
+      newWlt.fsyncUpdates()  
 
-      # This does nothing if no encryption
-      rootAddr.lock(self.kdfKey)
-      rootAddr.unlock(self.kdfKey)
-
-      firstAddr = rootAddr.extendAddressChain(self.kdfKey)
-      first160  = firstAddr.getAddr160()
-
-      # Update wallet object with the new data
-      self.useEncryption = withEncrypt
-      self.addrMap['ROOT'] = rootAddr
-      self.addrMap[firstAddr.getAddr160()] = firstAddr
-      self.uniqueIDBin = (ADDRBYTE + firstAddr.getAddr160()[:5])[::-1]
-      self.uniqueIDB58 = binary_to_base58(self.uniqueIDBin)
-      self.labelName  = shortLabel[:32]
-      self.labelDescr  = longLabel[:256]
-      self.lastComputedChainAddr160 = first160
-      self.lastComputedChainIndex  = firstAddr.chainIndex
-      self.highestUsedChainIndex   = firstAddr.chainIndex-1
-      self.wltCreateDate = long(RightNow())
-      self.linearAddr160List = [first160]
-      self.chainIndexMap[firstAddr.chainIndex] = first160
-
-      # We don't have to worry about atomic file operations when
-      # creating the wallet: so we just do it naively here.
-      self.walletPath = newWalletFilePath
-      if not newWalletFilePath:
-         shortName = self.labelName .replace(' ','_')
-         # This was really only needed when we were putting name in filename
-         #for c in ',?;:\'"?/\\=+-|[]{}<>':
-            #shortName = shortName.replace(c,'_')
-         newName = 'armory_%s_.wallet' % self.uniqueIDB58
-         self.walletPath = os.path.join(ARMORY_HOME_DIR, newName)
-
-      LOGINFO('   New wallet will be written to: %s', self.walletPath)
-      newfile = open(self.walletPath, 'wb')
-      fileData = BinaryPacker()
-
-      # packHeader method writes KDF params and root address
-      headerBytes = self.packHeader(fileData)
-
-      # We make sure we have byte locations of the two addresses, to start
-      self.addrMap[first160].walletByteLoc = headerBytes + 21
-
-      fileData.put(BINARY_CHUNK, '\x00' + first160 + firstAddr.serialize())
-
-
-      # Store the current localtime and blocknumber.  Block number is always 
-      # accurate if available, but time may not be exactly right.  Whenever 
-      # basing anything on time, please assume that it is up to one day off!
-      time0,blk0 = getCurrTimeAndBlock() if isActuallyNew else (0,0)
-
-      # Don't forget to sync the C++ wallet object
-      self.cppWallet = Cpp.BtcWallet()
-      self.cppWallet.addAddress_5_(rootAddr.getAddr160(), time0,blk0,time0,blk0)
-      self.cppWallet.addAddress_5_(first160,              time0,blk0,time0,blk0)
-
-      # We might be holding the wallet temporarily and not ready to register it
-      if doRegisterWithBDM:
-         TheBDM.registerWallet(self.cppWallet, isFresh=isActuallyNew) # new wallet
-
-
-      newfile.write(fileData.getBinaryString())
-      newfile.close()
-
-      walletFileBackup = self.getWalletPath('backup')
-      shutil.copy(self.walletPath, walletFileBackup)
-
-      # Lock/unlock to make sure encrypted keys are computed and written to file
-      if self.useEncryption:
-         self.unlock(secureKdfOutput=self.kdfKey)
-
-      # Let's fill the address pool while we are unlocked
-      # It will get a lot more expensive if we do it on the next unlock
-      if doRegisterWithBDM:
-         self.fillAddressPool(self.addrPoolSize, isActuallyNew=isActuallyNew)
-
-      if self.useEncryption:
-         self.lock()
-
-
-      SERIALIZEEVERYTHINGINTO THE FILE
-      self.writeFreshWalletFile(filepath)
-      return self
-      '''
+      # Return the disk-syncrhonized wallet object
+      return newWlt
+      
 
 
 
+
+   #############################################################################
+   @staticmethod
+   @VerifyArgTypes(sbdPassphrase=SecureBinaryData,
+                   sbdExtraEntropy=SecureBinaryData)
+   def CreateWalletFile_SinglePwd(self, 
+                                  walletPath,
+                                  walletName,
+                                  sbdPassphrase,
+                                  newRootClass=ABEK_BIP44Seed,
+                                  sbdExtraEntropy=None,
+                                  sbdPregeneratedSeed=None,
+                                  encryptAlgo='AE256CFB',
+                                  kdfAlgo='ROMIXOV2',
+                                  kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET,
+                                  kdfMaxMem=DEFAULT_MAXMEM_LIMIT,
+                                  progressUpdaterFunc=emptyFunc):
+
+      if (sbdExtraEntropy is None) == (sbdPregeneratedSeed is None):
+         raise KeyDataError(
+                                       
+      aci, newEKey = generateNewSinglePwdMasterEKey( sbdPassphrase, 
+                                                     kdfAlgo,
+                                                     kdfTargSec,
+                                                     kdfMaxMem,
+                                                     encryptAlgo)
+   
+
+      newEkey.unlock(sbdPassphrase)
+      try:
+         newEkey.markKeyInUse()
+         # Now we have everything we need to create the 
+         newWlt = ArmoryWalletFile.CreateWalletFile_BASE( \
+                        walletPath,
+                        walletName,
+                        newRootClass,
+                        sbdExtraEntropy,
+                        sbdPregeneratedSeed,
+                        aci,
+                        newEKey,
+                        kdfRef=None,
+                        createTime=0,
+                        createBlock=0,
+                        prgFunc=progressUpdaterFunc)
+
+      finally:
+         newEkey.finishedWithKey()
+                                                  
+
+      return newWlt
+
+
+                                                  
 
 
 

@@ -7452,6 +7452,34 @@ protected:
    SecureBinaryData invModRes;
 };
 
+
+TEST_F(TestCryptoECDSA, VerifySBDXOR)
+{
+   SecureBinaryData sbd1;
+   SecureBinaryData sbd2;
+   SecureBinaryData sbd3;
+
+   sbd1 = READHEX("ffff0000ffff0000");
+   sbd2 = READHEX("0000000000000000");
+   sbd3 = READHEX("ffff0000ffff0000");
+   EXPECT_EQ( SecureBinaryData().XOR(sbd1, sbd2), sbd3);
+
+   sbd1 = READHEX("");
+   sbd2 = READHEX("");
+   sbd3 = READHEX("");
+   EXPECT_EQ( SecureBinaryData().XOR(sbd1, sbd2), sbd3);
+
+   sbd1 = READHEX("ffff0000ffff0000");
+   sbd2 = READHEX("ffff0000ffff0000");
+   sbd3 = READHEX("0000000000000000");
+   EXPECT_EQ( SecureBinaryData().XOR(sbd1, sbd2), sbd3);
+
+   sbd1 = READHEX("01");
+   sbd2 = READHEX("80");
+   sbd3 = READHEX("81");
+   EXPECT_EQ( SecureBinaryData().XOR(sbd1, sbd2), sbd3);
+}
+
 // Verify that a point known to be on the secp256k1 curve is recognized as such.
 ////////////////////////////////////////////////////////////////////////////////
 TEST_F(TestCryptoECDSA, VerifySECP256K1Point)
