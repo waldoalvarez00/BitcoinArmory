@@ -13,7 +13,7 @@ from armoryengine.ArmoryUtils import sha224, binary_to_hex
 GETDNS_RRTYPE_PMTA = 65337
 
 # User must supply an email address to query and indicate if testnet/mainnet.
-if len(sys.argv) != 3:
+if len(sys.argv) != 3 or sys.argv[2].lower() not in ['m', 't']:
    print 'Oops! Format is getDaneRec <email address> <M=Mainnet, T=Testnet>'
    sys.exit(0)
 
@@ -48,9 +48,6 @@ else:
 verByte = 0
 if sys.argv[2].lower() == 't':
    verByte = 111
-elif sys.argv[2].lower() != 'm':
-   print 'Oops! Format is getDaneRec <email address> <M=Mainnet, T=Testnet>'
-   sys.exit(0)
 
 userAddr = ''
 if daneRec != None:
