@@ -1182,11 +1182,6 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       if self.seedNumBytes==0:
          raise KeyDataError('No seed defined for this root!')
 
-      # I dont' think this is necessary, because if privCryptInfo.noEncryption
-      # is true, the decrypt() call will return the input data
-      #if self.seedCryptInfo.noEncryption():
-         #return self.sbdSeedData.copy()
-
       try:
          aciDecryptAgs = self.getPrivCryptArgs(self.seedCryptInfo)
          paddedSeed = self.seedCryptInfo.decrypt(self.sbdSeedData, 
@@ -3012,12 +3007,5 @@ if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
    WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
    WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
 
-   try:
-      from ArmoryWallet import ArmoryWalletFile
-      ArmoryWalletFile.RegisterWalletDisplayClass(ABEK_StdWallet)
-      ArmoryWalletFile.RegisterWalletDisplayClass(Armory135Root)
-      ArmoryWalletFile.RegisterWalletDisplayClass(ArmoryImportedRoot)
-   except:
-      LOGERROR('Could not register wallet display classes')
 
 

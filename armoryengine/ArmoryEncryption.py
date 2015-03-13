@@ -8,6 +8,7 @@ import threading
 try:
    from WalletEntry import WalletEntry
 except:
+   # This should only happen in testing environments, stub it for testing
    LOGERROR('Could not load WalletEntry class')
    class WalletEntry(object):
       @staticmethod
@@ -587,6 +588,7 @@ class KdfObject(WalletEntry):
 
    #############################################################################
    def __init__(self, kdfAlgo=None, **params):
+      super(KdfObject, self).__init__()
 
       # Set an error-inducing function as the default KDF
       def errorkdf(x):
@@ -770,6 +772,8 @@ class EncryptionKey(WalletEntry):
    #############################################################################
    def __init__(self, keyID=None, ckey=None, einfo=None, 
                                     etest=None, ptest=None, keyH3=None):
+      super(EncryptionKey, self).__init__()
+
       # Mostly these will be initialized from encrypted data in wallet file
       self.ekeyID           = keyID   if keyID   else NULLSTR()
       self.masterKeyCrypt   = SecureBinaryData(ckey)  if ckey  else NULLSBD()
@@ -1156,6 +1160,8 @@ class MultiPwdEncryptionKey(EncryptionKey):
       When this method is called with args, usually after reading the encrypted
       data from file.
       """
+      super(MultiPwdEncryptionKey, self).__init__()
+
       self.ekeyID = keyID  if keyID  else NULLSTR()
       self.mkeyID = mkeyID if mkeyID else NULLSTR()
       self.M      = M if M else 0

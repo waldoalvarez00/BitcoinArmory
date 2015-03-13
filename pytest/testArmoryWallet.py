@@ -184,9 +184,9 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
    #############################################################################
    def roundTripTest(self, afh):
-      afhSer  = afh.serializeHeaderData()
+      afhSer  = afh.serialize()
       afh2    = ArmoryFileHeader.Unserialize(afhSer)
-      afhSer2 = afh2.serializeHeaderData()
+      afhSer2 = afh2.serialize()
       afh3    = ArmoryFileHeader.Unserialize(afhSer2)
       self.assertEqual(afhSer, afhSer2)
       
@@ -254,8 +254,8 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       afh4 = ArmoryFileHeader()
       afh4.initialize(u'', 0, 0, fl)
 
-      self.assertEqual( afh3.serializeHeaderData(), 
-                        afh4.serializeHeaderData(altName=u'Armory Wallet Test\u2122'))
+      self.assertEqual( afh3.serialize(), 
+                        afh4.serialize(altName=u'Armory Wallet Test\u2122'))
 
 
    #############################################################################
@@ -268,7 +268,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
       mgcC = '\xffARMORY\xff'
       mgcW = '\xbaWALLET\x00'
-      afhSer1 = afh.serializeHeaderData()
+      afhSer1 = afh.serialize()
       afhSer2 = mgcW + afhSer1[8:]
       afhSer3 = '\x00'*8 + afhSer1[8:]
       self.assertRaises(FileExistsError, ArmoryFileHeader.Unserialize, afhSer2)
@@ -286,19 +286,51 @@ class SimpleWalletTests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
-      pass
+      self.wltDir = 'tempwallets'
+      self.wltFN = 'test_wallet_file.wallet'
 
+      if not os.path.exists(self.wltDir):
+         os.makedirs(self.wltDir)
+
+      self.wltPath = os.path.join(self.wltDir, self.wltFN)
+
+      
       
 
       
    #############################################################################
    def tearDown(self):
-      pass
+      if os.path.exists(self.wltPath):
+         os.remove(self.wltPath)
+
+   #############################################################################
+   def getProgressFunc(self):
+      lastChk = [0]
+      def prgUpdate(curr, tot):
+         if float(curr)/float(tot) > lastChk+0.05:
+            sys.stdout.write('.')
+            lastChk += 0.05
       
 
    #############################################################################
-   def test_InitABEK(self):
-      abek = ABEK_Generic()
+   def testCreateWallet_PregenSeed(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                                    wltName,
+                                                    pwd,
+                                                    ABEK_BIP44Seed,
+                                                    None,
+                                                    seed,
+                                                    createInDir=self.wltDir,
+                                                    specificFilename=self.wltFN,
+                                                    progressUpdater=prg)
+                                                         
+      self.assertEqual(wltName, newWallet.fileHeader.wltUserName)
 
 
 
