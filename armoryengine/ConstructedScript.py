@@ -177,7 +177,7 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
 
    # Sanity check the inputs
    if not len(startPubKey)==33 or not startPubKey[0] in ['\x02','\x03']:
-      raise KeyDataError('Input public key is a valid format')
+      raise KeyDataError('Input public key is not in a valid format')
 
    if not len(binChaincode)==32:
       raise KeyDataError('Chaincode must be 32 bytes')
@@ -213,6 +213,57 @@ def DeriveBip32PublicKeyWithProof(startPubKey, binChaincode, indexList):
                                 multList=binMultList)
 
    return finalPubKey, proofObject
+
+
+################################################################################
+def DeriveBip32PrivateKey(startPriKey, binChaincode, indexList):
+   """
+   We will actually avoid using the higher level ArmoryKeyPair (AKP) objects
+   for now, as they do a ton of extra stuff we don't need for this.  We go
+   a bit lower-level and talk to CppBlockUtils.HDWalletCrypto directly.
+
+   Inputs:
+      startPriKey:   python string, 33-byte private key
+      binChaincode:  python string, 32-byte chaincode
+      indexList:     python list of UINT32s
+
+   Output: finalPriKey
+
+      finalPubKey:   pyton string:  33-byte private key
+
+   Note that an error will be thrown if any items in the index list correspond
+   to a hardened derivation.  We need this proof to be generatable strictly
+   from public key material.
+   """
+
+   # Sanity check the inputs
+   if not len(startPriKey)==33 or not startPriKey[0] in ['\x00']:
+      raise KeyDataError('Input private key is a valid format')
+
+   if not len(binChaincode)==32:
+      raise KeyDataError('Chaincode must be 32 bytes')
+
+   # Crypto-related code uses SecureBinaryData and Cpp.ExtendedKey objects
+   sbdPrivateKey = SecureBinaryData(startPriKey)
+   sbdChainCode  = SecureBinaryData(binChaincode)
+   extPriKeyObj  = Cpp.ExtendedKey(sbdPrivateKey, sbdChainCode)
+
+   # Prepare the output multiplier list
+   binMultList = []
+
+   # Derive the children. Maybe use MultiplierProof later and merge?
+   for childIndex in indexList:
+      if (childIndex & 0x80000000) > 0:
+         raise ChildDeriveError('Cannot generate proofs along hardened paths')
+
+      # Pass in a NULL SecureBinaryData object as a reference
+      sbdMultiplier = NULLSBD()
+
+      # Computes the child and emits the multiplier via the last arg
+      extPriKeyObj = Cpp.HDWalletCrypto().childKeyDeriv(extPriKeyObj,
+                                                        childIndex)
+
+   return extPriKeyObj.getKey().toBinStr()
 
 
 ################################################################################
@@ -524,6 +575,39 @@ class ExternalPublicKeySource(object):
 
 
 ################################################################################
+def getP2PKHStr(useActualKeyHash, keyData=None):
+   # Need to make this code more robust. Check input data & input length, have
+   # an error condition, etc.
+   templateStrKeyData = '\xff\x01'
+   if useActualKeyHash == True and keyData != None:
+      templateStrKeyData = keyData
+
+   templateStr  = ''
+   templateStr += getOpCode('OP_DUP')
+   templateStr += getOpCode('OP_HASH160')
+   templateStr += templateStrKeyData
+   templateStr += getOpCode('OP_EQUALVERIFY')
+   templateStr += getOpCode('OP_CHECKSIG')
+
+   return templateStr
+
+
+################################################################################
+def getP2PKStr(useActualKey, keyData=None):
+   # Need to make this code more robust. Check input data & input length, have
+   # an error condition, etc.
+   templateStrKeyData = '\xff\x01'
+   if useActualKey == True and keyData != None:
+      templateStrKeyData = keyData
+
+   templateStr  = ''
+   templateStr += templateStrKeyData
+   templateStr += getOpCode('OP_CHECKSIG')
+
+   return templateStr
+
+
+################################################################################
 class ConstructedScript(object):
    """
    This defines a script template that will be used, in conjunction with a
@@ -660,12 +744,7 @@ class ConstructedScript(object):
       if not len(binRootPubKey) in [33,65]:
          raise KeyDataError('Invalid pubkey;  length=%d' % len(binRootPubKey))
 
-      templateStr  = ''
-      templateStr += getOpCode('OP_DUP')
-      templateStr += getOpCode('OP_HASH160')
-      templateStr += '\xff\x01'
-      templateStr += getOpCode('OP_EQUALVERIFY')
-      templateStr += getOpCode('OP_CHECKSIG')
+      templateStr = getP2PKHStr(False)
 
       pks = PublicKeySource()
       pks.initialize(isStatic   = False,
@@ -689,9 +768,7 @@ class ConstructedScript(object):
       if not len(binRootPubKey) in [33,65]:
          raise KeyDataError('Invalid pubkey;  length=%d' % len(binRootPubKey))
 
-      templateStr  = ''
-      templateStr += '\xff\x01'
-      templateStr += getOpCode('OP_CHECKSIG')
+      templateStr = getP2PKStr(False)
 
       pks = PublicKeySource()
       pks.initialize(isStatic   = False,
@@ -1017,7 +1094,8 @@ class PaymentRequest(object):
                    daneReqNames       = [VAR_STR],
                    srpLists           = [VAR_STR],
                    ver                = int)
-   def initialize(self, unvalidatedScripts, daneReqNames, srpLists, ver=None):
+   def initialize(self, unvalidatedScripts, daneReqNames, srpLists,
+                  ver=BTCAID_PR_VERSION):
       """
       Set all PR values.
       """
@@ -1028,11 +1106,11 @@ class PaymentRequest(object):
       self.daneReqNames       = daneReqNames
       self.srpLists           = srpLists
       for x in unvalidatedScripts:
-         self.reqSize += getTotalVarStrBytes(x)
+         self.reqSize += len(x)
       for y in daneReqNames:
-         self.reqSize += getTotalVarStrBytes(y)
+         self.reqSize += len(y)
       for z in srpLists:
-         self.reqSize += getTotalVarStrBytes(z)
+         self.reqSize += len(z)
 
 
    #############################################################################
@@ -1051,11 +1129,11 @@ class PaymentRequest(object):
       bp.put(VAR_INT, self.numTxOutScripts, width=3)
       bp.put(VAR_INT, self.reqSize, width=3)
       for scriptItem in self.unvalidatedScripts:
-         bp.put(VAR_STR, scriptItem)
+         bp.put(BINARY_CHUNK, scriptItem)
       for daneItem in self.daneReqNames:
-         bp.put(VAR_STR, daneItem)
+         bp.put(BINARY_CHUNK, daneItem)
       for srpItem in self.srpLists:
-         bp.put(VAR_STR, srpItem)
+         bp.put(BINARY_CHUNK, srpItem)
 
       return bp.getBinaryString()
 
