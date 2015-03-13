@@ -2253,6 +2253,7 @@ class ABEK_BIP44Seed(ArmoryBip32Seed):
    HARDCHILD = True
 
    def __init__(self):
+      print "self:", self, "ABEK_BIP44Seed", type(ABEK_BIP44Seed)
       super(ABEK_BIP44Seed, self).__init__()
 
    #####

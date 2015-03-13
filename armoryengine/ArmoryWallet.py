@@ -431,6 +431,15 @@ class ArmoryWalletFile(object):
    def getEkey(self, ekeyID):
       return self.ekeyMap.get(ekeyID, None)
 
+
+   #############################################################################
+   def setWalletPath(self, wltPath):
+      # We will need a bunch of different pathnames for atomic update ops
+      self.walletPath        = wltPath
+      self.walletPathBackup  = self.getWalletPath('backup')
+      self.walletPathUpdFail = self.getWalletPath('update_unsuccessful')
+      self.walletPathBakFail = self.getWalletPath('backup_unsuccessful')
+
    #############################################################################
    def mergeWalletFile(self, wltOther, rootsToAbsorb='ALL'):
       """
@@ -521,7 +530,6 @@ class ArmoryWalletFile(object):
          first20bytes = BinaryUnpacker(f.read(20))
 
       filemagic = first20bytes.get(BINARY_CHUNK, 8)
-      print binary_to_hex(filemagic), binary_to_hex(ArmoryFileHeader.WALLETMAGIC)
       if not filemagic == ArmoryFileHeader.WALLETMAGIC:
          raise FileExistsError('Specified file is not an Armory2.0 wallet')
 
@@ -556,7 +564,6 @@ class ArmoryWalletFile(object):
       """
       ArmoryWalletFile.CheckWalletExists(wltPath)
 
-      
       if len(ArmoryWalletFile.AKP_WALLET_TYPES)==0:
          LOGERROR('No AKP types are registered to be displayed as wallets')
          LOGERROR('This message is to remind you that you should register')
@@ -572,12 +579,6 @@ class ArmoryWalletFile(object):
       wlt.isReadOnly = openReadOnly
       wlt.arbitraryDataMap.clearMap()
 
-
-      # We will need a bunch of different pathnames for atomic update ops
-      wlt.walletPath        = wlt.getWalletPath('')
-      wlt.walletPathBackup  = wlt.getWalletPath('backup')
-      wlt.walletPathUpdFail = wlt.getWalletPath('update_unsuccessful')
-      wlt.walletPathBakFail = wlt.getWalletPath('backup_unsuccessful')
 
    
       if openReadOnly:
@@ -942,17 +943,17 @@ class ArmoryWalletFile(object):
                # Set flag to indicate we're about to update the main wallet file
                wltPath = self.walletPath
                interrupt = self.interruptTest1
-               touchFile(self.getWalletPath('update_unsuccessful'))
+               touchFile(self.walletPathUpdFail)
             elif fnum==BACKUP:
                # Set flag to start modifying backup file.  Create backup-update
                # flag before deleting main-update flag file.  If both files
                # exist, we know exactly where updating terminated
-               wltPath = self.getWalletPath('backup')
+               wltPath = self.walletPathBackup
                interrupt = self.interruptTest3
-               touchFile(self.getWalletPath('backup_unsuccessful'))
+               touchFile(self.walletPathBakFail)
                if self.interruptTest2: 
                   raise InterruptTestError 
-               os.remove(self.getWalletPath('update_unsuccessful'))
+               os.remove(self.walletPathUpdFail)
                
    
             # We will do all mid-file operations first, and queue up all 
@@ -1022,7 +1023,7 @@ class ArmoryWalletFile(object):
             appendfile.close()
    
          # Finish by removing flag that indicates we were modifying backup file
-         os.remove(self.getWalletPath('backup_unsuccessful'))
+         os.remove(self.walletPathBakFail)
    
          # Mark WalletEntry objects as having been updated
          for opType,weObj in self.updateQueue:
@@ -1031,7 +1032,7 @@ class ArmoryWalletFile(object):
          # In debug mode, verify that main and backup are identical
          if CLI_OPTIONS.doDebug:
             hashMain = sha256(open(self.walletPath,       'rb').read())
-            hashBack = sha256(open(self.getWalletPath('backup'), 'rb').read())
+            hashBack = sha256(open(self.walletPathBackup, 'rb').read())
             if not hashMain==hashBack:
                raise WalletUpdateError('Updates of two wallet files do not match!')
    
@@ -1072,32 +1073,30 @@ class ArmoryWalletFile(object):
       if not os.path.exists(self.walletPath):
          raise FileExistsError('No wallet file exists to be checked!')
 
-      walletFileBackup = self.getWalletPath('backup')
-      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
-      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
 
-      if not os.path.exists(walletFileBackup):
+      if not os.path.exists(self.walletPathBackup):
          # We haven't even created a backup file, yet
-         LOGDEBUG('Creating backup file %s', walletFileBackup)
-         touchFile(backupUpdateFlag)
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(backupUpdateFlag)
+         LOGDEBUG('Creating backup file %s', self.walletPathBackup)
+         touchFile(self.walletPathBakFail)
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathBakFail)
 
-      if os.path.exists(backupUpdateFlag) and os.path.exists(mainUpdateFlag):
+      if os.path.exists(self.walletPathBakFail) and \
+         os.path.exists(self.walletPathUpdFail):
          # Here we actually have a good main file, but backup never succeeded
          LOGERROR('***WARNING: error in backup file... how did that happen?')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(mainUpdateFlag)
-         os.remove(backupUpdateFlag)
-      elif os.path.exists(mainUpdateFlag):
-         LOGERROR('***WARNING: last file operation failed!  Restoring wallet from backup')
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathUpdFail)
+         os.remove(self.walletPathBakFail)
+      elif os.path.exists(self.walletPathUpdFail):
+         LOGERROR('***WARNING: last file op failed!  Restoring from backup')
          # main wallet file might be corrupt, copy from backup
-         shutil.copy(walletFileBackup, self.walletPath)
-         os.remove(mainUpdateFlag)
-      elif os.path.exists(backupUpdateFlag):
+         shutil.copy(self.walletPathBackup, self.walletPath)
+         os.remove(self.walletPathUpdFail)
+      elif os.path.exists(self.walletPathBakFail):
          LOGERROR('***WARNING: creation of backup was interrupted -- fixing')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(backupUpdateFlag)
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathBakFail)
 
 
 
@@ -1113,19 +1112,16 @@ class ArmoryWalletFile(object):
       if not os.path.exists(self.walletPath):
          raise FileExistsError('No wallet file exists to be checked!')
 
-      walletFileBackup = self.getWalletPath('backup')
-      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
-      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
-
-      if not os.path.exists(walletFileBackup):
+      if not os.path.exists(self.walletPathBackup):
          # No backup file to compare against
          return True
-      elif os.path.exists(backupUpdateFlag) and os.path.exists(mainUpdateFlag):
+      elif os.path.exists(self.walletPathBakFail) and \
+           os.path.exists(self.walletPathUpdFail):
          # Here we actually have a good main file, but backup never succeeded
          return False
-      elif os.path.exists(mainUpdateFlag):
+      elif os.path.exists(self.walletPathUpdFail):
          return False
-      elif os.path.exists(backupUpdateFlag):
+      elif os.path.exists(self.walletPathBakFail):
          return False
 
       return True
@@ -1591,9 +1587,6 @@ class ArmoryWalletFile(object):
 
       # Remove the object we just created, read back from file
       newWltPath = newWlt.walletPath
-      newWlt = None
-
-      raw_input()
 
       # Return the disk-syncrhonized wallet object
       return ArmoryWalletFile.ReadWalletFile(newWltPath)

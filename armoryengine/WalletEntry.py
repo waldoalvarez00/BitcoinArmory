@@ -381,7 +381,8 @@ class WalletEntry(object):
          return self
 
       # Return value is actually a subclass of WalletEntry
-      weOut = WalletEntry.FILECODEMAP[plType]().unserialize(plData)
+      weOut = clsType()
+      weOut.unserialize(plData)
       weOut.copyFromWE(self)
       weOut.needFsync = self.needFsync or weOut.needFsync
       # (subclass might've triggered rewrite flag, don't want to overwrite it)
