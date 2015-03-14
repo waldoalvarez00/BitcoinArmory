@@ -74,7 +74,7 @@ class WalletEntry(object):
       if weCode in WalletEntry.FILECODEMAP:
          raise ValueError('Class with code "%s" is already in map!' % weCode)
 
-      WalletEntry.FILECODEMAP[clsType.FILECODE] = clsType
+      WalletEntry.FILECODEMAP[weCode] = clsType
       if isReqd:
          WalletEntry.REQUIRED_TYPES.add(weCode)
 
@@ -375,6 +375,7 @@ class WalletEntry(object):
 
       # Use the 8-byte FILECODE to determine the type of object to unserialize
       clsType = WalletEntry.FILECODEMAP.get(plType)
+      print 'Class type', clsType, clsType.__name__
       if clsType is None:
          LOGWARN('Unrecognized data type in wallet: "%s"' % plType)
          self.isUnrecognized = True

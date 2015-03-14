@@ -209,6 +209,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skip('')
    def test_CreateAFH(self):
       
       afh = ArmoryFileHeader()
@@ -259,6 +260,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skip('')
    def test_MagicFail(self):
       fl = BitSet(32)
       fl.setBit(0, False)
