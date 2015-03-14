@@ -445,7 +445,7 @@ class WalletEntry(object):
 
    #############################################################################
    def useOuterEncryption(self):
-      return outerCrypt.useEncryption()
+      return self.outerCrypt.useEncryption()
 
         
    #############################################################################

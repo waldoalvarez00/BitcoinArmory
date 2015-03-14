@@ -8,8 +8,7 @@
 from ArmoryUtils import *
 from ArmoryEncryption import *
 from WalletEntry import *
-
-
+from armoryengine.PyBtcWallet import WLT_UPDATE_MODIFY
 HARDBIT = 0x80000000
 
 
@@ -593,8 +592,8 @@ class ArmoryKeyPair(WalletEntry):
       if not filecode==self.FILECODE:
          LOGERROR('Wrong FILECODE for type being unserialized')
          LOGERROR('Self=%s, unserialized=%s' % (self.FILECODE, filecode))
-         we.isUnrecoverable = True 
-         return we
+         self.isUnrecoverable = True 
+         return self
       
       isWatchOnly       = flags.getBit(0)
       isAkpRootRoot     = flags.getBit(1)
@@ -1409,6 +1408,7 @@ class Armory135KeyPair(ArmoryKeyPair):
 
             if sbdNewKey1==sbdNewKey2 and sbdNewKey1==sbdNewKey3:
                with open(MULT_LOG_FILE,'a') as f:
+                  a160hex = binary_to_hex(hash160(sbdNewKey1.getPublicKey().toBinStr()))
                   f.write('Computed (pkh, mult): %s,%s\n' % (a160hex,logMult1.toHexStr()))
             else:
                raise KeyDataError('Chaining %s Key Failed!' % extendType)
@@ -2550,7 +2550,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
       self.siblingRefs = None
 
    #############################################################################
-   def initializeMBEK(M=None, N=None, sibScrAddrList=None, lblList=None):
+   def initializeMBEK(self, M=None, N=None, sibScrAddrList=None, lblList=None):
       self.M = M if M else 0
       self.N = N if N else 0
       self.maxChildren = 2*N
@@ -2572,7 +2572,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 
    #############################################################################
    def setSiblingRefs(self, abekMap, prefID=None):
-      if not isComplete:
+      if not self.isComplete:
          raise WalletAddressError('Not all sibling IDs defined')
 
       self.prefSibling = prefID
@@ -2966,7 +2966,7 @@ class ScriptTemplateABEK(ArmoryBip32ExtendedKey):
 
 
    #############################################################################
-   def initializeSTBEK(M=None, N=None, sibScrAddrList=None, lblList=None):
+   def initializeSTBEK(self, M=None, N=None, sibScrAddrList=None, lblList=None):
       self.M = M if M else 0
       self.N = N if N else 0
       self.maxChildren = 2*N
