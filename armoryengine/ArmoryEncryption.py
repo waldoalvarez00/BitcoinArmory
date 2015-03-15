@@ -3,17 +3,7 @@ from Decorators import *
 from BinaryPacker import *
 from BinaryUnpacker import *
 import threading
-
-
-try:
-   from WalletEntry import WalletEntry
-except:
-   # This should only happen in testing environments, stub it for testing
-   LOGERROR('Could not load WalletEntry class')
-   class WalletEntry(object):
-      @staticmethod
-      def RegisterWalletStorageClass(*args, **kwargs): pass
-
+from armoryengine.WalletEntry import WalletEntryPayload
 
 
 ################################################################################
@@ -348,10 +338,6 @@ class ArmoryCryptInfo(object):
       aci.keySource   = bu.get(BINARY_CHUNK, 8)
       aci.ivSource    = bu.get(BINARY_CHUNK, 8)
       return aci
-       
-   ############################################################################
-   def copy(self):
-      return ArmoryCryptInfo().unserialize(self.serialize())
 
    ############################################################################
    @VerifyArgTypes(keyData=[SecureBinaryData, list, tuple, None],  
@@ -569,7 +555,7 @@ class ArmoryCryptInfo(object):
 
 
 #############################################################################
-class KdfObject(WalletEntry):
+class KdfObject(WalletEntryPayload):
    """
    Note that there is only one real KDF *algorithm* here, but each wallet
    has system-specific parameters required to execute the KDF (32-byte salt
@@ -753,7 +739,7 @@ class KdfObject(WalletEntry):
 
 #############################################################################
 #############################################################################
-class EncryptionKey(WalletEntry):
+class EncryptionKey(WalletEntryPayload):
    """
    This is a simple container to hold a 32-byte master encryption key.  
    Typically this key will be used to encrypt everything else in the wallet.
@@ -816,7 +802,6 @@ class EncryptionKey(WalletEntry):
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
-      super(EncryptionKey, self).linkWalletEntries(wltFileRef)
       if self.kdfRef is None:
          self.kdfRef = wltFileRef.kdfMap.get(self.keyCryptInfo.kdfObjID)
          if self.kdfRef:
@@ -1213,7 +1198,6 @@ class MultiPwdEncryptionKey(EncryptionKey):
    def linkWalletEntries(self, wltFileRef):
       # super() would inherit EncryptionKey class method, which is not suited
       # for this method.  Instead, we do the WalletEntry class method directly.
-      WalletEntry.linkWalletEntries(self, wltFileRef)
       if len(self.kdfRefList) == 0:
          for aci in self.einfos:
             kdfref = wltFileRef.kdfMap.get(aci.kdfObjID)
@@ -1756,9 +1740,3 @@ class MultiPwdEncryptionKey(EncryptionKey):
       finally:
          self.lock()
       
-
-
-WalletEntry.RegisterWalletStorageClass(KdfObject)
-WalletEntry.RegisterWalletStorageClass(EncryptionKey)
-WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
-

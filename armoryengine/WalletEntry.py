@@ -1,6 +1,7 @@
 from ArmoryUtils import *
 import ReedSolomonWrapper
-
+from armoryengine.BinaryPacker import *
+from armoryengine.BinaryUnpacker import *
 
 ################################################################################
 class WalletEntry(object):
@@ -71,22 +72,23 @@ class WalletEntry(object):
    @staticmethod
    def RegisterWalletStorageClass(clsType, isReqd=False):
       weCode = clsType.FILECODE
-      if weCode in WalletEntry.FILECODEMAP:
-         raise ValueError('Class with code "%s" is already in map!' % weCode)
-
-      WalletEntry.FILECODEMAP[weCode] = clsType
-      if isReqd:
-         WalletEntry.REQUIRED_TYPES.add(weCode)
-
-      try:
-         from ArmoryKeyPair import ArmoryKeyPair
-         if issubclass(clsType, ArmoryKeyPair):
-            WalletEntry.KEYPAIR_TYPES.add(weCode)
-            LOGINFO('Registered %s class as a keypair type')
-      except:
-         LOGERROR('Failed to check if class is keypair type: %s' % clsType.__name__)
-         # This is when ArmoryKeyPair hasn't been defined yet.  That's fine.
-         pass
+      if weCode:
+         if weCode in WalletEntry.FILECODEMAP:
+            raise ValueError('Class with code "%s" is already in map!' % weCode)
+   
+         WalletEntry.FILECODEMAP[weCode] = clsType
+         if isReqd:
+            WalletEntry.REQUIRED_TYPES.add(weCode)
+   
+         try:
+            from ArmoryKeyPair import ArmoryKeyPair
+            if issubclass(clsType, ArmoryKeyPair):
+               WalletEntry.KEYPAIR_TYPES.add(weCode)
+               LOGINFO('Registered %s class as a keypair type')
+         except:
+            LOGERROR('Failed to check if class is keypair type: %s' % clsType.__name__)
+            # This is when ArmoryKeyPair hasn't been defined yet.  That's fine.
+            pass
 
    #############################################################################
    @staticmethod
@@ -159,23 +161,6 @@ class WalletEntry(object):
       self.isDeleted = False
       self.isDisabled = False
       self.needFsync = False
-
-
-   #############################################################################
-   def copyFromWE(self, weOther):
-      self.wltFileRef = weOther.wltFileRef
-      self.wltByteLoc = weOther.wltByteLoc
-      self.wltEntrySz = weOther.wltEntrySz
-      self.isRequired = weOther.isRequired
-      self.parEntryID = weOther.parEntryID
-      self.outerCrypt = weOther.outerCrypt.copy()
-      self.serPayload = weOther.serPayload
-      self.defaultPad = weOther.defaultPad
-
-      self.wltParentRef = weOther.wltParentRef
-      self.wltChildRefs = weOther.wltChildRefs[:]
-      self.outerEkeyRef = weOther.outerEkeyRef
-      
          
    #############################################################################
    @staticmethod
@@ -205,7 +190,7 @@ class WalletEntry(object):
       self.wltParentRef = parent
       if not parent==self:
          parent.wltChildRefs.append(self)
-
+      # TODO call payload linkWalletEntries
 
    #############################################################################
    def serializeEntry(self, doDelete=False, **encryptKwargs):
@@ -382,16 +367,15 @@ class WalletEntry(object):
          return self
 
       # Return value is actually a subclass of WalletEntry
-      weOut = clsType()
-      weOut.unserialize(plData)
-      weOut.copyFromWE(self)
-      weOut.needFsync = self.needFsync or weOut.needFsync
+      self.payload = clsType()
+      self.payload.unserialize(plData)
+      self.payload.needFsync = self.needFsync or self.payload.needFsync
       # (subclass might've triggered rewrite flag, don't want to overwrite it)
 
-      if not weOut.getEntryID() == plObjID:
+      if not self.payload.getEntryID() == plObjID:
          raise UnserializeError('Stored obj ID does not match computed')
 
-      return weOut
+      return self
 
 
    #############################################################################
@@ -467,11 +451,14 @@ class WalletEntry(object):
       #print fmtField('in', self.self.wltFileRef.filepath.basename(), 4),
 
 
-from ArmoryEncryption import *
+def WalletEntryMetaClass(name, bases, dct):
+   resultClass = type(name, bases, dct)
+   WalletEntry.RegisterWalletStorageClass(resultClass)
+   return resultClass
 
-try:
-   from ArmoryKeyPair import *
-except:
-   LOGERROR('Could not import ArmoryKeyPair module')
+################################################################################
+class WalletEntryPayload(object):
+   FILECODE = None
+   __metaclass__ = WalletEntryMetaClass
 
 

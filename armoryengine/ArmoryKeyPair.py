@@ -80,7 +80,7 @@ class ChildDeriveError(Exception): pass
 # AKP ~ ArmoryKeyPair
 #
 ################################################################################
-class ArmoryKeyPair(WalletEntry):
+class ArmoryKeyPair(WalletEntryPayload):
    """
    This is essentailly a pure virtual class.  It's not intended to be used by
    itself, 
@@ -284,8 +284,6 @@ class ArmoryKeyPair(WalletEntry):
       All children nodes look for their parents in the wallet file and call
       the addChildRef method.  
       """
-      super(ArmoryKeyPair, self).linkWalletEntries(wltFileRef)
-
       self.masterEkeyRef = wltFileRef.ekeyMap.get(self.privCryptInfo.keySource)
       self.masterKdfRef  = wltFileRef.kdfMap.get(self.privCryptInfo.kdfObjID)
 
@@ -1903,7 +1901,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
             extend2.deletePrivateKey()
             extend3.deletePrivateKey()
          else:
-            raise KeyDataError('Chaining Bip32 Key Failed!' % extendType)
+            raise KeyDataError('Chaining Bip32 Key Failed!')
          
 
 
@@ -2503,7 +2501,7 @@ class ABEK_StdLeaf(ArmoryBip32ExtendedKey):
 
 
 ################################################################################
-class MultisigMetaData(WalletEntry):
+class MultisigMetaData(WalletEntryPayload):
    """
    For now, the only purpose of this object is to identify which sibling
    in a Multisig root object we prefer to be associated with.  This 
@@ -2663,7 +2661,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
       if not self.isComplete: 
          raise MultisigError('Cannot add sibling refs until all IDs are added')
 
-      i = getSiblingIndex(sibRef.getScrAddr())
+      i = self.getSiblingIndex(sibRef.getScrAddr())
       while i>=len(self.siblingRefs):
          self.siblingRefs.append(None)
 
@@ -2682,7 +2680,6 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
-      WalletEntry.linkWalletEntries(self, wltFileRef)
       for ssa in self.sibScrAddrs:
          sibRef = wltFileRef.masterScrAddrMap.get(ssa,None)
          if sibRef is None:
@@ -2953,7 +2950,7 @@ class ScriptTemplateABEK(ArmoryBip32ExtendedKey):
       super(ScriptTemplateABEK, self).__init__()
 
       # Template multisig 
-      self.scriptTemplate = ScriptTemplate()
+      # self.scriptTemplate = ScriptTemplate()
       self.N =  None
       self.maxChildren = None
       self.sibScrAddrs = None
@@ -2972,41 +2969,6 @@ class ScriptTemplateABEK(ArmoryBip32ExtendedKey):
       self.maxChildren = 2*N
       self.sibScrAddrs = []
    
-
-
-
-
-
-# TODO:  Figure out how to avoid this code running 4+ times without this cond
-if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
-   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
-   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Purpose)
-   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Bitcoin)
-
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdBip32Seed)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdWallet)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdChainExt)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdChainInt)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdLeaf)
-
-   # Same as ABEK_StdBip32Seed, but with non-hardened derivation
-   WalletEntry.RegisterWalletStorageClass(ABEK_SoftBip32Seed)
-
-   # For now we disable registering these classes since we don't
-   # support them yet.  This makes sure they get sent to the 
-   # "unrecognized" list when the wallet file is read, and none
-   # of the untested/unfinisehd code will attempt execution.
-   # Uncomment these lines when MBEK_* classes are implemented.
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
-
-   WalletEntry.RegisterWalletStorageClass(Armory135Root)
-   WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
-   WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
-   WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
 
 
 
