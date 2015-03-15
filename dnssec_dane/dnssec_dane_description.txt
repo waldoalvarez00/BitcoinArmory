@@ -139,9 +139,18 @@ all working on Linux Mint 17.  Should work on Ubuntu 14.04, 14.10 as well.
 
 sudo apt-get install libtool texinfo libexpat1 libevent-dev libldns-dev libunbound-dev unbound-anchor python-setuptools python-m2crypto autoconf
 
+wget http://sourceforge.net/projects/check/files/check/0.9.14/check-0.9.14.tar.gz
+tar -xzf check-0.9.14.tar.gz
+cd check-0.9.14
+./configure
+make
+make check
+sudo make install
+
+cd ..
 wget http://ftp.gnu.org/gnu/libidn/libidn-1.30.tar.gz
 tar -zxf libidn-1.30.tar.gz
-cd libidn-1.30.tar.gz
+cd libidn-1.30
 ./configure
 make
 sudo make install
@@ -168,17 +177,3 @@ cd BitcoinArmory
 git checkout wallet2.0-dns
 cd dnssec_dane
 python getDANERec.py chris@payments.verisignlabs.com m
-
-
-
-
-
-
-
-
-
-
-
-
-
-
