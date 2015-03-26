@@ -2978,39 +2978,3 @@ class ScriptTemplateABEK(ArmoryBip32ExtendedKey):
 
 
 
-
-"""
-# TODO:  Figure out how to avoid this code running 4+ times without this cond
-if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
-   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
-   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Purpose)
-   WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Bitcoin)
-
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdBip32Seed)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdWallet)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdChainExt)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdChainInt)
-   WalletEntry.RegisterWalletStorageClass(ABEK_StdLeaf)
-
-   # Same as ABEK_StdBip32Seed, but with non-hardened derivation
-   WalletEntry.RegisterWalletStorageClass(ABEK_SoftBip32Seed)
-
-   # For now we disable registering these classes since we don't
-   # support them yet.  This makes sure they get sent to the 
-   # "unrecognized" list when the wallet file is read, and none
-   # of the untested/unfinisehd code will attempt execution.
-   # Uncomment these lines when MBEK_* classes are implemented.
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdBip32Root)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdWallet)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdChainExt)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdChainInt)
-   #WalletEntry.RegisterWalletStorageClass(MBEK_StdLeaf)
-
-   WalletEntry.RegisterWalletStorageClass(Armory135Root)
-   WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
-   WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
-   WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
-"""
-
-
-

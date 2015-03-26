@@ -830,6 +830,7 @@ class EncryptionKey(WalletEntry):
             raise EncryptionError('No stored ekey ID, and ekey is locked')
 
          self.ekeyID = calcEKeyID(self.masterKeyPlain)
+
       return self.ekeyID
 
    #############################################################################
@@ -1757,8 +1758,4 @@ class MultiPwdEncryptionKey(EncryptionKey):
          self.lock()
       
 
-
-#WalletEntry.RegisterWalletStorageClass(KdfObject)
-#WalletEntry.RegisterWalletStorageClass(EncryptionKey)
-#WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
 

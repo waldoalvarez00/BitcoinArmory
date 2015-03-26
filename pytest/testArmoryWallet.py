@@ -332,8 +332,33 @@ class SimpleWalletTests(unittest.TestCase):
                                                     progressUpdater=prg)
                                                          
       self.assertEqual(wltName, newWallet.fileHeader.wltUserName)
+      self.assertTrue(os.path.exists(os.path.join(self.wltDir, self.wltFN)))
 
 
+   #############################################################################
+   def testPregenSeed_Unlock(self):
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                                    wltName,
+                                                    pwd,
+                                                    ABEK_BIP44Seed,
+                                                    None,
+                                                    seed,
+                                                    createInDir=self.wltDir,
+                                                    specificFilename=self.wltFN,
+                                                    progressUpdater=prg)
+
+
+      self.assertEqual(1, len(newWallet.ekeyMap))
+      self.assertEqual(1, len(newWallet.kdfMap))
+      
+      self.assertTrue(newWallet.getOnlyEkey().isLocked())
+      newWallet.unlockWalletEkey(newWallet.getOnlyEkeyID(), pwd)
+      self.assertFalse(newWallet.getOnlyEkey().isLocked())
 
 
 

@@ -1201,13 +1201,13 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   def unlockWalletEkey(self, ekeyID, **unlockArgs):
+   def unlockWalletEkey(self, ekeyID, *unlockArgs, **unlockKwargs):
       ekeyObj = self.ekeyMap.get(ekeyID, None)
 
       if ekeyObj is None:
          raise KeyDataError("No ekey in wlt with id=%s" % binary_to_hex(ekeyID))
 
-      ekeyObj.unlock(**unlockArgs)
+      ekeyObj.unlock(*unlockArgs, **unlockKwargs)
 
 
    #############################################################################
@@ -1654,11 +1654,39 @@ class ArmoryWalletFile(object):
       return newWlt
 
 
+   #############################################################################
+   def getOnlyEkeyID(self):
+      if not len(self.ekeyMap)==1:
+         raise KeyDataError('Expected one ekey, found %d', len(self.ekeyMap))
                                                   
+      for k in self.ekeyMap.keys():
+         return k
 
 
+   #############################################################################
+   def getOnlyEkey(self):
+      if not len(self.ekeyMap)==1:
+         raise KeyDataError('Expected one ekey, found %d', len(self.ekeyMap))
+                                                  
+      for v in self.ekeyMap.values():
+         return v
 
 
+   #############################################################################
+   def getOnlyKdfID(self):
+      if not len(self.kdfMap)==1:
+         raise KeyDataError('Expected one kdf, found %d', len(self.kdfMap))
+                                                  
+      for k in self.kdfMap.keys():
+         return k
+
+   #############################################################################
+   def getOnlyKdf(self):
+      if not len(self.kdfMap)==1:
+         raise KeyDataError('Expected one kdf, found %d', len(self.kdfMap))
+                                                  
+      for v in self.kdfMap.values():
+         return v
 
 
 ArmoryWalletFile.RegisterWalletDisplayClass(ABEK_StdWallet)
