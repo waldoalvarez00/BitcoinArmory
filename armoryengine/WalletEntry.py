@@ -412,7 +412,6 @@ class WalletEntry(object):
 
       # Use the 8-byte FILECODE to determine the type of object to unserialize
       clsType = WalletEntry.FILECODEMAP.get(plType)
-      print 'Class type', clsType, clsType.__name__
       if clsType is None:
          LOGWARN('Unrecognized data type in wallet: "%s"' % plType)
          self.isUnrecognized = True

@@ -8,7 +8,6 @@
 from ArmoryUtils import *
 from ArmoryEncryption import *
 from WalletEntry import *
-from armoryengine.PyBtcWallet import WLT_UPDATE_MODIFY
 HARDBIT = 0x80000000
 
 
@@ -971,6 +970,7 @@ class ArmoryKeyPair(WalletEntry):
 
    #############################################################################
    def advanceLowestUnused(self, ct=1):
+      NotImplementedError('Need to update this method before using it!')
       topIndex = self.lowestUnusedChild + ct
       topIndex = min(topIndex, self.nextChildToCalc)
       topIndex = max(topIndex, 0)

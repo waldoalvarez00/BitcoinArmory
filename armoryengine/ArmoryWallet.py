@@ -616,11 +616,6 @@ class ArmoryWalletFile(object):
          
       # This will organize all the entries into their respective lists/maps,
       # set references between related objects, disable things as needed, etc
-      print wlt
-      print wlt.unlockOuterEncryption
-      print wlt.setWalletPath
-      print wlt.addEntriesToWallet
-      print wlt.linkAllEntries
       wlt.addEntriesToWallet(allEntries)
 
       # The wallet is now ready for use
@@ -681,7 +676,7 @@ class ArmoryWalletFile(object):
 
          if fsync:
             # In case the Reed-Solomon error correction actually finds an error
-            if we.needRewrite:
+            if we.needFsync:
                self.addFileOperationToQueue('UpdateEntry', we)
 
             if we.wltByteLoc in [0, None]:
@@ -753,9 +748,9 @@ class ArmoryWalletFile(object):
          elif we.FILECODE=='LOCKBOX_':
             self.lockboxMap[we.lboxID] = we
          elif we.FILECODE in ['EKEYREG_','EKEYMOFN']:
-            self.ekeyMap[we.ekeyID] = we
+            self.ekeyMap[we.getEncryptionKeyID()] = we
          elif we.FILECODE=='KDFOBJCT':
-            self.kdfMap[we.kdfObjID] = we
+            self.kdfMap[we.getKdfID()] = we
          elif we.FILECODE=='ARBDATA_':
             # Everything needed for Arbitrary data objects is in linkEntries()
             pass
@@ -773,7 +768,7 @@ class ArmoryWalletFile(object):
       if fsync:
          self.fsyncUpdates()
 
-      return wlt
+      return self
          
       
 
