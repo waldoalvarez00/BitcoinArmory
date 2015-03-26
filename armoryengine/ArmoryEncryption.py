@@ -1758,7 +1758,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
       
 
 
-WalletEntry.RegisterWalletStorageClass(KdfObject)
-WalletEntry.RegisterWalletStorageClass(EncryptionKey)
-WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
+#WalletEntry.RegisterWalletStorageClass(KdfObject)
+#WalletEntry.RegisterWalletStorageClass(EncryptionKey)
+#WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
 

@@ -64,7 +64,6 @@ class MockSerializableObject(WalletEntry):
       
 
 
-WalletEntry.RegisterWalletStorageClass(MockSerializableObject)
 
 
 ################################################################################

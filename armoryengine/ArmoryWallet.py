@@ -29,6 +29,8 @@ def CheckFsyncArgument(func):
       
       func(*args, **kwargs)
 
+   return wrappedFunc
+
 
 
 ################################################################################
@@ -614,6 +616,11 @@ class ArmoryWalletFile(object):
          
       # This will organize all the entries into their respective lists/maps,
       # set references between related objects, disable things as needed, etc
+      print wlt
+      print wlt.unlockOuterEncryption
+      print wlt.setWalletPath
+      print wlt.addEntriesToWallet
+      print wlt.linkAllEntries
       wlt.addEntriesToWallet(allEntries)
 
       # The wallet is now ready for use

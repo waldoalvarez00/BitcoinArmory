@@ -1543,6 +1543,8 @@ class Armory135KeyPair(ArmoryKeyPair):
 
 ################################################################################
 class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
+   FILECODE = 'AROOT135'
+
    #############################################################################
    def __init__(self):
       """
@@ -2977,6 +2979,7 @@ class ScriptTemplateABEK(ArmoryBip32ExtendedKey):
 
 
 
+"""
 # TODO:  Figure out how to avoid this code running 4+ times without this cond
 if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
    WalletEntry.RegisterWalletStorageClass(ABEK_BIP44Seed)
@@ -3007,6 +3010,7 @@ if not 'BIP44ROT' in WalletEntry.FILECODEMAP:
    WalletEntry.RegisterWalletStorageClass(Armory135KeyPair)
    WalletEntry.RegisterWalletStorageClass(ArmoryImportedRoot)
    WalletEntry.RegisterWalletStorageClass(ArmoryImportedKeyPair)
+"""
 
 
 
