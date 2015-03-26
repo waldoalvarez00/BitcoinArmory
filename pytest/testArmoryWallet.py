@@ -104,15 +104,15 @@ def compareWalletObjs(tself, wlt1, wlt2):
                      wlt2.arbitraryDataMap.countNodes())
 
    def cmpMapKeys(a,b,prop):
-      # self.assertTrue(hasattr(a, prop) and hasattr(b, prop))
+      self.assertTrue(hasattr(a, prop) and hasattr(b, prop))
       mapA = getattr(a, prop)
       mapB = getattr(b, prop)
       if not isinstance(mapA, dict) or not isinstance(mapB, dict):
          raise KeyError('Supplied property is not a map: %s' % prop)
-      # for key in mapA:
-      #    self.assertTrue(key in mapB)
-      # for key in mapB:
-      #    self.assertTrue(key in mapA)
+      for key in mapA:
+         self.assertTrue(key in mapB)
+      for key in mapB:
+         self.assertTrue(key in mapA)
 
    cmpMapKeys(wlt1, wlt2, 'allKeyPairObjects')
    cmpMapKeys(wlt1, wlt2, 'displayableWalletsMap')
