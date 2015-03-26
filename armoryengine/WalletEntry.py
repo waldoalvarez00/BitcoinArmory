@@ -1,6 +1,42 @@
 from ArmoryUtils import *
 import ReedSolomonWrapper
 
+class WalletEntryMeta(type):
+   # we use __init__ rather than __new__ here because we want
+   # to modify attributes of the class *after* they have been
+   # created
+   def __init__(cls, name, bases, dct):
+      if not hasattr(cls, 'FILECODEMAP'):
+         # This is the base class.  Create an empty registry
+         cls.FILECODEMAP = {}
+         cls.REQUIRED_TYPES = set()
+         cls.KEYPAIR_TYPES  = set()
+         cls.RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
+                           'Check':  ReedSolomonWrapper.checkRSECCode}
+      else:
+         if hasattr(cls, 'FILECODE'):
+            # This is a derived class.  Add cls to the registry
+            LOGINFO('Registering code "%s" for class "%s"', cls.FILECODE, name)
+            cls.FILECODEMAP[cls.FILECODE] = cls
+
+            try:
+               from ArmoryKeyPair import ArmoryKeyPair
+               if issubclass(cls, ArmoryKeyPair):
+                  cls.KEYPAIR_TYPES.add(cls.FILECODE)
+                  LOGINFO('   ...also registering as AKP class type')
+            except:
+               # This is when ArmoryKeyPair hasn't been defined yet.  That's fine.
+               LOGWARN('Failed to check if class is keypair type: %s' % clsType.__name__)
+               pass
+
+            
+            if hasattr(cls, 'ISREQUIRED') and cls.ISREQUIRED:
+               LOGINFO('   ...and required type')
+               cls.REQUIRED_TYPES.add(cls.FILECODE)
+            
+      super(WalletEntryMeta, cls).__init__(name, bases, dct)
+
+
 
 ################################################################################
 class WalletEntry(object):
@@ -60,11 +96,12 @@ class WalletEntry(object):
    # to call RegisterWalletStorageClass.  Technically, we could get around
    # this using reflection, but reading direct class names out of wallet
    # files and invoking them feels as dangerous like using eval()
-   FILECODEMAP    = {}
-   REQUIRED_TYPES = set()
-   KEYPAIR_TYPES  = set()
-   RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
-                 'Check':  ReedSolomonWrapper.checkRSECCode}
+   #FILECODEMAP    = {}
+   #REQUIRED_TYPES = set()
+   #KEYPAIR_TYPES  = set()
+   #RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
+                 #'Check':  ReedSolomonWrapper.checkRSECCode}
+   __metaclass__ = WalletEntryMeta
 
 
    #############################################################################
@@ -467,11 +504,12 @@ class WalletEntry(object):
       #print fmtField('in', self.self.wltFileRef.filepath.basename(), 4),
 
 
-from ArmoryEncryption import *
 
+from ArmoryEncryption import *
 try:
    from ArmoryKeyPair import *
 except:
    LOGERROR('Could not import ArmoryKeyPair module')
+
 
 
