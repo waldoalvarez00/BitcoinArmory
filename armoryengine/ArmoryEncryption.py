@@ -819,7 +819,7 @@ class EncryptionKey(WalletEntry):
       super(EncryptionKey, self).linkWalletEntries(wltFileRef)
       if self.kdfRef is None:
          self.kdfRef = wltFileRef.kdfMap.get(self.keyCryptInfo.kdfObjID)
-         if self.kdfRef:
+         if self.kdfRef is None:
             LOGERROR('Could not find KDF in wallet file')        
    
    
@@ -1009,7 +1009,7 @@ class EncryptionKey(WalletEntry):
 
       # Create the master key itself
       if preGenKey is None:
-         newMaster = SecureBinaryData().GenerateRandom(expectKeySize)
+         newMaster = SecureBinaryData().GenerateRandom2xXOR(expectKeySize)
       else:
          if not preGenKey.getSize() == expectKeySize:
             raise KeyDataError('Expected Master key: %dB, got %dB' % \
@@ -1550,7 +1550,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
       # Create the master key itself
       expectKeySize = KNOWN_CRYPTO[encryptFragAlgo]['keysize']
       if preGenKey is None:
-         newMaster = SecureBinaryData().GenerateRandom(expectKeySize)
+         newMaster = SecureBinaryData().GenerateRandom2xXOR(expectKeySize)
       else:
          if not preGenKey.getSize() == expectKeySize:
             raise KeyDataError('Expected Master key: %dB, got %dB' % \

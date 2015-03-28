@@ -13,11 +13,13 @@ import sys
 sys.path.append('..')
 import textwrap
 
+sys.argv.append('--debug')
 from armoryengine.ArmoryUtils import *
 from armoryengine.ArmoryEncryption import *
 from armoryengine.WalletEntry import *
 from armoryengine.ArmoryKeyPair import *
 from armoryengine.ArmoryWallet import *
+sys.argv = sys.argv[:-1]
 
 WALLET_VERSION_BIN = hex_to_binary('002d3101')
 
@@ -290,19 +292,27 @@ class SimpleWalletTests(unittest.TestCase):
       self.wltDir = 'tempwallets'
       self.wltFN = 'test_wallet_file.wallet'
 
-      if not os.path.exists(self.wltDir):
-         os.makedirs(self.wltDir)
+      if not os.path.exists('tempwallets'):
+         os.makedirs('tempwallets')
 
-      self.wltPath = os.path.join(self.wltDir, self.wltFN)
+      self.clearWallets()
 
-      
-      
 
       
    #############################################################################
    def tearDown(self):
-      if os.path.exists(self.wltPath):
-         os.remove(self.wltPath)
+      self.clearWallets()
+
+   #############################################################################
+   def clearWallets(self):
+      flist = []
+      flist.append('tempwallets/test_wallet_file.wallet')
+      flist.append('tempwallets/test_wallet_file_backup.wallet')
+      flist.append('tempwallets/test_wallet_file_update_unsuccessful.wallet')
+      flist.append('tempwallets/test_wallet_file_backup_unsuccessful.wallet')
+      for f in flist:
+         if os.path.exists(f):
+            os.remove(f)
 
    #############################################################################
    def getProgressFunc(self):
@@ -322,20 +332,21 @@ class SimpleWalletTests(unittest.TestCase):
       wltName = u'Test wallet\u2122'
    
       newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
-                                                    wltName,
-                                                    pwd,
-                                                    ABEK_BIP44Seed,
-                                                    None,
-                                                    seed,
-                                                    createInDir=self.wltDir,
-                                                    specificFilename=self.wltFN,
-                                                    progressUpdater=prg)
+                                            wltName,
+                                            pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
                                                          
       self.assertEqual(wltName, newWallet.fileHeader.wltUserName)
       self.assertTrue(os.path.exists(os.path.join(self.wltDir, self.wltFN)))
 
 
    #############################################################################
+   @unittest.skip('')
    def testPregenSeed_Unlock(self):
       pwd = SecureBinaryData('T3ST1NG_P455W0RD')
       seed = SecureBinaryData('\xaa'*32) 

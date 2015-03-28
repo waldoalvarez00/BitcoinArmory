@@ -2100,25 +2100,12 @@ class ArmoryBip32Seed(ArmoryBip32ExtendedKey, ArmorySeededKeyPair):
       if extraEntropy.getSize()<16:
          raise KeyDataError('Must provide >= 16B extra entropy for seed gen')
 
-      # NIST (SP8800-133) has recommended K=U XOR V, where U is output of an 
-      # RNG, V is an indepedently-generated string.  Previously recommended 
-      # generating 1.5x the desired bytes and hashing it to the right length.  
-      # So here we combine the concepts by just doing TWO 1x RNG pulls, 
-      # and XOR them together.  Our RNG was likely seeded with more than the
-      # default 16 bytes of entropy, anyway.
-      newSeedU = SecureBinaryData().GenerateRandom(seedSize, extraEntropy)
-      newSeedV = SecureBinaryData().GenerateRandom(seedSize)
-      newSeedK = SecureBinaryData().XOR(newSeedU, newSeedV)
-
-      if newSeedK.getSize() < seedSize:
+      newSeed = SecureBinaryData().GenerateRandom2xXOR(seedSize, extraEntropy)
+      if newSeed.getSize() < seedSize:
          raise KeyDataError('Generation of key material failed!')
 
-      self.initializeFromSeed(newSeedK, fillPool=fillPool, fsync=fsync)
-
-      # Clean up
-      newSeedU.destroy()
-      newSeedV.destroy()
-      newSeedK.destroy()
+      self.initializeFromSeed(newSeed, fillPool=fillPool, fsync=fsync)
+      newSeed.destroy()
 
 
 ################################################################################
@@ -2199,7 +2186,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
       unencrypted even if the wallet has encryption
       """
       if pregenRoot is None:
-         pregenRoot = SecureBinaryData().GenerateRandom(32)
+         pregenRoot = SecureBinaryData('\x00'*32)
 
       timeCreated = long(RightNow())
       aci = NULLCRYPTINFO()

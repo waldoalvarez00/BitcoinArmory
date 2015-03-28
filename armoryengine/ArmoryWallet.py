@@ -323,6 +323,18 @@ class ArmoryWalletFile(object):
       if os.path.exists(self.walletPath):
          raise WalletExistsError('Cannot initialize wallet that already exists!')
 
+      if os.path.exists(self.walletPathBackup):
+         LOGERROR('Backup wallet file already exists.  Deleting')
+         os.remove(self.walletPathBackup)
+         
+      if os.path.exists(self.walletPathUpdFail):
+         LOGERROR('Update fail flag exists, deleting')
+         os.remove(self.walletPathUpdFail)
+
+      if os.path.exists(self.walletPathBakFail):
+         LOGERROR('Backup update fail flag exists, deleting')
+         os.remove(self.walletPathBakFail)
+
       with open(self.walletPath, 'wb') as f:
          f.write(self.fileHeader.serialize())
 
@@ -612,6 +624,8 @@ class ArmoryWalletFile(object):
          currPos = rawWallet.getPosition()
          wltEntry = WalletEntry.UnserializeEntry(rawWallet, wlt, currPos)
          allEntries.append(wltEntry)
+         LOGINFO('Read new WE type: %s (%s)', wltEntry.__class__.__name__, 
+                                       binary_to_hex(wltEntry.getEntryID()))
          
          
       # This will organize all the entries into their respective lists/maps,
@@ -1037,6 +1051,8 @@ class ArmoryWalletFile(object):
             hashBack = sha256(open(self.walletPathBackup, 'rb').read())
             if not hashMain==hashBack:
                raise WalletUpdateError('Updates of two wallet files do not match!')
+
+         self.updateQueue = []
    
          return True
       finally:
