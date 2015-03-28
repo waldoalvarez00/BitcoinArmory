@@ -251,7 +251,7 @@ class BlockDataManagerThread(threading.Thread):
       
       rndID = int(random.uniform(0,100000000)) 
       if not hasattr(self.bdm, name):
-         LOGERROR('No BDM method: %s', name)
+         #LOGERROR('No BDM method: %s', name)
          raise AttributeError
       else:
          def passthruFunc(*args, **kwargs):

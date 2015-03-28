@@ -26,7 +26,7 @@ class WalletEntryMeta(type):
                   LOGINFO('   ...also registering as AKP class type')
             except:
                # This is when ArmoryKeyPair hasn't been defined yet.  That's fine.
-               LOGWARN('Failed to check if class is keypair type: %s' % clsType.__name__)
+               LOGWARN('Failed to check if class is keypair type: %s' % cls.__name__)
                pass
 
             

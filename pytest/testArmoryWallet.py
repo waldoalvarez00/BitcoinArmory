@@ -14,12 +14,13 @@ sys.path.append('..')
 import textwrap
 
 sys.argv.append('--debug')
+sys.argv.append('--testnet')
 from armoryengine.ArmoryUtils import *
 from armoryengine.ArmoryEncryption import *
 from armoryengine.WalletEntry import *
 from armoryengine.ArmoryKeyPair import *
 from armoryengine.ArmoryWallet import *
-sys.argv = sys.argv[:-1]
+sys.argv = sys.argv[:-2]
 
 WALLET_VERSION_BIN = hex_to_binary('002d3101')
 

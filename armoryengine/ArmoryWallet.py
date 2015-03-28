@@ -792,7 +792,7 @@ class ArmoryWalletFile(object):
       This method is pretty simple when we've required all classes to have this
       behavior implemented in the class.
       """
-      LOGINFO('Re-linking all wallet entries')
+      LOGINFO('Linking all wallet entries')
       for we in self.allWalletEntries:
          we.linkWalletEntries(self)
       
@@ -1160,8 +1160,9 @@ class ArmoryWalletFile(object):
             if node.getEntryID() in wlt.masterScrAddrMap:
                raise WalletUpdateError('Addr already in wallet file! %s' % \
                      scrAddr_to_addrStr(node.getEntryID()))
+
             for idx,child in node.akpChildByIndex.iteritems():
-               checkAlreadyInMap(child)
+               checkAlreadyInMap(wlt, child)
 
          checkAlreadyInMap(self, rootNodeOfBranch)
             
@@ -1474,11 +1475,13 @@ class ArmoryWalletFile(object):
          if sbdExtraEntropy is None or sbdExtraEntropy.getSize() < 16:
             raise KeyDataError('Must provide 16+ bytes of extra entropy')
 
-         newRoot.createNewSeed(DEFAULT_SEED_SIZE, sbdExtraEntropy, fillPool=fillPool)
+         newRoot.createNewSeed(DEFAULT_SEED_SIZE, sbdExtraEntropy, 
+                                             fillPool=fillPool, fsync=fsync)
       else:
-         newRoot.initializeFromSeed(sbdPregeneratedSeed, fillPool=fillPool)
+         newRoot.initializeFromSeed(sbdPregeneratedSeed, 
+                                             fillPool=fillPool, fsync=fsync)
 
-      newRoot.parEntryID = newRoot.getScrAddr()
+      newRoot.parEntryID = newRoot.getEntryID()
       newRoot.wltParentRef = newRoot  # root address has self-reference
       return newRoot
       

@@ -19,17 +19,16 @@ HARDBIT = 0x80000000
 DEFAULT_CHILDPOOLSIZE = {}
 DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Seed']    = 0  # no keypool
 DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Purpose'] = 0  # no keypool
-DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Bitcoin'] = 2  # Lookahead two wallets
 
 DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Lookahead two wallets
 DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Lookahead two wallets
 DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']     = 2
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100 if not USE_TESTNET else 10
 DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 5
 DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']       = 0  # leaf node
 
 DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 5
-DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100
+DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100 if not USE_TESTNET else 10
 DEFAULT_CHILDPOOLSIZE['MBEK_StdChainInt']  = 10
 DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 
@@ -266,15 +265,18 @@ class ArmoryKeyPair(WalletEntry):
       if childAKP.childIndex is None:
          raise ValueError('Child AKP has no childIndex')
          
+      # Must set AKP parent, as well as general WalletEntry parent
       self.akpChildByIndex[childAKP.childIndex] = childAKP
       self.akpChildByScrAddr[childAKP.getScrAddr()] = childAKP
       childAKP.akpParentRef  = self
       childAKP.akpParScrAddr = self.getScrAddr()
+      childAKP.parEntryID    = self.getEntryID()
 
       childP1 = childAKP.childIndex + 1
       self.nextChildToCalc = max(self.nextChildToCalc, childP1)
       if childAKP.isUsed:
          self.lowestUnusedChild = max(self.lowestUnusedChild, childP1)
+
 
 
    #############################################################################
@@ -2216,8 +2218,9 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
          cidx = len(self.akpChildByIndex)
          self.akpChildByIndex[cidx] = childAIKP
          self.akpChildByScrAddr[childScrAddr] = childAIKP
-         childAIKP.akpParentRef = self
+         childAIKP.akpParentRef  = self
          childAIKP.akpParScrAddr = self.getScrAddr()
+         childAIKP.parEntryID    = self.getEntryID()
 
 
    #####
@@ -2238,7 +2241,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
 
 #############################################################################
 class ABEK_BIP44Seed(ArmoryBip32Seed):
-   FILECODE = 'BIP44ROT'
+   FILECODE = 'BIP44SED'
    TREELEAF  = False
    HARDCHILD = True
 
@@ -2248,12 +2251,37 @@ class ABEK_BIP44Seed(ArmoryBip32Seed):
    #####
    def getChildClass(self, index):
       if index==CreateChildIndex(44, True):
-         return ABEK_BIP44Bitcoin
+         return ABEK_BIP44Purpose
 
       raise ChildDeriveError('Invalid child %s for %s' % \
                               (ChildIndexToStr(index), self.getName()))
 
+   #############################################################################
+   def fillKeyPool(self, fsync=True, progressUpdater=emptyFunc):
+      """
+      ### DEFAULT implementation of fillKeyPool in AKP base class ###
+      if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
+         raise UninitializedError('AKP object not init, cannot fill pool')
 
+      if self.TREELEAF:
+         return
+
+      keysToGen = self.numKeysNeededToFillPool()
+      for i in range(keysToGen):
+         newAkp = self.spawnChild(self.getNextChildToCalcIndex(), fsync=fsync, 
+                                                               linkToParent=True)
+
+      # Now recurse to each child
+      for scrAddr,childAKP in self.akpChildByScrAddr.iteritems():
+         childAKP.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
+      ### DEFAULT implementation of fillKeyPool in AKP base class
+      """
+      if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
+         raise UninitializedError('AKP object not init, cannot fill pool')
+
+      bip44Index = CreateChildIndex(44, isHardened=True)
+      newAkp = self.spawnChild(bip44Index, fsync=fsync, linkToParent=True)
+      newAkp.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
    
 
 #############################################################################
@@ -2268,35 +2296,29 @@ class ABEK_BIP44Purpose(ArmoryBip32ExtendedKey):
    def getChildClass(self, index):
       idx,hard = SplitChildIndex(index)
       expectedIdx = 1 if USE_TESTNET else 0
-      if index==expectedIdx and hard==self.HARDCHILD:
-         return ABEK_BIP44Bitcoin
+      if idx==expectedIdx and hard==self.HARDCHILD:
+         return ABEK_StdBip32Seed
 
       raise ChildDeriveError('Invalid child %s for %s' % \
                               (ChildIndexToStr(index), self.getName()))
 
 
-#############################################################################
-class ABEK_BIP44Bitcoin(ArmoryBip32ExtendedKey):
-   FILECODE = 'BIP44BTC'
-   TREELEAF  = False
-   HARDCHILD = True
+   #############################################################################
+   def fillKeyPool(self, fsync=True, progressUpdater=emptyFunc):
+      if self.sbdPublicKey33 is None or self.sbdPublicKey33.getSize()==0:
+         raise UninitializedError('AKP object not init, cannot fill pool')
 
-   def __init__(self):
-      super(ABEK_BIP44Bitcoin, self).__init__()
-      self.maxChildren = UINT32_MAX
+      networkInt = 1 if USE_TESTNET else 0
+      indexToUse = CreateChildIndex(networkInt, isHardened=True)
+      newAkp = self.spawnChild(indexToUse, fsync=fsync, linkToParent=True)
+      newAkp.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
 
-   def getChildClass(self, index):
-      idx,hard = SplitChildIndex(index)
-      if hard==self.HARDCHILD:
-         return ABEK_StdWallet
 
-      raise ChildDeriveError('Invalid child %s for %s' % \
-                              (ChildIndexToStr(index), self.getName()))
 
 
 #############################################################################
 class ABEK_StdBip32Seed(ArmoryBip32Seed):
-   FILECODE = 'BIP32ROT'
+   FILECODE = 'BIP32SED'
    TREELEAF  = False
    HARDCHILD = True
 
@@ -2315,7 +2337,7 @@ class ABEK_StdBip32Seed(ArmoryBip32Seed):
 
 #############################################################################
 class ABEK_SoftBip32Seed(ABEK_StdBip32Seed):
-   FILECODE = 'SFT32ROT'
+   FILECODE = 'SFT32SED'
    TREELEAF  = False
    HARDCHILD = False
 
@@ -2407,7 +2429,7 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
    #############################################################################
    def getNextReceivingAddress(self, fsync=True):
       i = self.getWalletChainIndex('External')
-      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=True)
+      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=fsync)
       return ch.getNextUnusedChild()
 
    #############################################################################
@@ -2419,7 +2441,7 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
    #############################################################################
    def getNextChangeAddress(self):
       i = self.getWalletChainIndex('Internal')
-      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=True)
+      ch = self.getChildByIndex(i, spawnIfNeeded=True, fsync=fsync)
       return ch.getNextUnusedChild()
          
    #############################################################################
