@@ -23,13 +23,13 @@ DEFAULT_CHILDPOOLSIZE['ABEK_BIP44Purpose'] = 0  # no keypool
 DEFAULT_CHILDPOOLSIZE['ABEK_StdBip32Seed']  = 2  # Lookahead two wallets
 DEFAULT_CHILDPOOLSIZE['ABEK_SoftBip32Seed'] = 2  # Lookahead two wallets
 DEFAULT_CHILDPOOLSIZE['ABEK_StdWallet']     = 2
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100 if not USE_TESTNET else 10
-DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 5
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainExt']   = 100 if not USE_TESTNET else 5
+DEFAULT_CHILDPOOLSIZE['ABEK_StdChainInt']   = 5 if not USE_TESTNET else 2
 DEFAULT_CHILDPOOLSIZE['ABEK_StdLeaf']       = 0  # leaf node
 
 DEFAULT_CHILDPOOLSIZE['MBEK_StdWallet']    = 5
-DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100 if not USE_TESTNET else 10
-DEFAULT_CHILDPOOLSIZE['MBEK_StdChainInt']  = 10
+DEFAULT_CHILDPOOLSIZE['MBEK_StdChainExt']  = 100 if not USE_TESTNET else 5
+DEFAULT_CHILDPOOLSIZE['MBEK_StdChainInt']  = 10 if not USE_TESTNET else 3
 DEFAULT_CHILDPOOLSIZE['MBEK_StdLeaf']      = 0  # leaf node
 
 DEFAULT_CHILDPOOLSIZE['Armory135Root']     = 1000  # old Armory wallets
@@ -1290,7 +1290,6 @@ class Armory135KeyPair(ArmoryKeyPair):
       self.root135Ref = None
       self.root135ScrAddr = None
       self.maxChildren = 1
-      self.isAkpRootRoot  = False
 
 
    
@@ -1450,6 +1449,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.keyBornTime       = long(RightNow())
          childAddr.keyBornBlock      = currBlk
          childAddr.wltParentRef = self.wltParentRef
+         childAddr.isAkpRootRoot = False
 
          # These recompute calls also call recomputeScript and recomputeUniqueIDBin
          childAddr.recomputeScrAddr()
@@ -1853,6 +1853,7 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.nextChildToCalc   = 0
       childAddr.keyBornTime       = long(RightNow())
       childAddr.keyBornBlock      = currBlk
+      childAddr.isAkpRootRoot     = False
 
       # If the child key corresponds to a "hardened" derivation, we require
       # the priv keys to be available, or sometimes we explicitly request it
@@ -2247,6 +2248,7 @@ class ABEK_BIP44Seed(ArmoryBip32Seed):
 
    def __init__(self):
       super(ABEK_BIP44Seed, self).__init__()
+      self.isAkpRootRoot = True
 
    #####
    def getChildClass(self, index):
@@ -2616,6 +2618,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
       childMBEK.wltParentRef = self.wltParentRef
+      childMBEK.isAkpRootRoot = False
 
       # These recompute calls also call recomputeScript and recomputeUniqueIDBin
       childMBEK.recomputeScrAddr()

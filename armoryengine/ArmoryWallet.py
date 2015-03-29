@@ -44,7 +44,6 @@ class ArmoryFileHeader(object):
    def __init__(self):
       # Note, we use a different fileID than wallet 1.35 so that older versions
       # of Armory don't attempt to load the 2.0 wallets
-      LOGDEBUG('Creating file header')
       self.flags         = BitSet(32)
       self.wltUserName   = u''
       self.createTime    = UINT64_MAX
@@ -185,7 +184,7 @@ class ArmoryFileHeader(object):
 
       if not versionInt==getVersionInt(ARMORY_WALLET_VERSION):
          LOGWARN('This wallet is for an older version of Armory!')
-         LOGWARN('Wallet version: %d', armoryVer)
+         LOGWARN('Wallet version: %d', versionInt)
          LOGWARN('Armory version: %d', getVersionInt(ARMORY_WALLET_VERSION))
 
 
@@ -224,7 +223,7 @@ class ArmoryWalletFile(object):
 
       self.fileHeader = ArmoryFileHeader()
 
-      self.uniqueIDB58       = None
+      self.uniqueIDB58       = None  # UniqueID of first root/seed
       self.walletPath        = None
       self.walletPathBackup  = None
       self.walletPathUpdFail = None
@@ -243,9 +242,6 @@ class ArmoryWalletFile(object):
 
       # List of branches to display as "wallets"
       self.displayableWalletsMap  = {}  
-
-      # List of all independent AKP branches
-      self.allRootRoots      = {}  
 
       # Any lockboxes that are maintained in this wallet file
       # Indexed by p2sh-scrAddr
@@ -367,7 +363,7 @@ class ArmoryWalletFile(object):
       self.kdfMap[newKDF.getKdfID()] = newKDF
 
       if fsync:
-         self.doFileOperation('AddEntry', newWE)
+         self.doFileOperation('AddEntry', newKDF)
 
 
    
@@ -466,7 +462,7 @@ class ArmoryWalletFile(object):
          # Open wallet file
          if not os.path.exists(wltOther):
             raise WalletExistsError('Wallet to merge DNE: %s' % wltOther)
-         wltOther = ArmoryWalletFile.readWalletFile(wltOther, openReadOnly=True)
+         wltOther = ArmoryWalletFile.ReadWalletFile(wltOther, openReadOnly=True)
       
 
       if rootsToAbsorb=='ALL':
@@ -528,7 +524,7 @@ class ArmoryWalletFile(object):
       """
       raise NotImplementedError('TODO: Implement external wallet logic')
 
-      if not exists(filepath):
+      if not os.path.exists(filepath):
          LOGERROR('External info file does not exist!  %s' % filepath)
 
       self.externalInfoWallet =  ArmoryWalletFile.ReadWalletFile(filepath)
@@ -624,7 +620,7 @@ class ArmoryWalletFile(object):
          currPos = rawWallet.getPosition()
          wltEntry = WalletEntry.UnserializeEntry(rawWallet, wlt, currPos)
          allEntries.append(wltEntry)
-         LOGINFO('Read new WE type: %s (%s)', wltEntry.__class__.__name__, 
+         LOGINFO('Processed WalletEntry (type: %s [ID=%s])', wltEntry.__class__.__name__, 
                                        binary_to_hex(wltEntry.getEntryID()))
          
          
@@ -644,13 +640,13 @@ class ArmoryWalletFile(object):
       # If outer encryption was used on any entries, decrypt & add, if possible
       # (needed to add previous entries, because one is probably the decryption
       # key and/or KDF needed to unlock outer encryption)
-      if len(wlt.opaqueList) > 0:
+      if len(self.opaqueList) > 0:
          if len(outerCryptArgs) == 0:
             LOGWARN('Opaque entries in wallet, no decrypt args supplied')
          else:
             newWEList = []
             stillOpaqueList = []
-            for i,we in enumerate(wlt.opaqueList):
+            for i,we in enumerate(self.opaqueList):
                try:
                   decryptedWE = we.decryptPayloadReturnNewObj(**outerCryptArgs)
                   newWEList.append(decryptedWE)
@@ -659,8 +655,8 @@ class ArmoryWalletFile(object):
                   LOGEXCEPT('Failed to decrypt some opaque entries')
                   stillOpaqueList.append(we)
                   
-            wlt.opaqueList = stillOpaqueList
-            wlt.addEntriesToWallet(newWEList)
+            self.opaqueList = stillOpaqueList
+            self.addEntriesToWallet(newWEList)
          
 
 
@@ -846,11 +842,13 @@ class ArmoryWalletFile(object):
          
          
    #############################################################################
-   def createWalletName(self, uniqB58=None):
-      if uniqB58 is None:
-         uniqB58 = self.uniqueIDB58
+   def createWalletName(self):
+      ArmoryWalletFile.CreateWalletNameFromID(self.uniqueIDB58)
 
-      return 'armory_wallet2.0_%s.bin' % self.uniqueIDB58
+   #############################################################################
+   @staticmethod
+   def CreateWalletNameFromID(self, uniqB58):
+      return 'armory_wallet2.0_%s.wlt' % uniqB58
 
    #############################################################################
    def getWalletPath(self, nameSuffix=None):
@@ -1322,7 +1320,7 @@ class ArmoryWalletFile(object):
             return None
       
 
-      writeFreshWalletFile_BASE(rootFilter, newPath, newName, withOpaque, 
+      self.writeFreshWalletFile_BASE(rootFilter, newPath, newName, withOpaque, 
                withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
 
 
@@ -1350,7 +1348,7 @@ class ArmoryWalletFile(object):
             return we
             
             
-      writeFreshWalletFile_BASE(filterAndWipe, newPath, newName, withOpaque, 
+      self.writeFreshWalletFile_BASE(filterAndWipe, newPath, newName, withOpaque, 
                withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
       
 
@@ -1580,13 +1578,14 @@ class ArmoryWalletFile(object):
                                 (newRoot.getName(), newRoot.getUniqueIDB58()))
 
       # Set the unique ID so we can create the wallet file (filename has ID in it)
-      newWlt.uniqueIDB58 = newRoot.getUniqueIDB58()
+      idB58 = newRoot.getUniqueIDB58()
+      newWlt.uniqueIDB58 = idB58
 
       if createInDir is None:
          createInDir = ARMORY_HOME_DIR 
 
       if specificFilename is None:
-         specificFilename = self.createWalletName()
+         specificFilename = ArmoryWalletFile.CreateWalletNameFromID(idB58)
 
       # This sets the primary wallet file, as well as backups and flags
       newWlt.setWalletPath(os.path.join(createInDir, specificFilename))

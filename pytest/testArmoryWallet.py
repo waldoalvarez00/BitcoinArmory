@@ -325,7 +325,7 @@ class SimpleWalletTests(unittest.TestCase):
       
 
    #############################################################################
-   def testCreateWallet_PregenSeed(self):
+   def testCreateAndReadWallet_PregenSeed(self):
 
       pwd = SecureBinaryData('T3ST1NG_P455W0RD')
       seed = SecureBinaryData('\xaa'*32) 
@@ -341,9 +341,46 @@ class SimpleWalletTests(unittest.TestCase):
                                             createInDir='tempwallets',
                                             specificFilename='test_wallet_file.wallet',
                                             progressUpdater=prg)
-                                                         
-      self.assertEqual(wltName, newWallet.fileHeader.wltUserName)
-      self.assertTrue(os.path.exists(os.path.join(self.wltDir, self.wltFN)))
+
+      # Pass 0: check the already-created wallet
+      # Pass 1: re-read the wallet from file and check
+      # Pass 2: re-read the wallet from file in read-only mode 
+      for i in range(3):
+         wpath = os.path.join(self.wltDir, self.wltFN)
+         self.assertTrue(os.path.exists(wpath))
+         self.assertEqual(wltName, newWallet.fileHeader.wltUserName)
+         self.assertEqual(25, len(newWallet.allWalletEntries))
+         self.assertEqual(2,  len(newWallet.displayableWalletsMap))
+         self.assertEqual(1,  len(newWallet.ekeyMap))
+         self.assertEqual(1,  len(newWallet.kdfMap))
+         self.assertEqual(23, len(newWallet.masterScrAddrMap))
+         self.assertEqual(0 , len(newWallet.opaqueList))
+         self.assertEqual(0 , len(newWallet.unrecognizedList))
+         self.assertEqual(0 , len(newWallet.unrecoverableList))
+         self.assertEqual(0 , newWallet.arbitraryDataMap.countNodes())
+         self.assertEqual(0 , len(newWallet.disabledRootIDs))
+         self.assertEqual(0 , len(newWallet.disabledList))
+         self.assertEqual(None, newWallet.masterWalletRef)
+         self.assertEqual(None, newWallet.supplementalWltRef)
+         self.assertEqual(None, newWallet.supplementalWltPath)
+         self.assertEqual(newWallet.isReadOnly, (i==2))
+
+         for scrAddr,akpDisp in newWallet.displayableWalletsMap.iteritems():
+            self.assertEqual(akpDisp.__class__.__name__, 'ABEK_StdWallet')
+            self.assertTrue(akpDisp.childIndex is not None)
+            
+            
+
+         newWallet = ArmoryWalletFile.ReadWalletFile(wpath, openReadOnly=(i>0))
+
+       
+      # Wallet should be open in RO mode, so updating should fail
+      self.assertRaises(WalletUpdateError, newWallet.addFileOperationToQueue,
+                                                'AddEntry', EncryptionKey())
+
+
+
+
 
 
    #############################################################################
