@@ -365,11 +365,11 @@ class SimpleWalletTests(unittest.TestCase):
          self.assertEqual(None, newWallet.supplementalWltPath)
          self.assertEqual(newWallet.isReadOnly, (i==2))
 
-         for scrAddr,akpDisp in newWallet.displayableWalletsMap.iteritems():
-            self.assertEqual(akpDisp.__class__.__name__, 'ABEK_StdWallet')
-            self.assertTrue(akpDisp.childIndex is not None)
-            
-            
+         #for scrAddr,akpDisp in newWallet.displayableWalletsMap.iteritems():
+            #self.assertEqual(akpDisp.__class__.__name__, 'ABEK_StdWallet')
+            #self.assertTrue(akpDisp.childIndex is not None)
+            #print akpDisp.privCryptInfo.pprintStr()
+
 
          newWallet = ArmoryWalletFile.ReadWalletFile(wpath, openReadOnly=(i>0))
 
@@ -379,6 +379,7 @@ class SimpleWalletTests(unittest.TestCase):
                                                 'AddEntry', EncryptionKey())
 
 
+      newWallet.pprintEntryList()
 
 
 

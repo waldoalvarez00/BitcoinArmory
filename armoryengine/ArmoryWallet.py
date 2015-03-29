@@ -1707,6 +1707,13 @@ class ArmoryWalletFile(object):
          return v
 
 
+   #############################################################################
+   def pprintEntryList(self, indent=0):
+      for i,we in enumerate(self.allWalletEntries):
+         print '  %03d' % i,
+         we.pprintOneLine(indent=indent)
+
+
 ArmoryWalletFile.RegisterWalletDisplayClass(ABEK_StdWallet)
 ArmoryWalletFile.RegisterWalletDisplayClass(Armory135Root)
 ArmoryWalletFile.RegisterWalletDisplayClass(ArmoryImportedRoot)

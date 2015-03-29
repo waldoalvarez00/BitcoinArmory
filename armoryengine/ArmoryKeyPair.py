@@ -1099,6 +1099,32 @@ class ArmoryKeyPair(WalletEntry):
 
 
    ##########################################################################
+   def pprintOneLine(self, indent=0):
+      isUsedStr = '+' if self.isUsed else ' '
+      pcs = []   
+      pcs.append('%s%s' % (self.__class__.__name__.ljust(18), isUsedStr))
+      pcs.append(scrAddr_to_addrStr(self.getScrAddr()) + ',')
+      
+      if self.isAkpRootRoot:
+         pcs.append('<Top-level BIP32 Node>')
+      else:
+         if self.akpParentRef:
+            if issubclass(self.__class__, Armory135KeyPair):
+               idxStr = str(self.chainIndex)
+            else:
+               idxStr = ChildIndexToStr(self.childIndex)
+            parAddr = scrAddr_to_addrStr(self.akpParentRef.getScrAddr())
+            pcs.append('child[%s:%s]' % (parAddr[:12], idxStr))
+
+      if self.privCryptInfo.noEncryption():
+         pcs.append('(No Encryption)')
+      else:
+         pcs.append('(Encrypted with: %s)' % binary_to_hex(self.privCryptInfo.keySource)[:8])
+
+      print ' '*indent + ' '.join(pcs)
+      
+
+   ##########################################################################
    def getBalance(self, uxtoMaturity='Spendable'):
       raise NotImplementedError('"%s" needs to implement getBalance()' % \
                                                              self.getName())

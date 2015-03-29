@@ -566,6 +566,28 @@ class ArmoryCryptInfo(object):
          self.tempKeyDecrypt.destroy()
 
 
+   #############################################################################
+   def pprintOneLine(self, indent=0):
+      print ' '*indent + 'ACI :', self.pprintStr()
+
+   #############################################################################
+   def pprintStr(self):
+      out = ''
+      algoStr = 'NO CRYPT' if self.encryptAlgo == NULLCRYPT else self.encryptAlgo
+      kdfStr  = ' NO_KDF ' if self.kdfObjID == NULLKDF else binary_to_hex(self.kdfObjID)[:8]
+      ivStr = self.ivSource if self.ivSource=='PUBKEY20' else binary_to_hex(self.ivSource)[:8]
+
+      keyStr = self.keySource 
+      try:
+         enumval,src = self.getEncryptKeySrc()
+         if enumval == CRYPT_KEY_SRC.EKEY_OBJ:
+            keyStr = binary_to_hex(src)[:8]
+      except:
+         keyStr = 'NO_SRC  '
+      
+      return '[ %s | %s | %s | %s ]' % (algoStr, kdfStr, keyStr, ivStr)
+      
+
 
 
 #############################################################################
@@ -750,6 +772,26 @@ class KdfObject(WalletEntry):
       return kdfOut
 
 
+   #############################################################################
+   def pprintOneLine(self, indent=0):
+      if self.kdfAlgo.upper()==NULLKDF:
+         print 'KdfObject:  NULLKDF'
+         return
+
+      if self.kdfAlgo.upper() in [None, '']:
+         print 'KdfObject:  Uninitialized'
+         return
+
+      pcs = []
+      pcs.append('KdfObject: ')
+      pcs.append('ID=%s' % binary_to_hex(self.getKdfID()))
+      pcs.append('Algo=%s' % self.kdfAlgo)
+      if self.kdfAlgo.upper()=='ROMIXOV2':
+         byteStr = bytesToHumanSize(self.memReqd)
+         saltStr = self.salt.toHexStr()[:8]
+         pcs.append('[%d iter, %s, %s...]' % (self.numIter, byteStr, saltStr))
+
+      print ' '*indent + ' '.join(pcs)
 
 #############################################################################
 #############################################################################
@@ -1120,6 +1162,26 @@ class EncryptionKey(WalletEntry):
       finally:
          self.lock(newPass)
                               
+   
+   #############################################################################
+   def pprintOneLine(self, indent=0):
+      if self.ekeyID == NULLSTR():
+         print ' '*indent + 'EkeyObject: Uninitialized'
+   
+      pcs = []
+      pcs.append('EkeyObject:')
+      pcs.append('ID=%s' % binary_to_hex(self.ekeyID))
+
+      if self.keyCryptInfo.kdfObjID == NULLKDF:
+         pcs.append('KdfRef: <NONE>')
+      else:
+         pcs.append('KdfRef: ID=%s' % binary_to_hex(self.keyCryptInfo.kdfObjID)[:8])
+
+      pcs.append('EncrKey: %s...' % self.masterKeyCrypt.toHexStr()[:8])
+         
+
+      print ' '*indent + ' '.join(pcs)
+
 
 
          
