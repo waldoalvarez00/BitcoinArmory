@@ -321,6 +321,10 @@ class ArmoryKeyPair(WalletEntry):
       return self.scrAddrStr
 
    #############################################################################
+   def getAddrStr(self, forceRecompute=False):
+      return scrAddr_to_addrStr(self.getScrAddr())
+
+   #############################################################################
    def getUniqueIDBin(self, forceRecompute=False):
       if self.uniqueIDBin is None or forceRecompute:
          self.recomputeUniqueIDBin()
@@ -1099,11 +1103,11 @@ class ArmoryKeyPair(WalletEntry):
 
 
    ##########################################################################
-   def pprintOneLine(self, indent=0):
+   def pprintOneLineStr(self, indent=0):
       isUsedStr = '+' if self.isUsed else ' '
       pcs = []   
       pcs.append('%s%s' % (self.__class__.__name__.ljust(18), isUsedStr))
-      pcs.append(scrAddr_to_addrStr(self.getScrAddr()) + ',')
+      pcs.append(self.getAddrStr() + ',')
       
       if self.isAkpRootRoot:
          pcs.append('<Top-level BIP32 Node>')
@@ -1113,7 +1117,7 @@ class ArmoryKeyPair(WalletEntry):
                idxStr = str(self.chainIndex)
             else:
                idxStr = ChildIndexToStr(self.childIndex)
-            parAddr = scrAddr_to_addrStr(self.akpParentRef.getScrAddr())
+            parAddr = self.akpParentRef.getAddrStr()
             pcs.append('child[%s:%s]' % (parAddr[:12], idxStr))
 
       if self.privCryptInfo.noEncryption():
@@ -1121,7 +1125,7 @@ class ArmoryKeyPair(WalletEntry):
       else:
          pcs.append('(Encrypted with: %s)' % binary_to_hex(self.privCryptInfo.keySource)[:8])
 
-      print ' '*indent + ' '.join(pcs)
+      return ' '*indent + ' '.join(pcs)
       
 
    ##########################################################################

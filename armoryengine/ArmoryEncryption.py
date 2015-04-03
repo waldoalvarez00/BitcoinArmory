@@ -567,8 +567,8 @@ class ArmoryCryptInfo(object):
 
 
    #############################################################################
-   def pprintOneLine(self, indent=0):
-      print ' '*indent + 'ACI :', self.pprintStr()
+   def pprintOneLineStr(self, indent=0):
+      return ' '*indent + 'ACI :', self.pprintStr()
 
    #############################################################################
    def pprintStr(self):
@@ -772,26 +772,26 @@ class KdfObject(WalletEntry):
       return kdfOut
 
 
+
    #############################################################################
-   def pprintOneLine(self, indent=0):
+   def pprintOneLineStr(self, indent=0):
       if self.kdfAlgo.upper()==NULLKDF:
-         print 'KdfObject:  NULLKDF'
-         return
+         return 'KdfObject  NULLKDF'
 
       if self.kdfAlgo.upper() in [None, '']:
-         print 'KdfObject:  Uninitialized'
-         return
+         return 'KdfObject  Uninitialized'
 
       pcs = []
-      pcs.append('KdfObject: ')
+      pcs.append('KdfObject ')
       pcs.append('ID=%s' % binary_to_hex(self.getKdfID()))
       pcs.append('Algo=%s' % self.kdfAlgo)
       if self.kdfAlgo.upper()=='ROMIXOV2':
          byteStr = bytesToHumanSize(self.memReqd)
          saltStr = self.salt.toHexStr()[:8]
-         pcs.append('[%d iter, %s, %s...]' % (self.numIter, byteStr, saltStr))
+         pcs.append('[%d iter, %s, salt:%s...]' % (self.numIter, byteStr, saltStr))
 
-      print ' '*indent + ' '.join(pcs)
+      return ' '*indent + ', '.join(pcs)
+
 
 #############################################################################
 #############################################################################
@@ -1162,25 +1162,26 @@ class EncryptionKey(WalletEntry):
       finally:
          self.lock(newPass)
                               
+
    
    #############################################################################
-   def pprintOneLine(self, indent=0):
+   def pprintOneLineStr(self, indent=0):
       if self.ekeyID == NULLSTR():
-         print ' '*indent + 'EkeyObject: Uninitialized'
+         return ' '*indent + 'EkeyObject, Uninitialized'
    
       pcs = []
-      pcs.append('EkeyObject:')
+      pcs.append('EkeyObject')
       pcs.append('ID=%s' % binary_to_hex(self.ekeyID))
 
       if self.keyCryptInfo.kdfObjID == NULLKDF:
-         pcs.append('KdfRef: <NONE>')
+         pcs.append('KdfID=<NULLKDF>')
       else:
-         pcs.append('KdfRef: ID=%s' % binary_to_hex(self.keyCryptInfo.kdfObjID)[:8])
+         pcs.append('KdfID=%s...' % binary_to_hex(self.keyCryptInfo.kdfObjID)[:8])
 
       pcs.append('EncrKey: %s...' % self.masterKeyCrypt.toHexStr()[:8])
          
 
-      print ' '*indent + ' '.join(pcs)
+      return ' '*indent + ', '.join(pcs)
 
 
 

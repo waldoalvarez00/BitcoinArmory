@@ -11,8 +11,6 @@ class WalletEntryMeta(type):
          cls.FILECODEMAP = {}
          cls.REQUIRED_TYPES = set()
          cls.KEYPAIR_TYPES  = set()
-         cls.RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
-                           'Check':  ReedSolomonWrapper.checkRSECCode}
       else:
          if hasattr(cls, 'FILECODE'):
             # This is a derived class.  Add cls to the registry
@@ -91,39 +89,11 @@ class WalletEntry(object):
    blockchain ... they must have access to at least the watching-only wlt).
   
    """
-   # Any classes that inherit from WalletEntry that want WalletEntry to be
-   # able to spawn objects of its type when found in a wallet file, needs
-   # to call RegisterWalletStorageClass.  Technically, we could get around
-   # this using reflection, but reading direct class names out of wallet
-   # files and invoking them feels as dangerous like using eval()
-   #FILECODEMAP    = {}
-   #REQUIRED_TYPES = set()
-   #KEYPAIR_TYPES  = set()
-   #RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
-                 #'Check':  ReedSolomonWrapper.checkRSECCode}
    __metaclass__ = WalletEntryMeta
 
+   RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
+                 'Check':  ReedSolomonWrapper.checkRSECCode}
 
-   #############################################################################
-   @staticmethod
-   def RegisterWalletStorageClass(clsType, isReqd=False):
-      weCode = clsType.FILECODE
-      if weCode in WalletEntry.FILECODEMAP:
-         raise ValueError('Class with code "%s" is already in map!' % weCode)
-
-      WalletEntry.FILECODEMAP[weCode] = clsType
-      if isReqd:
-         WalletEntry.REQUIRED_TYPES.add(weCode)
-
-      try:
-         from ArmoryKeyPair import ArmoryKeyPair
-         if issubclass(clsType, ArmoryKeyPair):
-            WalletEntry.KEYPAIR_TYPES.add(weCode)
-            LOGINFO('Registered %s class as a keypair type')
-      except:
-         LOGERROR('Failed to check if class is keypair type: %s' % clsType.__name__)
-         # This is when ArmoryKeyPair hasn't been defined yet.  That's fine.
-         pass
 
    #############################################################################
    @staticmethod
@@ -496,12 +466,11 @@ class WalletEntry(object):
       raise NotImplementedError
 
 
-   #############################################################################
-   #def pprintOneLine(self, nIndent=0):
-      #fmtField = lambda lbl,val,wid: '(%s %s)'%(lbl,str(val)[:wid].rjust(wid))
-      #print fmtField('', self.FILECODE, 8),
-      #print fmtField('in', self.self.wltFileRef.filepath.basename(), 4),
 
+   #############################################################################
+   def pprintOneLine(self, indent=0):
+      prefix = ' '*indent + '[%05d+%3d] ' % (self.wltByteLoc, self.wltEntrySz)
+      print prefix + self.pprintOneLineStr()
 
 
 from ArmoryEncryption import *

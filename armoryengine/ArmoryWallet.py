@@ -620,8 +620,7 @@ class ArmoryWalletFile(object):
          currPos = rawWallet.getPosition()
          wltEntry = WalletEntry.UnserializeEntry(rawWallet, wlt, currPos)
          allEntries.append(wltEntry)
-         LOGINFO('Processed WalletEntry (type: %s [ID=%s])', wltEntry.__class__.__name__, 
-                                       binary_to_hex(wltEntry.getEntryID()))
+         LOGDEBUG(wltEntry.pprintOneLineStr())
          
          
       # This will organize all the entries into their respective lists/maps,
@@ -1710,7 +1709,7 @@ class ArmoryWalletFile(object):
    #############################################################################
    def pprintEntryList(self, indent=0):
       for i,we in enumerate(self.allWalletEntries):
-         print '  %03d' % i,
+         print '   %03d' % i,
          we.pprintOneLine(indent=indent)
 
 

@@ -55,6 +55,9 @@ class ScrAddrLabel(WalletEntry):
          self.akpRef = akp
          akp.scrAddrLabelRef = self
          
+   #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      return '%s%s: "%s"' % (' '*indent, akp.getAddrStr(), self.label[:32])
       
 
 
@@ -109,6 +112,17 @@ class TxLabel(WalletEntry):
    def linkWalletEntries(self, wltRef):
       pass
 
+   #############################################################################
+   def pprintOneLine(self, indent=0):
+      if self.txidFull:
+         idStr = binary_to_hex(self.txidFull) + ' '
+      else:
+         if not self.txidMall:
+            raise KeyDataError('No txid specified for TxLabel')
+         else:
+            idStr = binary_to_hex(self.txidMall) + '*'
+
+      print '%s%s: "%s"' % (' '*indent, idStr, self.uComment[:32])
 
 
 
