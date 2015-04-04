@@ -1,5 +1,5 @@
 from ArmoryUtils import *
-import ReedSolomonWrapper
+import ErrorCorrection
 
 class WalletEntryMeta(type):
    # we use __init__ rather than __new__ here because we want
@@ -91,8 +91,8 @@ class WalletEntry(object):
    """
    __metaclass__ = WalletEntryMeta
 
-   RSEC_FUNCS = {'Create': ReedSolomonWrapper.createRSECCode,
-                 'Check':  ReedSolomonWrapper.checkRSECCode}
+   ERRCORR_FUNCS = {'Create': ErrorCorrection.createChecksumBytes,
+                    'Verify': ErrorCorrection.verifyChecksumBytes}
 
 
    #############################################################################
@@ -108,19 +108,26 @@ class WalletEntry(object):
       which was created "manually" and the user didn't have a library for 
       creating the RSEC codes.  
       """
-      WalletEntry.RSEC_FUNCS['Create'] = createFunc
-      WalletEntry.RSEC_FUNCS['Check']  = checkFunc
-
+      LOGINFO('Changing error correction algorithms to:')
+      LOGINFO('   Create: ' + createFunc.__name__)
+      LOGINFO('   Verify: ' + checkFunc.__name__)
+      WalletEntry.ERRCORR_FUNCS['Create'] = createFunc
+      WalletEntry.ERRCORR_FUNCS['Verify']  = checkFunc
 
    #############################################################################
    @staticmethod
-   def CreateRSECCode(*args, **kwargs):
-      return WalletEntry.RSEC_FUNCS['Create'](*args, **kwargs)
+   def UseReedSolomonErrorCorrection():
+      WalletEntry.ChangeRSECAlgos(
+
+   #############################################################################
+   @staticmethod
+   def CreateErrCorrCode(*args, **kwargs):
+      return WalletEntry.ERRCORR_FUNCS['Create'](*args, **kwargs)
 
    #############################################################################
    @staticmethod
    def CheckRSECCode(*args, **kwargs):
-      return WalletEntry.RSEC_FUNCS['Check'](*args, **kwargs)
+      return WalletEntry.ERRCORR_FUNCS['Verify'](*args, **kwargs)
 
    #############################################################################
    @staticmethod
@@ -128,8 +135,8 @@ class WalletEntry(object):
       def checkfn(data, parity):
          return data, False, False
          
-      def createfn(data, rsecBytes=ReedSolomonWrapper.RSEC_PARITY_BYTES, 
-                         perDataBytes=ReedSolomonWrapper.RSEC_PER_DATA_BYTES):
+      def createfn(data, rsecBytes=ErrorCorrection.ERRCORR_BYTES, 
+                         perDataBytes=ErrorCorrection.ERRCORR_PER_DATA):
          nChunk = (len(data)-1)/perDataBytes + 1
          return '\x00' * rsecBytes * nChunk
 
@@ -253,7 +260,7 @@ class WalletEntry(object):
          serPayload = self.outerCrypt.encrypt(serPayload, **encryptKwargs)
 
       # Computes 16-byte Reed-Solomon error-correction code per 1024 bytes
-      rsecCode = WalletEntry.CreateRSECCode(serPayload)
+      rsecCode = WalletEntry.CreateErrCorrCode(serPayload)
 
       # Now we have everything we need to serialize the wallet entry
       bp = BinaryPacker()
