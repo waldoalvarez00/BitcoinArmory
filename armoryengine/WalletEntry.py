@@ -226,7 +226,7 @@ class WalletEntry(object):
    def linkWalletEntries(self, wltFileRef):
       # All parents will be ArmorySeededKeyPair objects
       self.wltFileRef = wltFileRef
-      parent = wltFileRef.masterScrAddrMap.get(self.wltParentID)
+      parent = wltFileRef.masterEntryIDMap.get(self.wltParentID)
       if parent is None:
          self.isOrphan = True
          wltFileRef.wltParentMissing.append(self)

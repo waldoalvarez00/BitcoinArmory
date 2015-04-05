@@ -326,7 +326,7 @@ class SimpleWalletTests(unittest.TestCase):
       
    #############################################################################
    @unittest.skip('')
-   def testCreateAndReadWallet_BIP32TV(self):
+   def testCreateAndReadWallet_BIP32TestVects(self):
 
       pwd = SecureBinaryData('T3ST1NG_P455W0RD')
       seed = SecureBinaryData(hex_to_binary('000102030405060708090a0b0c0d0e0f'))
@@ -342,6 +342,25 @@ class SimpleWalletTests(unittest.TestCase):
                                             createInDir='tempwallets',
                                             specificFilename='test_wallet_file.wallet',
                                             progressUpdater=prg)
+
+      self.assertEqual(len(newWallet.topLevelRoots), 1)
+
+      akp = newWallet.topLevelRoots[0]
+      for i in range(6):
+         self.assertEqual(BIP32TestVectors[i]['seedCompPubKey'].toBinStr(),
+                          akp.sbdPublicKey33.toBinStr())
+
+         self.assertEqual(BIP32TestVectors[i]['seedCC'].toBinStr(),
+                          akp.sbdChaincode.toBinStr())
+
+         # There should only be one in the map, but we don't know the ID
+         for i,child in akp.akpChildByIndex.iteritems():
+            akp = child
+            break
+         
+
+         
+
 
    #############################################################################
    @unittest.skip('')
@@ -432,6 +451,7 @@ class SimpleWalletTests(unittest.TestCase):
 
 
    #############################################################################
+   #@unittest.skip('')
    def testCreateAndReadWallet_AWD(self):
 
       pwd = SecureBinaryData('T3ST1NG_P455W0RD')
@@ -453,7 +473,19 @@ class SimpleWalletTests(unittest.TestCase):
       pwd2 = SecureBinaryData('AWDPWD')
       awdACI,awdEkey = ArmoryWalletFile.generateNewSinglePwdMasterEKey(pwd2)
       newWallet.addCryptObjsToWallet(awdEkey)
+      awdEkeyID = awdEkey.getEncryptionKeyID()
 
+      print 'topNode:',
+      topAKP = newWallet.topLevelRoots[0]
+      topAKP.pprintOneLine()
+      newWallet.addArbitraryWalletData(topAKP, ['Messages'], 'plain ole text')
+
+      newWallet.unlockWalletEkey(awdEkeyID, pwd2)
+
+      self.assertRaises(KeyError, newWallet.addArbitraryWalletData_Encrypted, topAKP, ['Messages'], 
+                                 SecureBinaryData('super secret!'), awdEkeyID)
+      newWallet.addArbitraryWalletData_Encrypted(topAKP, ['Messages','Encrypted'], 
+                                 SecureBinaryData('super secret!'), awdEkeyID)
 
       newWallet.pprintEntryList()
 

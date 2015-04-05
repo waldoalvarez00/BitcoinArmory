@@ -118,18 +118,20 @@ specific test itself.
 ################################################################################
 
 #############################################################################
-class BIP32_TESTVECT_0(ArmoryBip32ExtendedKey):
+class BIP32_TESTVECT_0(ArmoryBip32Seed):
    FILECODE = 'TESTVEC0'
    TREELEAF  = False
    HARDCHILD = True
 
    def __init__(self):
       super(BIP32_TESTVECT_0, self).__init__()
+      self.isAkpRootRoot=True
 
    def getChildClass(self, index):
          return BIP32_TESTVECT_1
 
    def fillKeyPool(self, fsync=True, progressUpdater=emptyFunc):
+      # All these test classes only have a single child, not really a keypool...
       indexToUse = CreateChildIndex(0, isHardened=self.HARDCHILD)
       newAkp = self.spawnChild(indexToUse, fsync=fsync, linkToParent=True)
       newAkp.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)

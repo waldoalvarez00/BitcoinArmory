@@ -96,7 +96,7 @@ class ArbitraryWalletData(WalletEntry):
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
-      self.insertIntoInfinimap(wltFileRef.arbitraryDataMap)
+      WalletEntry.linkWalletEntries(self, wltFileRef)
       if self.cryptInfo.useEncryption():
          self.ekeyRef = self.wltFileRef.ekeyMap.get(self.cryptInfo.keySource)
          if self.ekeyRef is None:
@@ -194,6 +194,10 @@ class ArbitraryWalletData(WalletEntry):
          return '<encrypted:%s>' % binary_to_hex(self.dataStr)[:16]
       else:
          return self.dataStr
+
+   #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      return 'AWD: ' + self.prettyString(indent)
 
    #############################################################################
    def prettyString(self, indent=0):

@@ -105,7 +105,7 @@ class ArmoryKeyPair(WalletEntry):
       self.isAkpRootRoot   = False
 
       # Used for the recursive fill-keypool call
-      self.childPoolSize   = DEFAULT_CHILDPOOLSIZE[self.getName()]
+      self.childPoolSize   = DEFAULT_CHILDPOOLSIZE.get(self.getName(), 0)
       self.maxChildren     = UINT32_MAX
 
       # Some parameters that might be slow to calc

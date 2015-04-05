@@ -243,6 +243,9 @@ class ArmoryWalletFile(object):
       # List of branches to display as "wallets"
       self.displayableWalletsMap  = {}  
 
+      # All AKP objects that are their own parent (i.e. tree root node)
+      self.topLevelRoots  = []
+
       # Any lockboxes that are maintained in this wallet file
       # Indexed by p2sh-scrAddr
       self.lockboxMap = {}
@@ -696,7 +699,7 @@ class ArmoryWalletFile(object):
 
 
          if we.isDisabled:
-            if we.isRootRoot:
+            if hasattr(we,'isAkpRootRoot') and we.isAkpRootRoot:
                self.disabledRootIDs.add(we.getEntryID())
             continue
 
@@ -743,6 +746,9 @@ class ArmoryWalletFile(object):
                LOGWARN('ScrAddr is in wallet file multiple times!')
 
             self.masterScrAddrMap[we.getScrAddr()] = we
+   
+            if we.isAkpRootRoot:
+               self.topLevelRoots.append(we)
 
             if we.FILECODE in ArmoryWalletFile.AKP_WALLET_TYPES:
                if we.notForDirectUse:
@@ -769,8 +775,7 @@ class ArmoryWalletFile(object):
             self.kdfMap[we.getKdfID()] = we
             we.addWltChildRef(we)
          elif we.FILECODE=='ARBDATA_':
-            # Everything needed for Arbitrary data objects is in linkEntries()
-            pass
+            we.insertIntoInfinimap(wltFileRef.arbitraryDataMap)
          else:
             LOGERROR('Unhandled WalletEntry type: %s' % we.FILECODE)
             self.unrecognizedList.append(we)
@@ -1377,15 +1382,19 @@ class ArmoryWalletFile(object):
       Since we are "adding" data to the map, we error out if it already exists.
       Clear the entry and call this method if you want to change the encryption.
       """
-      node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=False)
+      if not node is None:
+         raise KeyError('AWD already in map: %s' % str(keyList))
 
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=True)
       node.setPlaintext(plainStr)
-      node.awdObj.wltFileRef = self
-      node.awdObj.wltParentID = parentRef.getEntryID()
-      node.awdObj.wltParentRef = parentRef
 
+      # Link to parent and to wallet
+      parentRef.addWltChildRef(node.awdObj)
+      self.allWalletEntries.append(node.awdObj)
+      node.awdObj.linkWalletEntries(self)
       if fsync:
-         node.awdObj.fsyncUpdates()
+         node.awdObj.fsync()
 
       
    #############################################################################
@@ -1403,20 +1412,28 @@ class ArmoryWalletFile(object):
       if ekey.isLocked():
          raise WalletLockError('Ekey %s is locked, cannot encrypt data')
 
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=False)
+      if not node is None:
+         raise KeyError('AWD already in map: %s' % str(keyList))
+
       randIV = SecureBinaryData().GenerateRandom(8).toBinStr()
       awdCryptInfo = ArmoryCryptInfo(NULLKDF, 'AE256CBC', ekeyID, randIV)
 
-      node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=True)
       node.awdObj.enableEncryption(awdCryptInfo, ekey)
 
       # If we got here, the node was created, encryption was set
       node.setPlaintextToEncrypt(plainStr)
-      node.awdObj.wltFileRef = self
-      node.awdObj.wltParentID = parentRef.getEntryID()
-      node.awdObj.wltParentRef = parentRef
+
+      # Link to parent and to wallet
+      parentRef.addWltChildRef(node.awdObj)
+      self.allWalletEntries.append(node.awdObj)
+      node.awdObj.linkWalletEntries(self)
+      if fsync:
+         node.awdObj.fsync()
       
       if fsync:
-         node.awdObj.fsyncUpdates()
+         node.awdObj.fsync()
 
    #############################################################################
    @CheckFsyncArgument
@@ -1427,7 +1444,7 @@ class ArmoryWalletFile(object):
 
       if fsync:
          node = self.arbitraryDataMap.getNode(keyList)
-         node.awdObj.fsyncUpdates()
+         node.awdObj.fsync()
       
 
 
