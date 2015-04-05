@@ -63,6 +63,7 @@ class ChecksumTests(unittest.TestCase):
    #############################################################################
    def testChecksumOneErr(self):
       for mult in [20, 32, 200, 256, 1000]:
+         print 'Testing with one error, data size = %d' % (mult*8)
          data = 'abcd1234'*mult
 
          nBlks = ((len(data) - 1) / int(self.PERSZ)) + 1
@@ -83,6 +84,7 @@ class ChecksumTests(unittest.TestCase):
    #############################################################################
    def testChecksumOneErr_InChk(self):
       for mult in [20, 32, 200, 256, 1000]:
+         print 'Testing with error in checksum itself, size = %d' % (mult*8)
          data = 'abcd1234'*mult
 
          nBlks = ((len(data) - 1) / int(self.PERSZ)) + 1
@@ -100,9 +102,18 @@ class ChecksumTests(unittest.TestCase):
          self.assertFalse(err)
          self.assertTrue(mod)
 
+         chkErr = chk[:-1] + '_'
+         data2,err,mod = verifyChecksumBytes(data, chkErr, self.CHKSZ, self.PERSZ)
+      
+         self.assertEquals(data, data2)
+         self.assertFalse(err)
+         self.assertTrue(mod)
+
+
    #############################################################################
    def testChecksumTwoErr(self):
       for mult in [20, 32, 200, 256, 1000]:
+         print 'Testing with two errors, data size = %d' % (mult*8)
          data = 'abcd1234'*mult
 
          nBlks = ((len(data) - 1) / int(self.PERSZ)) + 1
@@ -119,6 +130,35 @@ class ChecksumTests(unittest.TestCase):
          self.assertEquals(data2, '')
          self.assertTrue(err)
          self.assertFalse(mod)
+
+         twoErr = data[:-2] + '__'
+         data2,err,mod = verifyChecksumBytes(twoErr, chk, self.CHKSZ, self.PERSZ)
+      
+         self.assertEquals(data2, '')
+         self.assertTrue(err)
+         self.assertFalse(mod)
+
+   #############################################################################
+   def testChecksumOneErrorTwoBlks(self):
+      # If there's two bytes wrong but in two different blocks, it should work 
+      for mult in [200, 256, 1000]:
+         print 'Testing with one error in each of two blocks  size = %d' % (mult*8)
+         data = 'abcd1234'*mult
+
+         nBlks = ((len(data) - 1) / int(self.PERSZ)) + 1
+         chk = ''
+         for i in range(nBlks):
+            chk += hash256(data[i*self.PERSZ:(i+1)*self.PERSZ])[:self.CHKSZ]
+      
+         chk2 = createChecksumBytes(data, self.CHKSZ, self.PERSZ)
+         self.assertEquals(chk, chk2)
+
+         twoErr = '_' + data[1:-1] + '_'
+         data2,err,mod = verifyChecksumBytes(twoErr, chk, self.CHKSZ, self.PERSZ)
+      
+         self.assertEquals(data2, data)
+         self.assertFalse(err)
+         self.assertTrue(mod)
 
 
 #############################################################################

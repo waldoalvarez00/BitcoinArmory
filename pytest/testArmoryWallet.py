@@ -20,6 +20,7 @@ from armoryengine.ArmoryEncryption import *
 from armoryengine.WalletEntry import *
 from armoryengine.ArmoryKeyPair import *
 from armoryengine.ArmoryWallet import *
+from BIP32TestVectors import *
 sys.argv = sys.argv[:-2]
 
 WALLET_VERSION_BIN = hex_to_binary('002d3101')
@@ -323,8 +324,27 @@ class SimpleWalletTests(unittest.TestCase):
             sys.stdout.write('.')
             lastChk += 0.05
       
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_BIP32TV(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData(hex_to_binary('000102030405060708090a0b0c0d0e0f'))
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            wltName,
+                                            pwd,
+                                            BIP32_TESTVECT_0,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
 
    #############################################################################
+   @unittest.skip('')
    def testCreateAndReadWallet_PregenSeed(self):
 
       pwd = SecureBinaryData('T3ST1NG_P455W0RD')
@@ -379,7 +399,7 @@ class SimpleWalletTests(unittest.TestCase):
                                                 'AddEntry', EncryptionKey())
 
 
-      newWallet.pprintEntryList()
+      #newWallet.pprintEntryList()
 
 
 
@@ -409,6 +429,36 @@ class SimpleWalletTests(unittest.TestCase):
       self.assertTrue(newWallet.getOnlyEkey().isLocked())
       newWallet.unlockWalletEkey(newWallet.getOnlyEkeyID(), pwd)
       self.assertFalse(newWallet.getOnlyEkey().isLocked())
+
+
+   #############################################################################
+   def testCreateAndReadWallet_AWD(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            wltName,
+                                            pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
+
+
+      pwd2 = SecureBinaryData('AWDPWD')
+      awdACI,awdEkey = ArmoryWalletFile.generateNewSinglePwdMasterEKey(pwd2)
+      newWallet.addCryptObjsToWallet(awdEkey)
+
+
+      newWallet.pprintEntryList()
+
+
+
 
 
 

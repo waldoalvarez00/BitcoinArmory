@@ -97,7 +97,7 @@ class WalletEntry(object):
 
    #############################################################################
    @staticmethod
-   def ChangeRSECAlgos(createFunc, checkFunc):
+   def ChangeErrorCorrectAlgos(createFunc, checkFunc):
       """
       This is mainly for testing purposes.  See DisableRSEC(...) for an example 
       calling this function.  You could even change the algos to some other 
@@ -117,7 +117,8 @@ class WalletEntry(object):
    #############################################################################
    @staticmethod
    def UseReedSolomonErrorCorrection():
-      WalletEntry.ChangeRSECAlgos(
+      WalletEntry.ChangeErrorCorrectAlgos(ErrorCorrection.createRSECCode,
+                                          ErrorCorrection.verifyRSECCode)
 
    #############################################################################
    @staticmethod
@@ -126,7 +127,7 @@ class WalletEntry(object):
 
    #############################################################################
    @staticmethod
-   def CheckRSECCode(*args, **kwargs):
+   def VerifyErrCorrCode(*args, **kwargs):
       return WalletEntry.ERRCORR_FUNCS['Verify'](*args, **kwargs)
 
    #############################################################################
@@ -140,7 +141,7 @@ class WalletEntry(object):
          nChunk = (len(data)-1)/perDataBytes + 1
          return '\x00' * rsecBytes * nChunk
 
-      WalletEntry.ChangeRSECAlgos(createfn, checkfn)
+      WalletEntry.ChangeErrorCorrectAlgos(createfn, checkfn)
    
          
 
@@ -151,14 +152,14 @@ class WalletEntry(object):
 
       # TODO:  Why on earth is this needed here...?  
       from ArmoryEncryption import ArmoryCryptInfo
-      self.wltFileRef = wltFileRef
-      self.wltByteLoc = offset
-      self.wltEntrySz = weSize
-      self.isRequired = reqdBit
-      self.parEntryID = parEntryID
-      self.outerCrypt = outerCrypt.copy() if outerCrypt else ArmoryCryptInfo(None)
-      self.serPayload = serPayload
-      self.defaultPad = defaultPad
+      self.wltFileRef  = wltFileRef
+      self.wltByteLoc  = offset
+      self.wltEntrySz  = weSize
+      self.isRequired  = reqdBit
+      self.wltParentID = parEntryID
+      self.outerCrypt  = outerCrypt.copy() if outerCrypt else ArmoryCryptInfo(None)
+      self.serPayload  = serPayload
+      self.defaultPad  = defaultPad
 
       self.wltParentRef = None
       self.wltChildRefs = []
@@ -177,14 +178,14 @@ class WalletEntry(object):
 
    #############################################################################
    def copyFromWE(self, weOther):
-      self.wltFileRef = weOther.wltFileRef
-      self.wltByteLoc = weOther.wltByteLoc
-      self.wltEntrySz = weOther.wltEntrySz
-      self.isRequired = weOther.isRequired
-      self.parEntryID = weOther.parEntryID
-      self.outerCrypt = weOther.outerCrypt.copy()
-      self.serPayload = weOther.serPayload
-      self.defaultPad = weOther.defaultPad
+      self.wltFileRef  = weOther.wltFileRef
+      self.wltByteLoc  = weOther.wltByteLoc
+      self.wltEntrySz  = weOther.wltEntrySz
+      self.isRequired  = weOther.isRequired
+      self.wltParentID = weOther.wltParentID
+      self.outerCrypt  = weOther.outerCrypt.copy()
+      self.serPayload  = weOther.serPayload
+      self.defaultPad  = weOther.defaultPad
 
       self.wltParentRef = weOther.wltParentRef
       self.wltChildRefs = weOther.wltChildRefs[:]
@@ -203,22 +204,35 @@ class WalletEntry(object):
       
    #############################################################################
    def getEntryID(self):
-      raise NotImplementedError('This must be overriden by derived class!')
+      return ''  # not all classes need to be able to create unique IDs
+      #raise NotImplementedError('This must be overriden by derived class!')
 
+
+   #############################################################################
+   def addWltChildRef(self, wltChild):
+      if len(self.getEntryID())==0:
+         raise WalletUpdateError('Invalid wltParent type: %s' % self.__class__.__name__)
+
+      if wltChild in self.wltChildRefs:
+         return
+
+      wltChild.wltParentRef = self
+      wltChild.wltParentID  = self.getEntryID()
+
+      if wltChild is not self:
+         self.wltChildRefs.append(wltChild)
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
       # All parents will be ArmorySeededKeyPair objects
       self.wltFileRef = wltFileRef
-      parent = wltFileRef.masterScrAddrMap.get(self.parEntryID)
+      parent = wltFileRef.masterScrAddrMap.get(self.wltParentID)
       if parent is None:
          self.isOrphan = True
          wltFileRef.wltParentMissing.append(self)
          return
 
-      self.wltParentRef = parent
-      if not parent==self:
-         parent.wltChildRefs.append(self)
+      parent.addWltChildRef(self)
 
 
    #############################################################################
@@ -226,6 +240,7 @@ class WalletEntry(object):
 
       weFlags = BitSet(16)
       if self.isDeleted or doDelete:
+         # This entry was deleted and needs to be zeroed
          weFlags.setBit(0, True)
          nZero = self.wltEntrySz - 10  # version(4) + flags(2) + numZero(4)
          
@@ -266,7 +281,7 @@ class WalletEntry(object):
       bp = BinaryPacker()
       bp.put(UINT32,       getVersionInt(ARMORY_WALLET_VERSION)) 
       bp.put(BITSET,       weFlags, 2)
-      bp.put(VAR_STR,      self.parEntryID)
+      bp.put(VAR_STR,      self.wltParentID)
       bp.put(BINARY_CHUNK, self.outerCrypt.serialize(),  width=32)
       bp.put(VAR_STR,      serPayload)
       bp.put(VAR_STR,      rsecCode)
@@ -327,7 +342,7 @@ class WalletEntry(object):
       rsecCode      = toUnpack.get(VAR_STR)
 
 
-      we.parEntryID   = parEntryID
+      we.wltParentID  = parEntryID
       we.wltEntrySz   = toUnpack.getPosition() - unpackStart
       we.payloadSz    = len(serPayload)
 
@@ -336,7 +351,7 @@ class WalletEntry(object):
       we.isUnrecoverable = False
 
       # Detect and correct any bad bytes in the data
-      we.serPayload,fail,mod = WalletEntry.CheckRSECCode(serPayload, rsecCode)
+      we.serPayload,fail,mod = WalletEntry.VerifyErrCorrCode(serPayload, rsecCode)
       if fail:
          LOGERROR('Unrecoverable error in wallet entry')
          we.isUnrecoverable = True 
@@ -473,11 +488,10 @@ class WalletEntry(object):
       raise NotImplementedError
 
 
-
    #############################################################################
    def pprintOneLine(self, indent=0):
-      prefix = ' '*indent + '[%05d+%3d] ' % (self.wltByteLoc, self.wltEntrySz)
-      print prefix + self.pprintOneLineStr()
+      prefix = ' '*indent + '[%06d+%3d] ' % (self.wltByteLoc, self.wltEntrySz)
+      print prefix + self.pprintOneLineStr() 
 
 
 from ArmoryEncryption import *

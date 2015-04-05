@@ -3,7 +3,7 @@ from ArmoryEncryption import *
 from WalletEntry import *
 from ArmoryKeyPair import *
 from Timer import *
-from ReedSolomonWrapper import *
+from ErrorCorrection import *
 from ArbitraryWalletData import *
 
 DEFAULT_COMPUTE_TIME_TARGET  = 0.25
@@ -48,8 +48,8 @@ class ArmoryFileHeader(object):
       self.wltUserName   = u''
       self.createTime    = UINT64_MAX
       self.createBlock   = UINT32_MAX
-      self.rsecParity    = RSEC_PARITY_BYTES
-      self.rsecPerData   = RSEC_PER_DATA_BYTES
+      self.rsecParity    = ERRCORR_BYTES
+      self.rsecPerData   = ERRCORR_PER_DATA
       self.isDisabled    = False
       self.headerSize    = self.DEFAULTSIZE
 
@@ -116,7 +116,7 @@ class ArmoryFileHeader(object):
 
       sizeRemaining = self.headerSize - hdataMid.getSize()
       hdataMid.put(BINARY_CHUNK, '\x00'*sizeRemaining)
-      midParity = createRSECCode(hdataMid.getBinaryString(), 16, 1024)
+      midParity = WalletEntry.CreateErrCorrCode(hdataMid.getBinaryString(), 16, 1024)
       
       hdata = BinaryPacker()
       hdata.put(BINARY_CHUNK,    ArmoryFileHeader.WALLETMAGIC, width=8)
@@ -143,7 +143,7 @@ class ArmoryFileHeader(object):
       hdataMid  = toUnpack.get(BINARY_CHUNK, headSize)
       midParity = toUnpack.get(BINARY_CHUNK, 16)
 
-      hdataMid,failFlag,modFlag = checkRSECCode(hdataMid, midParity)
+      hdataMid,failFlag,modFlag = WalletEntry.VerifyErrCorrCode(hdataMid, midParity)
       if failFlag:
          LOGERROR('Header data was corrupted, or not an Armory wallet')
          afh.isDisabled = True
@@ -188,11 +188,11 @@ class ArmoryFileHeader(object):
          LOGWARN('Armory version: %d', getVersionInt(ARMORY_WALLET_VERSION))
 
 
-      if [rsecParity, rsecPerData] != [RSEC_PARITY_BYTES, RSEC_PER_DATA_BYTES]:
+      if [rsecParity, rsecPerData] != [ERRCORR_BYTES, ERRCORR_PER_DATA]:
          # Technically, we could make all wallet code accommodate dynamic
          # RSEC parameters, but it would add some complexity for something
          # that shouldn't be necessary.  TODO: Maybe one day...
-         LOGERROR('This wallet uses different Reed-Solomon error correction'
+         LOGERROR('This wallet uses different error correction'
                   'parameters than this version of Armory')
          afh.isDisabled = True
          return afh
@@ -258,6 +258,9 @@ class ArmoryWalletFile(object):
 
       # Master address list of all wallets/roots/chains/leaves
       self.masterScrAddrMap  = {}
+
+      # Master map of all objects with entry IDs
+      self.masterEntryIDMap  = {}
 
       # List of all encrypted wallet entries that couldn't be decrypted 
       # Perhaps later find a way decrypt and put them into the other maps
@@ -701,8 +704,8 @@ class ArmoryWalletFile(object):
          # If WE is unrecognized, ignore, if also critical, disable parent
          if we.isUnrecognized:
             self.unrecognizedList.append(we)
-            if we.isRequired:
-               self.disabledRootIDs.add(we.parEntryID)
+            if we.isRequired and not CLI_OPTIONS.ignoreUnrecognized:
+               self.disabledRootIDs.add(we.wltParentID)
             continue
 
          if we.isUnrecoverable:
@@ -721,9 +724,8 @@ class ArmoryWalletFile(object):
       # Walk through all the remaining entries
       for we in activeWEList:
          # If we have a deactivated root, deactivate all direct children
-         if we.parEntryID in self.disabledRootIDs or \
-            we.getEntryID() in self.disabledRootIDs or \
-            we.isDisabled:
+         # Only need to check parent, because rootroot objs are their own parent
+         if we.wltParentID in self.disabledRootIDs or we.isDisabled:
             we.isDisabled = True
             self.disabledList.append(we)
             continue
@@ -731,6 +733,10 @@ class ArmoryWalletFile(object):
 
          # Everything else goes in the master list of entries
          self.allWalletEntries.append(we)
+
+         weID = we.getEntryID()
+         if len(weID)>0:
+            self.masterEntryIDMap[weID] = we
 
          if issubclass(we.__class__, ArmoryKeyPair):
             if we.getScrAddr() in self.masterScrAddrMap:
@@ -758,8 +764,10 @@ class ArmoryWalletFile(object):
             self.lockboxMap[we.lboxID] = we
          elif we.FILECODE in ['EKEYREG_','EKEYMOFN']:
             self.ekeyMap[we.getEncryptionKeyID()] = we
+            we.addWltChildRef(we)
          elif we.FILECODE=='KDFOBJCT':
             self.kdfMap[we.getKdfID()] = we
+            we.addWltChildRef(we)
          elif we.FILECODE=='ARBDATA_':
             # Everything needed for Arbitrary data objects is in linkEntries()
             pass
@@ -932,12 +940,22 @@ class ArmoryWalletFile(object):
          # We can safely batch updates to any mixture of objects, but not 
          # multiple changes to the same object
          fileLocToUpdate = set()
+         fileIDsToUpdate = set()
          for opType,weObj in self.updateQueue:
-            if not opType=='AddEntry' and weObj.wltByteLoc in fileLocToUpdate:
-               LOGERROR('Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
-                           binary_to_hex(weObj.getEntryID(), weObj.wltByteLoc))
-               raise WalletUpdateError('Multiple updates to same ID in batch')
-            fileLocToUpdate.add(weObj.wltByteLoc)
+            if weObj.wltByteLoc > 0:
+               if weObj.wltByteLoc in fileLocToUpdate:
+                  LOGERROR('Dup Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
+                           binary_to_hex(weObj.getEntryID()), weObj.wltByteLoc)
+                  raise WalletUpdateError('Multiple updates to same ID in batch')
+               fileLocToUpdate.add(weObj.wltByteLoc)
+
+            if len(weObj.getEntryID()) > 0:
+               if weObj.getEntryID() in fileIDsToUpdate:
+                  LOGERROR('Dup Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
+                           binary_to_hex(weObj.getEntryID()), weObj.wltByteLoc)
+                  raise WalletUpdateError('Multiple updates to same ID in batch')
+               fileIDsToUpdate.add(weObj.wltByteLoc)
+               
    
          # Make sure that the primary and backup files are synced before update
          self.doWalletFileConsistencyCheck()
@@ -1170,9 +1188,10 @@ class ArmoryWalletFile(object):
       
       
    #############################################################################
+   @CheckFsyncArgument
    @VerifyArgTypes(ekeyObj=[EncryptionKey, MultiPwdEncryptionKey],
                    kdfObj=[None, KdfObject, list, tuple])
-   def addCryptObjsToWallet(self, parent, ekeyObj, kdfObj=None, errorIfDup=True):
+   def addCryptObjsToWallet(self, ekeyObj, kdfObj=None, errorIfDup=True, fsync=None):
       """
       We only supply a kdfObj as a separate arg when the ekeyObj doesn't have 
       one (or more) defined internally (i.e., only if not chained encryption).
@@ -1204,13 +1223,12 @@ class ArmoryWalletFile(object):
       for we in toAddToWallet:
          # All crypt objects are their own parent (root objs).  They may be
          # shared across multiple wallet/root/AKP/AWD objects
-         we.parEntryID = we.getEntryID()
          we.wltParentRef = we
+         we.wltParentID = we.getEntryID()
          we.wltFileRef = self
-         we.queueFsync()
 
    
-      self.fsyncUpdates()
+      self.addEntriesToWallet(toAddToWallet, fsync=fsync)
       
 
 
@@ -1313,7 +1331,7 @@ class ArmoryWalletFile(object):
       """
       
       def rootFilter(we):
-         if rootList=='ALL' or we.parEntryID in rootList:
+         if rootList=='ALL' or we.wltParentID in rootList:
             return we
          else:
             return None
@@ -1336,7 +1354,7 @@ class ArmoryWalletFile(object):
 
       
       def filterAndWipe(we):
-         if not rootList=='ALL' and not we.parEntryID in rootList:
+         if not rootList=='ALL' and not we.wltParentID in rootList:
             return None
 
          if isinstance(we, ArmoryKeyPair):
@@ -1363,7 +1381,7 @@ class ArmoryWalletFile(object):
 
       node.setPlaintext(plainStr)
       node.awdObj.wltFileRef = self
-      node.awdObj.parEntryID = parentRef.getEntryID()
+      node.awdObj.wltParentID = parentRef.getEntryID()
       node.awdObj.wltParentRef = parentRef
 
       if fsync:
@@ -1394,7 +1412,7 @@ class ArmoryWalletFile(object):
       # If we got here, the node was created, encryption was set
       node.setPlaintextToEncrypt(plainStr)
       node.awdObj.wltFileRef = self
-      node.awdObj.parEntryID = parentRef.getEntryID()
+      node.awdObj.wltParentID = parentRef.getEntryID()
       node.awdObj.wltParentRef = parentRef
       
       if fsync:
@@ -1478,7 +1496,7 @@ class ArmoryWalletFile(object):
          newRoot.initializeFromSeed(sbdPregeneratedSeed, 
                                              fillPool=fillPool, fsync=fsync)
 
-      newRoot.parEntryID = newRoot.getEntryID()
+      newRoot.wltParentID = newRoot.getEntryID()
       newRoot.wltParentRef = newRoot  # root address has self-reference
       return newRoot
       
@@ -1599,7 +1617,7 @@ class ArmoryWalletFile(object):
       newWlt.addAkpBranchToWallet(newRoot)
 
       # Confirm the ekey and kdf(s) are not in wallet yet, then add
-      newWlt.addCryptObjsToWallet(newRoot, ekeyRef, kdfRef)
+      newWlt.addCryptObjsToWallet(ekeyRef, kdfRef)
    
       # Finally, make sure all the above operations are written to disk
       newWlt.fsyncUpdates()  

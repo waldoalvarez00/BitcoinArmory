@@ -261,7 +261,7 @@ class ArmoryKeyPair(WalletEntry):
                                                                  self.getName())
 
    #############################################################################
-   def addChildRef(self, childAKP):
+   def addAkpChildRef(self, childAKP):
       if childAKP.childIndex is None:
          raise ValueError('Child AKP has no childIndex')
          
@@ -270,7 +270,8 @@ class ArmoryKeyPair(WalletEntry):
       self.akpChildByScrAddr[childAKP.getScrAddr()] = childAKP
       childAKP.akpParentRef  = self
       childAKP.akpParScrAddr = self.getScrAddr()
-      childAKP.parEntryID    = self.getEntryID()
+      childAKP.wltParentRef  = self.wltParentRef
+      childAKP.wltParentID   = self.wltParentID
 
       childP1 = childAKP.childIndex + 1
       self.nextChildToCalc = max(self.nextChildToCalc, childP1)
@@ -283,7 +284,7 @@ class ArmoryKeyPair(WalletEntry):
    def linkWalletEntries(self, wltFileRef):
       """
       All children nodes look for their parents in the wallet file and call
-      the addChildRef method.  
+      the addAkpChildRef method.  
       """
       super(ArmoryKeyPair, self).linkWalletEntries(wltFileRef)
 
@@ -296,7 +297,7 @@ class ArmoryKeyPair(WalletEntry):
             self.isDisabled = True
          else:
             self.akpParentRef = foundParent
-            self.akpParentRef.addChildRef(self)
+            self.akpParentRef.addAkpChildRef(self)
 
 
       
@@ -543,7 +544,7 @@ class ArmoryKeyPair(WalletEntry):
 
       # Add Reed-Solomon error correction 
       akpData = bp.getBinaryString()
-      rsecData = WalletEntry.CreateRSECCode(akpData)
+      rsecData = WalletEntry.CreateErrCorrCode(akpData)
 
       output = BinaryPacker()
       output.put(VAR_STR, akpData)
@@ -558,7 +559,7 @@ class ArmoryKeyPair(WalletEntry):
       akpData  = toUnpack.get(VAR_STR)
       rsecData = toUnpack.get(VAR_STR)
 
-      akpData,failFlag,modFlag = WalletEntry.CheckRSECCode(akpData, rsecData)
+      akpData,failFlag,modFlag = WalletEntry.VerifyErrCorrCode(akpData, rsecData)
 
       if failFlag:
          LOGERROR('Unrecoverable error in wallet entry')
@@ -1020,7 +1021,7 @@ class ArmoryKeyPair(WalletEntry):
 
       # This is mostly redundant, but makes sure that lowestUnused and nextCalc
       # are updated properly
-      self.addChildRef(childAddr)
+      self.addAkpChildRef(childAddr)
 
       # Not sure we need to update self entry... no serialized ata changed
       #self.wltFileRef.addFileOperationToQueue('UpdateEntry', self)
@@ -1183,6 +1184,7 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       # We make this AKP object its own parent, so that methods which look
       # for all WEs/AKPs with a given parent will also grab the parent itself
       self.wltParentRef  = self
+      self.wltParentID   = None
 
 
    #############################################################################
@@ -1201,7 +1203,9 @@ class ArmorySeededKeyPair(ArmoryKeyPair):
       newAKP.isDepositOnly = self.isDepositOnly 
       newAKP.isRestricted  = self.isRestricted  
       newAKP.wltParentRef  = newAKP
+      newAKP.wltParentID   = newAKP.getEntryID()
       return newAKP
+
 
    #############################################################################
    @EkeyMustBeUnlocked('masterEkeyRef')
@@ -1343,8 +1347,8 @@ class Armory135KeyPair(ArmoryKeyPair):
 
 
    #############################################################################
-   def addChildRef(self, childAKP):
-      super(Armory135KeyPair, self).addChildRef(childAKP)
+   def addAkpChildRef(self, childAKP):
+      super(Armory135KeyPair, self).addAkpChildRef(childAKP)
 
       # For Armory135 addrs, we also store the child in root135Ref
       rt = self.root135Ref
@@ -1479,6 +1483,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          childAddr.keyBornTime       = long(RightNow())
          childAddr.keyBornBlock      = currBlk
          childAddr.wltParentRef = self.wltParentRef
+         childAddr.wltParentID  = self.wltParentID
          childAddr.isAkpRootRoot = False
 
          # These recompute calls also call recomputeScript and recomputeUniqueIDBin
@@ -1488,7 +1493,7 @@ class Armory135KeyPair(ArmoryKeyPair):
          if linkToParent:
             childAddr.root135Ref = self.root135Ref
             childAddr.root135ScrAddr = self.root135ScrAddr
-            self.addChildRef(childAddr)
+            self.addAkpChildRef(childAddr)
 
          if fsync:
             childAddr.fsync()
@@ -1742,7 +1747,7 @@ class Armory135Root(Armory135KeyPair, ArmorySeededKeyPair):
       childAddr.keyBornTime = long(RightNow())
       childAddr.keyBornBlock = currBlk
       childAddr.isUsed = True
-      childAddr.akpParentRef.addChildRef(childAddr)
+      childAddr.akpParentRef.addAkpChildRef(childAddr)
       #self.rootLowestUnused += 1
 
 
@@ -1964,13 +1969,14 @@ class ArmoryBip32ExtendedKey(ArmoryKeyPair):
       childAddr.akpChildByIndex   = {}
       childAddr.akpChildByScrAddr = {}
       childAddr.wltParentRef = self.wltParentRef
+      childAddr.wltParentID  = self.wltParentID
 
       # These recompute calls also call recomputeScript and recomputeUniqueIDBin
       childAddr.recomputeScrAddr()
       childAddr.recomputeUniqueIDB58()
 
       if linkToParent:
-         self.addChildRef(childAddr)
+         self.addAkpChildRef(childAddr)
 
       if fsync:
          childAddr.fsync()
@@ -2243,7 +2249,7 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
 
 
    #############################################################################
-   def addChildRef(self, childAIKP):
+   def addAkpChildRef(self, childAIKP):
       childScrAddr = childAIKP.getScrAddr()
       if not childScrAddr in self.akpChildByScrAddr:
          cidx = len(self.akpChildByIndex)
@@ -2251,7 +2257,8 @@ class ArmoryImportedRoot(ArmoryImportedKeyPair):
          self.akpChildByScrAddr[childScrAddr] = childAIKP
          childAIKP.akpParentRef  = self
          childAIKP.akpParScrAddr = self.getScrAddr()
-         childAIKP.parEntryID    = self.getEntryID()
+         childAIKP.wltParentRef  = self.wltParentRef
+         childAIKP.wltParentID   = self.wltParentID
 
 
    #####
@@ -2648,6 +2655,7 @@ class MultisigABEK(ArmoryBip32ExtendedKey):
 
       childMBEK.initializeMBEK(self.M, self.N, newChildList)
       childMBEK.wltParentRef = self.wltParentRef
+      childMBEK.wltParentID  = self.wltParentID
       childMBEK.isAkpRootRoot = False
 
       # These recompute calls also call recomputeScript and recomputeUniqueIDBin
