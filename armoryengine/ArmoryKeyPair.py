@@ -63,9 +63,9 @@ def CreateChildIndex(childNum, isHardened):
    return childNum | topBit   
 
 #####
-def ChildIndexToStr(cIdx):
+def ChildIndexToStr(cIdx, hardChar="'"):
    cnum,hard = SplitChildIndex(cIdx)
-   return str(cnum) + ("'" if hard else '')
+   return str(cnum) + (hardChar if hard else '')
 
 
 class ChildDeriveError(Exception): pass
@@ -1054,6 +1054,9 @@ class ArmoryKeyPair(WalletEntry):
          [[SeedRootRef, a], [WalletRef, b], [ChainRef, c]]
       Where a,b,c are the child indices
       """
+      if not issubclass(self.__class__, ArmoryBip32ExtendedKey):
+         raise TypeError('Cannot get parent list for non-ABEK class object')
+         
       currIndex = self.childIndex
       parentAKP = self.akpParentRef
       if parentAKP is None:
@@ -1061,13 +1064,19 @@ class ArmoryKeyPair(WalletEntry):
          
       foundBase = False
       revParentList = []
+      niter = 0
       while parentAKP is not None:
          revParentList.append([parentAKP, currIndex])
-         if parentAKP.getScrAddr() == fromBaseScrAddr:
+         if parentAKP.getScrAddr() == fromBaseScrAddr or \
+            (parentAKP is parentAKP.akpParentRef):
             foundBase = True
             break
          currIndex = parentAKP.childIndex
          parentAKP = parentAKP.akpParentRef
+
+         niter += 1
+         if niter > 1000:
+            raise ValueError('Inf loop detected getting parent list, bailing')
 
       if fromBaseScrAddr and not foundBase:
          raise ChildDeriveError('Requested up to base par, but not found!')
@@ -1128,6 +1137,36 @@ class ArmoryKeyPair(WalletEntry):
 
       return ' '*indent + ' '.join(pcs)
       
+   ##########################################################################
+   def getPPrintPairs(self):
+      pairs = [ ['AddrStr', self.getAddrStr()] ]
+      if self.isAkpRootRoot:
+         pairs.append(['ParentAKP', '[TOP_LEVEL_BIP32_NODE]'])
+         pairs.append(['ChildIndex', ''])
+      else:
+         if not self.akpParentRef:
+            pairs.append(['ParentAKP', '[INVALID_PARENT_REF]'])
+            pairs.append(['ChildIndex', '[?]'])
+         else:
+            if issubclass(self.__class__, ArmoryBip32ExtendedKey):
+               idxStr = ChildIndexToStr(self.childIndex)
+               try:
+                  parPairs = ['M']
+                  parPairs.extend([ChildIndexToStr(b,'_') for a,b in self.getParentList()])
+                  pairs.append(['BIP32Path', '/'.join(parPairs)])
+               except:
+                  LOGEXCEPT('')
+            else:
+               idxStr = str(self.chainIndex)
+
+            pairs.append(['ParentAKP', self.akpParentRef.getAddrStr()])
+            pairs.append(['ChildIndex', idxStr])
+
+      pairs.append(['CryptInfo', self.privCryptInfo.getPPrintStr()])
+
+
+      return pairs
+
 
    ##########################################################################
    def getBalance(self, uxtoMaturity='Spendable'):

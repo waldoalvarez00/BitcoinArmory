@@ -568,13 +568,13 @@ class ArmoryCryptInfo(object):
 
    #############################################################################
    def pprintOneLineStr(self, indent=0):
-      return ' '*indent + 'ACI :', self.pprintStr()
+      return ' '*indent + 'ACI :', self.getPPrintStr()
 
    #############################################################################
-   def pprintStr(self):
+   def getPPrintStr(self):
       out = ''
       algoStr = 'NO CRYPT' if self.encryptAlgo == NULLCRYPT else self.encryptAlgo
-      kdfStr  = ' NO_KDF ' if self.kdfObjID == NULLKDF else binary_to_hex(self.kdfObjID)[:8]
+      kdfStr  = 'NO_KDF' if self.kdfObjID == NULLKDF else binary_to_hex(self.kdfObjID)[:8]
       ivStr = self.ivSource if self.ivSource=='PUBKEY20' else binary_to_hex(self.ivSource)[:8]
 
       keyStr = self.keySource 
@@ -582,10 +582,11 @@ class ArmoryCryptInfo(object):
          enumval,src = self.getEncryptKeySrc()
          if enumval == CRYPT_KEY_SRC.EKEY_OBJ:
             keyStr = binary_to_hex(src)[:8]
+            kdfStr  = 'CHAINKDF'
       except:
-         keyStr = 'NO_SRC  '
+         keyStr = 'NO_SRC'
       
-      return '[ %s | %s | %s | %s ]' % (algoStr, kdfStr, keyStr, ivStr)
+      return '[%s|%s|%s|%s]' % (algoStr, kdfStr, keyStr, ivStr)
       
 
 
@@ -791,6 +792,18 @@ class KdfObject(WalletEntry):
          pcs.append('[%d iter, %s, salt:%s...]' % (self.numIter, byteStr, saltStr))
 
       return ' '*indent + ', '.join(pcs)
+
+
+   ##########################################################################
+   def getPPrintPairs(self):
+      pairs = [['KdfAlgo', self.kdfAlgo]]
+
+      if self.kdfAlgo.upper()=='ROMIXOV2':
+         pairs.append( ['NumIter', str(self.numIter)] )
+         pairs.append( ['ReqdMem', bytesToHumanSize(self.memReqd)] )
+         pairs.append( ['HexSalt', self.salt.toHexStr()] )
+
+      return pairs
 
 
 #############################################################################
@@ -1184,6 +1197,12 @@ class EncryptionKey(WalletEntry):
       return ' '*indent + ', '.join(pcs)
 
 
+   ##########################################################################
+   def getPPrintPairs(self):
+      pairs = [ ['CryptInfo', self.keyCryptInfo.getPPrintStr()],
+                ['EncryptedKey', self.masterKeyCrypt.toHexStr()] ]
+
+      return pairs
 
          
 ################################################################################

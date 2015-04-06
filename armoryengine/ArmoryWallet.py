@@ -1447,6 +1447,15 @@ class ArmoryWalletFile(object):
          node.awdObj.fsync()
       
 
+   #############################################################################
+   def getArbitraryWalletData(self, keyList):
+      """ Returns plain string if unencrypted, SBD if encrypted """
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=False)
+      if node is None:
+         return None
+         
+      # This throws an error if ekey is needed but locked
+      return node.awdObj.getPlainDataCopy()  
 
 
    #############################################################################
@@ -1742,10 +1751,67 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
+   # VARIETY OF WAYS TO PPRINT THE ENTRIES IN THE WALLET FILE
+   #############################################################################
+
+   #############################################################################
    def pprintEntryList(self, indent=0):
       for i,we in enumerate(self.allWalletEntries):
          print '   %03d' % i,
          we.pprintOneLine(indent=indent)
+
+   #############################################################################
+   def pprintToCSV_Simple(self, fileOut=None):
+      if fileOut:
+         csvOut = open(fileOut, 'w')
+
+      for i,we in enumerate(self.allWalletEntries):
+         pairs = we.getWltEntryPPrintPairs()
+         pairs.extend(we.getPPrintPairs())
+         for k,v in pairs:
+            if not isinstance(v, basestring) or not isinstance(k, basestring):
+               raise TypeError('PPrint pairs must be [str,str], got: %s' % str([k,v]))
+
+         strLine = str(i) + ',' + ','.join([a+'='+b for a,b in pairs])
+         if fileOut is None: 
+            print strLine
+         else:
+            csvOut.write(strLine + '\n')
+
+      if fileOut:
+         csvOut.close()
+
+   #############################################################################
+   def pprintToCSV_Columns(self, fileOut=None):
+      if fileOut:
+         csvOut = open(fileOut, 'w')
+
+      columnList = ['Index']
+      rowCols = []
+      for i,we in enumerate(self.allWalletEntries):
+         rowCols.append(['']*len(columnList))
+         rowCols[-1][0] = str(i)
+         pairs = we.getWltEntryPPrintPairs()
+         pairs.extend(we.getPPrintPairs())
+         for k,v in pairs:
+            if not k in columnList:
+               columnList.append(k)
+               rowCols[-1].append(v)
+            else:
+               col = columnList.index(k)
+               rowCols[-1][col] = v
+
+      if fileOut is None: 
+         print ','.join(columnList)
+         for row in rowCols:
+            print ','.join(row)
+      else:
+         csvOut.write(','.join(columnList) + '\n')
+         for row in rowCols:
+            csvOut.write(','.join(row) + '\n')
+
+      if fileOut:
+         csvOut.close()
 
 
 ArmoryWalletFile.RegisterWalletDisplayClass(ABEK_StdWallet)

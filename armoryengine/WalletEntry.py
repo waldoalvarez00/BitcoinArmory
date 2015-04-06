@@ -487,11 +487,48 @@ class WalletEntry(object):
    def removeOuterEncryption(self, oldKey, oldIV=None):
       raise NotImplementedError
 
+   #############################################################################
+   def getFlagsRepr(self):
+      flagList = [ 'R' if self.isRequired else '_',
+                   'Q' if self.isOpaque else '_',
+                   'F' if self.isOrphan else '_',
+                   'Z' if self.isUnrecognized else '_',
+                   'U' if self.isUnrecoverable else '_',
+                   'D' if self.isDeleted else '_',
+                   'B' if self.isDisabled else '_',
+                   'S' if self.needFsync else '_']
+      return ''.join(flagList)
+
+
+
+   #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      return self.__class__.__name__ + ': <no info>'
 
    #############################################################################
    def pprintOneLine(self, indent=0):
       prefix = ' '*indent + '[%06d+%3d] ' % (self.wltByteLoc, self.wltEntrySz)
       print prefix + self.pprintOneLineStr() 
+
+   #############################################################################
+   def getWltEntryPPrintPairs(self):
+      if self.getEntryID() == self.wltParentID:
+         parID = '[TOP_LEVEL_WALLET_ENTRY]'
+      else:
+         parID = binary_to_hex(self.wltParentID)
+
+      return [ ['Class',     self.__class__.__name__],
+               ['StartByte', str(self.wltByteLoc)], 
+               ['EntrySize', str(self.wltEntrySz)],
+               ['Flags', self.getFlagsRepr()],
+               ['SelfID', binary_to_hex(self.getEntryID())],
+               ['ParentID', parID] ]
+
+   #############################################################################
+   def getPPrintPairs(self):
+      return []
+
+
 
 
 from ArmoryEncryption import *

@@ -478,16 +478,29 @@ class SimpleWalletTests(unittest.TestCase):
       print 'topNode:',
       topAKP = newWallet.topLevelRoots[0]
       topAKP.pprintOneLine()
-      newWallet.addArbitraryWalletData(topAKP, ['Messages'], 'plain ole text')
+      newWallet.addArbitraryWalletData(topAKP, ['Message'], 'plain ole text')
+      newWallet.addArbitraryWalletData(topAKP, ['Message', 'PL41N'], 'more plain text')
 
       newWallet.unlockWalletEkey(awdEkeyID, pwd2)
 
-      self.assertRaises(KeyError, newWallet.addArbitraryWalletData_Encrypted, topAKP, ['Messages'], 
-                                 SecureBinaryData('super secret!'), awdEkeyID)
-      newWallet.addArbitraryWalletData_Encrypted(topAKP, ['Messages','Encrypted'], 
-                                 SecureBinaryData('super secret!'), awdEkeyID)
+      msgCrypt = SecureBinaryData('super secret!')
+      self.assertRaises(KeyError, newWallet.addArbitraryWalletData_Encrypted, topAKP, ['Message'], 
+                                 msgCrypt, awdEkeyID)
+      newWallet.addArbitraryWalletData_Encrypted(topAKP, ['Message','Encrypted'], 
+                                 msgCrypt, awdEkeyID)
 
-      newWallet.pprintEntryList()
+
+      newWallet.forceLockWalletEkey(awdEkeyID)
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message']), 'plain ole text')
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'PL41N']), 'more plain text')
+
+      self.assertRaises(WalletLockError, newWallet.getArbitraryWalletData, ['Message', 'Encrypted'])
+      newWallet.unlockWalletEkey(awdEkeyID, pwd2)
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'Encrypted']), msgCrypt)
+
+      #newWallet.pprintEntryList()
+      newWallet.pprintToCSV_Simple('pprintSimple.csv')
+      newWallet.pprintToCSV_Columns('pprintColumns.csv')
 
 
 
