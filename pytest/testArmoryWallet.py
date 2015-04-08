@@ -90,9 +90,8 @@ def compareWalletObjs(tself, wlt1, wlt2):
 
 
    cmpLen(wlt1, wlt2, 'allWalletEntries')
-   cmpLen(wlt1, wlt2, 'allKeyPairObjects')
    cmpLen(wlt1, wlt2, 'displayableWalletsMap')
-   cmpLen(wlt1, wlt2, 'allRootRoots')
+   cmpLen(wlt1, wlt2, 'topLevelRoots')
    cmpLen(wlt1, wlt2, 'lockboxMap')
    cmpLen(wlt1, wlt2, 'ekeyMap')
    cmpLen(wlt1, wlt2, 'kdfMap')
@@ -107,19 +106,17 @@ def compareWalletObjs(tself, wlt1, wlt2):
                      wlt2.arbitraryDataMap.countNodes())
 
    def cmpMapKeys(a,b,prop):
-      self.assertTrue(hasattr(a, prop) and hasattr(b, prop))
+      tself.assertTrue(hasattr(a, prop) and hasattr(b, prop))
       mapA = getattr(a, prop)
       mapB = getattr(b, prop)
       if not isinstance(mapA, dict) or not isinstance(mapB, dict):
          raise KeyError('Supplied property is not a map: %s' % prop)
       for key in mapA:
-         self.assertTrue(key in mapB)
+         tself.assertTrue(key in mapB)
       for key in mapB:
-         self.assertTrue(key in mapA)
+         tself.assertTrue(key in mapA)
 
-   cmpMapKeys(wlt1, wlt2, 'allKeyPairObjects')
    cmpMapKeys(wlt1, wlt2, 'displayableWalletsMap')
-   cmpMapKeys(wlt1, wlt2, 'allRootRoots')
    cmpMapKeys(wlt1, wlt2, 'lockboxMap')
    cmpMapKeys(wlt1, wlt2, 'ekeyMap')
    cmpMapKeys(wlt1, wlt2, 'kdfMap')
@@ -152,19 +149,22 @@ def writeReadWalletRoundTripTest(tself, wlt):
    fnameB = os.path.join(wltDir, 'testWltRW_%s_B.wallet' % tstr)
    fnameC = os.path.join(wltDir, 'testWltRW_%s_C.wallet' % tstr)
 
+   testWlt = wlt
    for f in [fnameA, fnameB, fnameC]:
       if os.path.exists(f):
          raise FileExistsError('Temporary wallet file already exists')
       
 
-   try:
-      wlt.writeFreshWalletFile(fname)
-      wlt2 = ArmoryWallet.ReadWalletFile(fname)
-      compareWalletObjs(wlt, wlt2)
-   finally:
-      for f in [fnameA, fnameB, fnameC]:
-         if os.path.exists(f):
-            os.remove(f)
+      try:
+         testWlt.writeFreshWalletFile(f)
+         wlt2 = ArmoryWalletFile.ReadWalletFile(f)
+         compareWalletObjs(tself, wlt, wlt2)
+         testWlt = wlt2
+      finally:
+         for f in [fnameA, fnameB, fnameC]:
+            if os.path.exists(f):
+               os.remove(f)
+            break
             
    
    
@@ -452,7 +452,7 @@ class SimpleWalletTests(unittest.TestCase):
 
    #############################################################################
    #@unittest.skip('')
-   def testCreateAndReadWallet_AWD(self):
+   def testCreateAndReadWallet_ArbWltData(self):
 
       pwd = SecureBinaryData('T3ST1NG_P455W0RD')
       seed = SecureBinaryData('\xaa'*32) 
@@ -475,15 +475,18 @@ class SimpleWalletTests(unittest.TestCase):
       newWallet.addCryptObjsToWallet(awdEkey)
       awdEkeyID = awdEkey.getEncryptionKeyID()
 
+      msgPlain1 = 'plain ole text'
+      msgPlain2 = 'more plain text'
+      msgCrypt = SecureBinaryData('super secret!')
+
       print 'topNode:',
       topAKP = newWallet.topLevelRoots[0]
       topAKP.pprintOneLine()
-      newWallet.addArbitraryWalletData(topAKP, ['Message'], 'plain ole text')
-      newWallet.addArbitraryWalletData(topAKP, ['Message', 'PL41N'], 'more plain text')
+      newWallet.addArbitraryWalletData(topAKP, ['Message'], msgPlain1)
+      newWallet.addArbitraryWalletData(topAKP, ['Message', 'PL41N'], msgPlain2)
 
       newWallet.unlockWalletEkey(awdEkeyID, pwd2)
 
-      msgCrypt = SecureBinaryData('super secret!')
       self.assertRaises(KeyError, newWallet.addArbitraryWalletData_Encrypted, topAKP, ['Message'], 
                                  msgCrypt, awdEkeyID)
       newWallet.addArbitraryWalletData_Encrypted(topAKP, ['Message','Encrypted'], 
@@ -491,18 +494,40 @@ class SimpleWalletTests(unittest.TestCase):
 
 
       newWallet.forceLockWalletEkey(awdEkeyID)
-      self.assertEqual(newWallet.getArbitraryWalletData(['Message']), 'plain ole text')
-      self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'PL41N']), 'more plain text')
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message']), msgPlain1)
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'PL41N']), msgPlain2)
 
       self.assertRaises(WalletLockError, newWallet.getArbitraryWalletData, ['Message', 'Encrypted'])
       newWallet.unlockWalletEkey(awdEkeyID, pwd2)
       self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'Encrypted']), msgCrypt)
 
       #newWallet.pprintEntryList()
+      print 'Printing to CSV:  pprintSimple.csv'
       newWallet.pprintToCSV_Simple('pprintSimple.csv')
+      print 'Printing to CSV:  pprintColumns.csv'
       newWallet.pprintToCSV_Columns('pprintColumns.csv')
 
+      writeReadWalletRoundTripTest(self, newWallet)
 
+
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_DeleteData(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            wltName,
+                                            pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
 
 
 

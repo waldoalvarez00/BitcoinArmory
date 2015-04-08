@@ -228,7 +228,7 @@ class ArbitraryWalletData(WalletEntry):
 
       bu = makeBinaryUnpacker(theStr)
       nkeys = bu.get(VAR_INT)
-      for k in nkeys:
+      for k in range(nkeys):
          klist.append( bu.get(VAR_STR) )
 
       flags = bu.get(BITSET, 1)
@@ -243,7 +243,7 @@ class ArbitraryWalletData(WalletEntry):
       self.keyList   = klist[:]
       self.dataStr   = data[:]
       self.ekeyRef   = None
-      if self.useEncryption:
+      if useEncryption:
          self.cryptInfo = ArmoryCryptInfo().unserialize(serACI)
       else: 
          self.cryptInfo = NULLCRYPTINFO()

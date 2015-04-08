@@ -389,6 +389,7 @@ class WalletEntry(object):
       plObjID = buPayload.get(VAR_STR)
       plData  = buPayload.get(VAR_STR)
 
+
       # Throw an error if padding consists of more than \x00... don't want
       # it to become a vessel for transporting/hiding data (like Windows ADS)
       nBytesLeft = buPayload.getRemainingSize()
@@ -518,8 +519,9 @@ class WalletEntry(object):
          parID = binary_to_hex(self.wltParentID)
 
       return [ ['Class',     self.__class__.__name__],
-               ['StartByte', str(self.wltByteLoc)], 
-               ['EntrySize', str(self.wltEntrySz)],
+               ['StartByte', self.wltByteLoc], 
+               ['TopByte',   self.wltByteLoc+self.wltEntrySz], 
+               ['EntrySize', self.wltEntrySz],
                ['Flags', self.getFlagsRepr()],
                ['SelfID', binary_to_hex(self.getEntryID())],
                ['ParentID', parID] ]

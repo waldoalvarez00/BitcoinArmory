@@ -775,7 +775,7 @@ class ArmoryWalletFile(object):
             self.kdfMap[we.getKdfID()] = we
             we.addWltChildRef(we)
          elif we.FILECODE=='ARBDATA_':
-            we.insertIntoInfinimap(wltFileRef.arbitraryDataMap)
+            we.insertIntoInfinimap(self.arbitraryDataMap)
          else:
             LOGERROR('Unhandled WalletEntry type: %s' % we.FILECODE)
             self.unrecognizedList.append(we)
@@ -1768,11 +1768,7 @@ class ArmoryWalletFile(object):
       for i,we in enumerate(self.allWalletEntries):
          pairs = we.getWltEntryPPrintPairs()
          pairs.extend(we.getPPrintPairs())
-         for k,v in pairs:
-            if not isinstance(v, basestring) or not isinstance(k, basestring):
-               raise TypeError('PPrint pairs must be [str,str], got: %s' % str([k,v]))
-
-         strLine = str(i) + ',' + ','.join([a+'='+b for a,b in pairs])
+         strLine = str(i) + ',' + ','.join([str(a)+'='+str(b) for a,b in pairs])
          if fileOut is None: 
             print strLine
          else:
@@ -1795,11 +1791,11 @@ class ArmoryWalletFile(object):
          pairs.extend(we.getPPrintPairs())
          for k,v in pairs:
             if not k in columnList:
-               columnList.append(k)
-               rowCols[-1].append(v)
+               columnList.append(str(k))
+               rowCols[-1].append(str(v))
             else:
-               col = columnList.index(k)
-               rowCols[-1][col] = v
+               col = columnList.index(str(k))
+               rowCols[-1][col] = str(v)
 
       if fileOut is None: 
          print ','.join(columnList)
