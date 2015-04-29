@@ -265,6 +265,10 @@ class ArmoryWalletFile(object):
       # Master map of all objects with entry IDs
       self.masterEntryIDMap  = {}
 
+      # Labels stored in this wallet file regarding addrs or txes
+      self.scrAddrLabelMap = {}
+      self.txLabelMap = {}
+
       # List of all encrypted wallet entries that couldn't be decrypted 
       # Perhaps later find a way decrypt and put them into the other maps
       self.opaqueList  = []
@@ -760,12 +764,13 @@ class ArmoryWalletFile(object):
                      LOGWARN('WltID=%s added to displayable wlts twice' % wltID)
                   self.displayableWalletsMap[wltID] = we
          elif we.FILECODE=='ADDRLABL':
-            self.allLabels[we.scrAddr] = we
+            pass # handled in linkWalletEntries
          elif we.FILECODE=='TXLABEL_':
-            if we.txidFull: 
-               self.allLabels[we.txidFull] = we
-            if we.txidMall: 
-               self.allLabels[we.txidMall] = we
+            pass # handled in linkWalletEntries
+            #if we.txidFull: 
+               #self.allLabels[we.txidFull] = we
+            #if we.txidMall: 
+               #self.allLabels[we.txidMall] = we
          elif we.FILECODE=='LOCKBOX_':
             self.lockboxMap[we.lboxID] = we
          elif we.FILECODE in ['EKEYREG_','EKEYMOFN']:
@@ -1373,6 +1378,27 @@ class ArmoryWalletFile(object):
       self.writeFreshWalletFile_BASE(filterAndWipe, newPath, newName, withOpaque, 
                withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
       
+
+   #############################################################################
+   @CheckFsyncArgument
+   def updateScrAddrLabel(self, scrAddr, lbl, fsync=None):
+      if not scrAddr in self.masterScrAddrMap:
+         raise WalletUpdateError('No scrAddr available')
+      
+      if scrAddr in self.scrAddrLabelMap:
+         sa = self.scrAddrLabelMap[scrAddr]
+         sa.label = lbl
+      else:
+         saLbl = ScrAddrLabel()
+         saLbl.initialize(sa, lbl)
+         saLbl.linkWalletEntries(self)
+
+      if fsync:
+         saLbl.fsync()
+
+   #############################################################################
+   @CheckFsyncArgument
+   def updateTxLabel(self, txidType, txid, label, fsync=None):
 
 
    #############################################################################

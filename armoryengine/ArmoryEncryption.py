@@ -175,7 +175,7 @@ class ArmoryCryptInfo(object):
    however that master key will need to be decrypted first to decrypt this
    object, which will probably require a password & KDF)
 
-             ArmoryCryptInfo( '00000000',  
+             ArmoryCryptInfo( 'IDENTITY',  
                               'AE256CBC',   
                               '99998888',  
                               'PUBKEY20')
@@ -188,7 +188,7 @@ class ArmoryCryptInfo(object):
                               'PUBKEY20')
    
    Encrypt P2SH scripts, labels, and meta-data in insecure backup file:
-             ArmoryCryptInfo( '00000000',  
+             ArmoryCryptInfo( 'IDENTITY',  
                               'AE256CBC',  
                               'PARCHAIN' ,  
                               'f3f3f3f3')
@@ -200,8 +200,8 @@ class ArmoryCryptInfo(object):
                               'f3f3f3f3')
 
    No encryption 
-             ArmoryCryptInfo( '00000000',  
-                              '00000000',  
+             ArmoryCryptInfo( 'IDENTITY',  
+                              'IDENTITY',  
                               '00000000',  
                               '00000000')
    """

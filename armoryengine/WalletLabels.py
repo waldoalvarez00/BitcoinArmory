@@ -126,6 +126,4 @@ class TxLabel(WalletEntry):
 
 
 
-WalletEntry.RegisterWalletStorageClass(ScrAddrLabel)
-WalletEntry.RegisterWalletStorageClass(TxLabel)
 

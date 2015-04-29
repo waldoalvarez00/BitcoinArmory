@@ -20,6 +20,7 @@ from armoryengine.ArmoryEncryption import *
 from armoryengine.WalletEntry import *
 from armoryengine.ArmoryKeyPair import *
 from armoryengine.ArmoryWallet import *
+from armoryengine.WalletLabels import *
 from BIP32TestVectors import *
 sys.argv = sys.argv[:-2]
 
@@ -449,26 +450,54 @@ class SimpleWalletTests(unittest.TestCase):
       newWallet.unlockWalletEkey(newWallet.getOnlyEkeyID(), pwd)
       self.assertFalse(newWallet.getOnlyEkey().isLocked())
 
+################################################################################
+class SimpleWalletTests(unittest.TestCase):
+
+   #############################################################################
+   def setUp(self):
+      self.wltDir = 'tempwallets'
+      self.wltFN = 'test_wallet_file.wallet'
+
+      if not os.path.exists('tempwallets'):
+         os.makedirs('tempwallets')
+
+      self.clearWallets()
+
+      
+      self.pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      self.seed = SecureBinaryData('\xaa'*32) 
+      self.wltName = u'Test wallet\u2122'
+   
+      self.newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            self.wltName,
+                                            self.pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            self.seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=lambda x,y: None)
+
+
+      
+   #############################################################################
+   def tearDown(self):
+      self.clearWallets()
+
+   #############################################################################
+   def clearWallets(self):
+      flist = []
+      flist.append('tempwallets/test_wallet_file.wallet')
+      flist.append('tempwallets/test_wallet_file_backup.wallet')
+      flist.append('tempwallets/test_wallet_file_update_unsuccessful.wallet')
+      flist.append('tempwallets/test_wallet_file_backup_unsuccessful.wallet')
+      for f in flist:
+         if os.path.exists(f):
+            os.remove(f)
 
    #############################################################################
    #@unittest.skip('')
-   def testCreateAndReadWallet_ArbWltData(self):
-
-      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
-      seed = SecureBinaryData('\xaa'*32) 
-      prg = self.getProgressFunc()
-      wltName = u'Test wallet\u2122'
-   
-      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
-                                            wltName,
-                                            pwd,
-                                            ABEK_BIP44Seed,
-                                            None,
-                                            seed,
-                                            createInDir='tempwallets',
-                                            specificFilename='test_wallet_file.wallet',
-                                            progressUpdater=prg)
-
+   def testArbWltData(self):
 
       pwd2 = SecureBinaryData('AWDPWD')
       awdACI,awdEkey = ArmoryWalletFile.generateNewSinglePwdMasterEKey(pwd2)
@@ -509,6 +538,17 @@ class SimpleWalletTests(unittest.TestCase):
 
       writeReadWalletRoundTripTest(self, newWallet)
 
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_UpdateChangeSize(self):
+      # TODO
+      pass
+
+   #############################################################################
+   def testWalletLabels(self):
+      sa = addrStr_to_scrAddr('n23EicVUTyThGPraR7c3HxBixTve3RnQup')
+      saLbl = ScrAddrLabel()
+      saLbl.initialize(sa, 'Deposit Label')
 
    #############################################################################
    @unittest.skip('')
