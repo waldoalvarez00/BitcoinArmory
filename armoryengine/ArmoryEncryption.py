@@ -8,6 +8,7 @@ import threading
 try:
    from WalletEntry import WalletEntry
 except:
+   # This should only happen in testing environments, stub it for testing
    LOGERROR('Could not load WalletEntry class')
    class WalletEntry(object):
       @staticmethod
@@ -174,7 +175,7 @@ class ArmoryCryptInfo(object):
    however that master key will need to be decrypted first to decrypt this
    object, which will probably require a password & KDF)
 
-             ArmoryCryptInfo( '00000000',  
+             ArmoryCryptInfo( 'IDENTITY',  
                               'AE256CBC',   
                               '99998888',  
                               'PUBKEY20')
@@ -187,7 +188,7 @@ class ArmoryCryptInfo(object):
                               'PUBKEY20')
    
    Encrypt P2SH scripts, labels, and meta-data in insecure backup file:
-             ArmoryCryptInfo( '00000000',  
+             ArmoryCryptInfo( 'IDENTITY',  
                               'AE256CBC',  
                               'PARCHAIN' ,  
                               'f3f3f3f3')
@@ -199,8 +200,8 @@ class ArmoryCryptInfo(object):
                               'f3f3f3f3')
 
    No encryption 
-             ArmoryCryptInfo( '00000000',  
-                              '00000000',  
+             ArmoryCryptInfo( 'IDENTITY',  
+                              'IDENTITY',  
                               '00000000',  
                               '00000000')
    """
@@ -565,6 +566,29 @@ class ArmoryCryptInfo(object):
          self.tempKeyDecrypt.destroy()
 
 
+   #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      return ' '*indent + 'ACI :', self.getPPrintStr()
+
+   #############################################################################
+   def getPPrintStr(self):
+      out = ''
+      algoStr = 'NO CRYPT' if self.encryptAlgo == NULLCRYPT else self.encryptAlgo
+      kdfStr  = 'NO_KDF' if self.kdfObjID == NULLKDF else binary_to_hex(self.kdfObjID)[:8]
+      ivStr = self.ivSource if self.ivSource=='PUBKEY20' else binary_to_hex(self.ivSource)[:8]
+
+      keyStr = self.keySource 
+      try:
+         enumval,src = self.getEncryptKeySrc()
+         if enumval == CRYPT_KEY_SRC.EKEY_OBJ:
+            keyStr = binary_to_hex(src)[:8]
+            kdfStr  = 'CHAINKDF'
+      except:
+         keyStr = 'NO_SRC'
+      
+      return '[%s|%s|%s|%s]' % (algoStr, kdfStr, keyStr, ivStr)
+      
+
 
 
 #############################################################################
@@ -587,6 +611,7 @@ class KdfObject(WalletEntry):
 
    #############################################################################
    def __init__(self, kdfAlgo=None, **params):
+      super(KdfObject, self).__init__()
 
       # Set an error-inducing function as the default KDF
       def errorkdf(x):
@@ -749,6 +774,38 @@ class KdfObject(WalletEntry):
 
 
 
+   #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      if self.kdfAlgo.upper()==NULLKDF:
+         return 'KdfObject  NULLKDF'
+
+      if self.kdfAlgo.upper() in [None, '']:
+         return 'KdfObject  Uninitialized'
+
+      pcs = []
+      pcs.append('KdfObject ')
+      pcs.append('ID=%s' % binary_to_hex(self.getKdfID()))
+      pcs.append('Algo=%s' % self.kdfAlgo)
+      if self.kdfAlgo.upper()=='ROMIXOV2':
+         byteStr = bytesToHumanSize(self.memReqd)
+         saltStr = self.salt.toHexStr()[:8]
+         pcs.append('[%d iter, %s, salt:%s...]' % (self.numIter, byteStr, saltStr))
+
+      return ' '*indent + ', '.join(pcs)
+
+
+   ##########################################################################
+   def getPPrintPairs(self):
+      pairs = [['KdfAlgo', self.kdfAlgo]]
+
+      if self.kdfAlgo.upper()=='ROMIXOV2':
+         pairs.append( ['NumIter', str(self.numIter)] )
+         pairs.append( ['ReqdMem', bytesToHumanSize(self.memReqd)] )
+         pairs.append( ['HexSalt', self.salt.toHexStr()] )
+
+      return pairs
+
+
 #############################################################################
 #############################################################################
 class EncryptionKey(WalletEntry):
@@ -770,6 +827,8 @@ class EncryptionKey(WalletEntry):
    #############################################################################
    def __init__(self, keyID=None, ckey=None, einfo=None, 
                                     etest=None, ptest=None, keyH3=None):
+      super(EncryptionKey, self).__init__()
+
       # Mostly these will be initialized from encrypted data in wallet file
       self.ekeyID           = keyID   if keyID   else NULLSTR()
       self.masterKeyCrypt   = SecureBinaryData(ckey)  if ckey  else NULLSBD()
@@ -815,7 +874,7 @@ class EncryptionKey(WalletEntry):
       super(EncryptionKey, self).linkWalletEntries(wltFileRef)
       if self.kdfRef is None:
          self.kdfRef = wltFileRef.kdfMap.get(self.keyCryptInfo.kdfObjID)
-         if self.kdfRef:
+         if self.kdfRef is None:
             LOGERROR('Could not find KDF in wallet file')        
    
    
@@ -826,6 +885,7 @@ class EncryptionKey(WalletEntry):
             raise EncryptionError('No stored ekey ID, and ekey is locked')
 
          self.ekeyID = calcEKeyID(self.masterKeyPlain)
+
       return self.ekeyID
 
    #############################################################################
@@ -1004,7 +1064,7 @@ class EncryptionKey(WalletEntry):
 
       # Create the master key itself
       if preGenKey is None:
-         newMaster = SecureBinaryData().GenerateRandom(expectKeySize)
+         newMaster = SecureBinaryData().GenerateRandom2xXOR(expectKeySize)
       else:
          if not preGenKey.getSize() == expectKeySize:
             raise KeyDataError('Expected Master key: %dB, got %dB' % \
@@ -1116,6 +1176,33 @@ class EncryptionKey(WalletEntry):
          self.lock(newPass)
                               
 
+   
+   #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      if self.ekeyID == NULLSTR():
+         return ' '*indent + 'EkeyObject, Uninitialized'
+   
+      pcs = []
+      pcs.append('EkeyObject')
+      pcs.append('ID=%s' % binary_to_hex(self.ekeyID))
+
+      if self.keyCryptInfo.kdfObjID == NULLKDF:
+         pcs.append('KdfID=<NULLKDF>')
+      else:
+         pcs.append('KdfID=%s...' % binary_to_hex(self.keyCryptInfo.kdfObjID)[:8])
+
+      pcs.append('EncrKey: %s...' % self.masterKeyCrypt.toHexStr()[:8])
+         
+
+      return ' '*indent + ', '.join(pcs)
+
+
+   ##########################################################################
+   def getPPrintPairs(self):
+      pairs = [ ['CryptInfo', self.keyCryptInfo.getPPrintStr()],
+                ['EncryptedKey', self.masterKeyCrypt.toHexStr()] ]
+
+      return pairs
 
          
 ################################################################################
@@ -1156,6 +1243,8 @@ class MultiPwdEncryptionKey(EncryptionKey):
       When this method is called with args, usually after reading the encrypted
       data from file.
       """
+      super(MultiPwdEncryptionKey, self).__init__()
+
       self.ekeyID = keyID  if keyID  else NULLSTR()
       self.mkeyID = mkeyID if mkeyID else NULLSTR()
       self.M      = M if M else 0
@@ -1543,7 +1632,7 @@ class MultiPwdEncryptionKey(EncryptionKey):
       # Create the master key itself
       expectKeySize = KNOWN_CRYPTO[encryptFragAlgo]['keysize']
       if preGenKey is None:
-         newMaster = SecureBinaryData().GenerateRandom(expectKeySize)
+         newMaster = SecureBinaryData().GenerateRandom2xXOR(expectKeySize)
       else:
          if not preGenKey.getSize() == expectKeySize:
             raise KeyDataError('Expected Master key: %dB, got %dB' % \
@@ -1751,8 +1840,4 @@ class MultiPwdEncryptionKey(EncryptionKey):
          self.lock()
       
 
-
-WalletEntry.RegisterWalletStorageClass(KdfObject)
-WalletEntry.RegisterWalletStorageClass(EncryptionKey)
-WalletEntry.RegisterWalletStorageClass(MultiPwdEncryptionKey)
 

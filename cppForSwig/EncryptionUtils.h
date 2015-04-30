@@ -207,10 +207,15 @@ public:
    SecureBinaryData getHash256() const;
    SecureBinaryData getHash160() const;
 
+   // Uses X9.17, soon to be superceded by SP800-90
    // This would be a static method, as would be appropriate, except SWIG won't
    // play nice with static methods.  Instead, we will just use 
    // SecureBinaryData().GenerateRandom(32), etc
    SecureBinaryData GenerateRandom(uint32_t numBytes, 
+                              SecureBinaryData extraEntropy=SecureBinaryData());
+
+   // This pulls 2x entropy from the PRNG, XORs the two halves
+   SecureBinaryData GenerateRandom2xXOR(uint32_t numBytes, 
                               SecureBinaryData extraEntropy=SecureBinaryData());
 
    void lockData()

@@ -258,6 +258,58 @@ class InfinimapTests(unittest.TestCase):
       self.assertEqual(inf.getData(['123','4']), newStr)
 
 
+   #############################################################################
+   def testSerUnserRoundTrip(self):
+      awd = ArbitraryWalletData(['123','4'], 'abc')
+      awdStr = awd.serialize()
+      awd2 = ArbitraryWalletData().unserialize(awdStr)
+      awd2Str = awd2.serialize()
+      self.assertEqual(awdStr, awd2Str)
+
+      # Now test an encrypted AWDs
+      SampleKdfAlgo   = 'ROMIXOV2'
+      SampleKdfMem    = 4194304
+      SampleKdfIter   = 3
+      SampleKdfSalt   = SecureBinaryData(hex_to_binary( \
+            '38c1355eb2b39330bab691b58b7ee0c0c7fbc6c706c088244d3fd3becea5e958'))
+
+      SamplePasswd    = SecureBinaryData('TestPassword')
+
+      SampleCryptAlgo = 'AE256CBC'
+      SampleCryptIV8  = 'randomIV'
+      SampleMasterEKey = SecureBinaryData('samplemasterkey0' + '\xfa'*16)
+
+      kdf = KdfObject(SampleKdfAlgo, memReqd=SampleKdfMem, 
+                                          numIter=SampleKdfIter, 
+                                          salt=SampleKdfSalt)
+
+      ekey = EncryptionKey()
+      ekey.createNewMasterKey(kdf, SampleCryptAlgo, SamplePasswd,
+                           preGenKey=SampleMasterEKey, preGenIV8=SampleCryptIV8)
+
+      aci = ArmoryCryptInfo(NULLKDF, SampleCryptAlgo, ekey.ekeyID, SampleCryptIV8)
+
+      ekey.unlock(SamplePasswd)
+      awd3 = ArbitraryWalletData(['a','b'])
+      awd3.enableEncryption(aci, ekey)
+      awd3.setPlaintextToEncrypt('sampletext')
+
+      # Make sure serialization works on both locked and unlocked AWDs
+      ekey.lock()
+      awd3Str = awd3.serialize()
+      awd4 = ArbitraryWalletData().unserialize(awd3Str)
+      awd4Str = awd4.serialize()
+      self.assertEqual(awd3Str, awd4Str)
+
+      ekey.unlock(SamplePasswd)
+      awd5 = ArbitraryWalletData(['a','b'])
+      awd5.enableEncryption(aci, ekey)
+      awd5.setPlaintextToEncrypt('sampletext')
+      awd5Str = awd5.serialize()
+      awd6 = ArbitraryWalletData().unserialize(awd5Str)
+      awd6Str = awd6.serialize()
+      self.assertEqual(awd5Str, awd6Str)
+      self.assertEqual(awd3Str, awd6Str)
 
 
 ################################################################################

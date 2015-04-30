@@ -96,7 +96,7 @@ class ArbitraryWalletData(WalletEntry):
 
    #############################################################################
    def linkWalletEntries(self, wltFileRef):
-      self.insertIntoInfinimap(wltFileRef.arbitraryDataMap)
+      WalletEntry.linkWalletEntries(self, wltFileRef)
       if self.cryptInfo.useEncryption():
          self.ekeyRef = self.wltFileRef.ekeyMap.get(self.cryptInfo.keySource)
          if self.ekeyRef is None:
@@ -137,26 +137,6 @@ class ArbitraryWalletData(WalletEntry):
 
 
 
-   #############################################################################
-   '''  I don't think this is needed anymore... it breaks the encouraged access
-        patterns for encrypted infinimap entries.
-   def setEncryptedData(self, cryptData, newACI=None, ekey=None):
-      if newACI:
-         self.cryptInfo = newACI.copy()
-
-      if ekey:
-         self.ekeyRef = ekey
-
-      if not self.ekeyRef.ekeyID == self.cryptInfo.keySource:
-         raise KeyDataError('Ekey does not match ACI object key source!')
-
-      if isinstance(cryptData, basestring):
-         self.dataStr = cryptData[:]
-      else:
-         self.dataStr = cryptData.toBinStr()
-   '''
-
-
 
    #############################################################################
    @EkeyMustBeUnlocked('ekeyRef')
@@ -191,13 +171,32 @@ class ArbitraryWalletData(WalletEntry):
       if self.dataStr is None:
          return ''
       elif self.cryptInfo.useEncryption():
-         return '<encrypted:%s>' % binary_to_hex(self.dataStr)[:16]
+         return '<encrypted:%s>' % binary_to_hex(self.dataStr)[:16] + \
+            ('(Encrypted with: %s)' % binary_to_hex(self.cryptInfo.keySource)[:8])
       else:
          return self.dataStr
 
    #############################################################################
+   def pprintOneLineStr(self, indent=0):
+      return 'AWD: ' + self.prettyString(indent)
+
+   #############################################################################
    def prettyString(self, indent=0):
       return '%s%s: "%s"' % (indent*' ', str(self.keyList), self.prettyData())
+
+   #############################################################################
+   def getPPrintPairs(self):
+      pairs = [ ['KeyList', '+'.join(["'%s'" % s.replace("'","^") for s in self.keyList])]]
+      if self.cryptInfo.useEncryption():
+         pairs.append(['IsEncrypted', 'True'])
+         pairs.append(['CryptInfo', self.cryptInfo.getPPrintStr()])
+      else:
+         pairs.append(['IsEncrypted', 'False'])
+         pairs.append(['Message', "'%s'" % self.dataStr.replace("'","^")])
+
+      return pairs
+      
+      
 
    #############################################################################
    def serialize(self):
@@ -229,7 +228,7 @@ class ArbitraryWalletData(WalletEntry):
 
       bu = makeBinaryUnpacker(theStr)
       nkeys = bu.get(VAR_INT)
-      for k in nkeys:
+      for k in range(nkeys):
          klist.append( bu.get(VAR_STR) )
 
       flags = bu.get(BITSET, 1)
@@ -244,7 +243,7 @@ class ArbitraryWalletData(WalletEntry):
       self.keyList   = klist[:]
       self.dataStr   = data[:]
       self.ekeyRef   = None
-      if self.useEncryption:
+      if useEncryption:
          self.cryptInfo = ArmoryCryptInfo().unserialize(serACI)
       else: 
          self.cryptInfo = NULLCRYPTINFO()

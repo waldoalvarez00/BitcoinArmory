@@ -3,7 +3,8 @@ from ArmoryEncryption import *
 from WalletEntry import *
 from ArmoryKeyPair import *
 from Timer import *
-from ReedSolomonWrapper import *
+from ErrorCorrection import *
+from ArbitraryWalletData import *
 
 DEFAULT_COMPUTE_TIME_TARGET  = 0.25
 DEFAULT_MAXMEM_LIMIT         = 32*MEGABYTE
@@ -28,6 +29,8 @@ def CheckFsyncArgument(func):
       
       func(*args, **kwargs)
 
+   return wrappedFunc
+
 
 
 ################################################################################
@@ -41,13 +44,12 @@ class ArmoryFileHeader(object):
    def __init__(self):
       # Note, we use a different fileID than wallet 1.35 so that older versions
       # of Armory don't attempt to load the 2.0 wallets
-      LOGDEBUG('Creating file header')
       self.flags         = BitSet(32)
       self.wltUserName   = u''
       self.createTime    = UINT64_MAX
       self.createBlock   = UINT32_MAX
-      self.rsecParity    = RSEC_PARITY_BYTES
-      self.rsecPerData   = RSEC_PER_DATA_BYTES
+      self.rsecParity    = ERRCORR_BYTES
+      self.rsecPerData   = ERRCORR_PER_DATA
       self.isDisabled    = False
       self.headerSize    = self.DEFAULTSIZE
 
@@ -57,6 +59,10 @@ class ArmoryFileHeader(object):
       # not actually be used as a loadable wallet.
       self.isTransferWallet = False
       self.isSupplemental = False
+
+      # This helps with generic logic that needs to know where in the wallet
+      # file this object resides
+      self.wltByteLoc = 0
 
    
    #############################################################################
@@ -78,7 +84,7 @@ class ArmoryFileHeader(object):
 
 
    #############################################################################
-   def serializeHeaderData(self, altName=None):
+   def serialize(self, altName=None):
       """
       We leave a lot of extra space in header for future expansion, since
       header data is always up front, it's always got to be the same size.
@@ -110,7 +116,7 @@ class ArmoryFileHeader(object):
 
       sizeRemaining = self.headerSize - hdataMid.getSize()
       hdataMid.put(BINARY_CHUNK, '\x00'*sizeRemaining)
-      midParity = createRSECCode(hdataMid.getBinaryString(), 16, 1024)
+      midParity = WalletEntry.CreateErrCorrCode(hdataMid.getBinaryString(), 16, 1024)
       
       hdata = BinaryPacker()
       hdata.put(BINARY_CHUNK,    ArmoryFileHeader.WALLETMAGIC, width=8)
@@ -137,7 +143,7 @@ class ArmoryFileHeader(object):
       hdataMid  = toUnpack.get(BINARY_CHUNK, headSize)
       midParity = toUnpack.get(BINARY_CHUNK, 16)
 
-      hdataMid,failFlag,modFlag = checkRSECCode(hdataMid, midParity)
+      hdataMid,failFlag,modFlag = WalletEntry.VerifyErrCorrCode(hdataMid, midParity)
       if failFlag:
          LOGERROR('Header data was corrupted, or not an Armory wallet')
          afh.isDisabled = True
@@ -178,15 +184,15 @@ class ArmoryFileHeader(object):
 
       if not versionInt==getVersionInt(ARMORY_WALLET_VERSION):
          LOGWARN('This wallet is for an older version of Armory!')
-         LOGWARN('Wallet version: %d', armoryVer)
+         LOGWARN('Wallet version: %d', versionInt)
          LOGWARN('Armory version: %d', getVersionInt(ARMORY_WALLET_VERSION))
 
 
-      if [rsecParity, rsecPerData] != [RSEC_PARITY_BYTES, RSEC_PER_DATA_BYTES]:
+      if [rsecParity, rsecPerData] != [ERRCORR_BYTES, ERRCORR_PER_DATA]:
          # Technically, we could make all wallet code accommodate dynamic
          # RSEC parameters, but it would add some complexity for something
          # that shouldn't be necessary.  TODO: Maybe one day...
-         LOGERROR('This wallet uses different Reed-Solomon error correction'
+         LOGERROR('This wallet uses different error correction'
                   'parameters than this version of Armory')
          afh.isDisabled = True
          return afh
@@ -209,16 +215,19 @@ class ArmoryWalletFile(object):
       if ccode in ArmoryWalletFile.AKP_WALLET_TYPES:
          raise ValueError('Class with code "%s" is already in map!' % ccode)
       ArmoryWalletFile.AKP_WALLET_TYPES.add(ccode)
+      LOGINFO('Registered wallet display class: %s' % clsType.FILECODE)
       
 
    #############################################################################
-   def __init__(self, filepath, createNew=False):
-
-      if not os.path.exists(filepath) and not createNew:
-         LOGERROR('Attempted to open a wallet file that does not exist!')
-         raise FileExistsError
+   def __init__(self):
 
       self.fileHeader = ArmoryFileHeader()
+
+      self.uniqueIDB58       = None  # UniqueID of first root/seed
+      self.walletPath        = None
+      self.walletPathBackup  = None
+      self.walletPathUpdFail = None
+      self.walletPathBakFail = None
 
       # We will queue updates to the wallet file, and later apply them  
       # atomically to avoid corruption problems
@@ -234,8 +243,8 @@ class ArmoryWalletFile(object):
       # List of branches to display as "wallets"
       self.displayableWalletsMap  = {}  
 
-      # List of all independent AKP branches
-      self.allRootRoots      = {}  
+      # All AKP objects that are their own parent (i.e. tree root node)
+      self.topLevelRoots  = []
 
       # Any lockboxes that are maintained in this wallet file
       # Indexed by p2sh-scrAddr
@@ -252,6 +261,13 @@ class ArmoryWalletFile(object):
 
       # Master address list of all wallets/roots/chains/leaves
       self.masterScrAddrMap  = {}
+
+      # Master map of all objects with entry IDs
+      self.masterEntryIDMap  = {}
+
+      # Labels stored in this wallet file regarding addrs or txes
+      self.scrAddrLabelMap = {}
+      self.txLabelMap = {}
 
       # List of all encrypted wallet entries that couldn't be decrypted 
       # Perhaps later find a way decrypt and put them into the other maps
@@ -304,11 +320,32 @@ class ArmoryWalletFile(object):
       # Even generating new addresses would induce file write ops.
       self.isReadOnly = False
 
-
       # Wallet operations are not threadsafe.  Detect multiple access
       self.wltFileUpdateLock = threading.Lock()
 
+      
+   #############################################################################
+   def initializeWalletOnDisk(self):
+      if os.path.exists(self.walletPath):
+         raise WalletExistsError('Cannot initialize wallet that already exists!')
 
+      if os.path.exists(self.walletPathBackup):
+         LOGERROR('Backup wallet file already exists.  Deleting')
+         os.remove(self.walletPathBackup)
+         
+      if os.path.exists(self.walletPathUpdFail):
+         LOGERROR('Update fail flag exists, deleting')
+         os.remove(self.walletPathUpdFail)
+
+      if os.path.exists(self.walletPathBakFail):
+         LOGERROR('Backup update fail flag exists, deleting')
+         os.remove(self.walletPathBakFail)
+
+      with open(self.walletPath, 'wb') as f:
+         f.write(self.fileHeader.serialize())
+
+      # This makes sure the backup file is created and synchronous
+      self.doWalletFileConsistencyCheck()
 
 
    #############################################################################
@@ -336,7 +373,7 @@ class ArmoryWalletFile(object):
       self.kdfMap[newKDF.getKdfID()] = newKDF
 
       if fsync:
-         self.doFileOperation('AddEntry', newWE)
+         self.doFileOperation('AddEntry', newKDF)
 
 
    
@@ -414,6 +451,15 @@ class ArmoryWalletFile(object):
    def getEkey(self, ekeyID):
       return self.ekeyMap.get(ekeyID, None)
 
+
+   #############################################################################
+   def setWalletPath(self, wltPath):
+      # We will need a bunch of different pathnames for atomic update ops
+      self.walletPath        = wltPath
+      self.walletPathBackup  = self.getWalletPath('backup')
+      self.walletPathUpdFail = self.getWalletPath('update_unsuccessful')
+      self.walletPathBakFail = self.getWalletPath('backup_unsuccessful')
+
    #############################################################################
    def mergeWalletFile(self, wltOther, rootsToAbsorb='ALL'):
       """
@@ -426,7 +472,7 @@ class ArmoryWalletFile(object):
          # Open wallet file
          if not os.path.exists(wltOther):
             raise WalletExistsError('Wallet to merge DNE: %s' % wltOther)
-         wltOther = ArmoryWalletFile.readWalletFile(wltOther, openReadOnly=True)
+         wltOther = ArmoryWalletFile.ReadWalletFile(wltOther, openReadOnly=True)
       
 
       if rootsToAbsorb=='ALL':
@@ -488,11 +534,28 @@ class ArmoryWalletFile(object):
       """
       raise NotImplementedError('TODO: Implement external wallet logic')
 
-      if not exists(filepath):
+      if not os.path.exists(filepath):
          LOGERROR('External info file does not exist!  %s' % filepath)
 
       self.externalInfoWallet =  ArmoryWalletFile.ReadWalletFile(filepath)
 
+
+   #############################################################################
+   @staticmethod
+   def CheckWalletExists(wltPath):
+      if not os.path.exists(wltPath):
+         raise FileExistsError('Wallet file does not exist: %s' % wltPath)
+
+      with open(wltPath,'rb') as f:
+         first20bytes = BinaryUnpacker(f.read(20))
+
+      filemagic = first20bytes.get(BINARY_CHUNK, 8)
+      if not filemagic == ArmoryFileHeader.WALLETMAGIC:
+         raise FileExistsError('Specified file is not an Armory2.0 wallet')
+
+      ignored = first20bytes.get(UINT32) # size field that we don't care about
+      versionStr = getVersionString(readVersionInt(first20bytes.get(UINT32)))
+      LOGINFO('Wallet name and version: "%s", %s' % (wltPath, versionStr))
 
 
    #############################################################################
@@ -519,10 +582,8 @@ class ArmoryWalletFile(object):
       about the WalletEntry is encrypted except for the parent ID), then 
       we will repeat the above after decrypting the opaque objects.
       """
-      if not os.path.exists(wltPath):
-         raise FileExistsError('Wallet file does not exist: %s' % wltPath)
+      ArmoryWalletFile.CheckWalletExists(wltPath)
 
-      
       if len(ArmoryWalletFile.AKP_WALLET_TYPES)==0:
          LOGERROR('No AKP types are registered to be displayed as wallets')
          LOGERROR('This message is to remind you that you should register')
@@ -534,16 +595,10 @@ class ArmoryWalletFile(object):
 
 
       wlt = ArmoryWalletFile()
-      wlt.walletPath = wltPath
+      wlt.setWalletPath(wltPath)
       wlt.isReadOnly = openReadOnly
       wlt.arbitraryDataMap.clearMap()
 
-
-      # We will need a bunch of different pathnames for atomic update ops
-      wlt.walletPath        = wlt.getWalletPath('')
-      wlt.walletPathBackup  = wlt.getWalletPath('backup')
-      wlt.walletPathUpdFail = wlt.getWalletPath('update_unsuccessful')
-      wlt.walletPathBakFail = wlt.getWalletPath('backup_unsuccessful')
 
    
       if openReadOnly:
@@ -575,6 +630,7 @@ class ArmoryWalletFile(object):
          currPos = rawWallet.getPosition()
          wltEntry = WalletEntry.UnserializeEntry(rawWallet, wlt, currPos)
          allEntries.append(wltEntry)
+         LOGDEBUG(wltEntry.pprintOneLineStr())
          
          
       # This will organize all the entries into their respective lists/maps,
@@ -593,13 +649,13 @@ class ArmoryWalletFile(object):
       # If outer encryption was used on any entries, decrypt & add, if possible
       # (needed to add previous entries, because one is probably the decryption
       # key and/or KDF needed to unlock outer encryption)
-      if len(wlt.opaqueList) > 0:
+      if len(self.opaqueList) > 0:
          if len(outerCryptArgs) == 0:
             LOGWARN('Opaque entries in wallet, no decrypt args supplied')
          else:
             newWEList = []
             stillOpaqueList = []
-            for i,we in enumerate(wlt.opaqueList):
+            for i,we in enumerate(self.opaqueList):
                try:
                   decryptedWE = we.decryptPayloadReturnNewObj(**outerCryptArgs)
                   newWEList.append(decryptedWE)
@@ -608,8 +664,8 @@ class ArmoryWalletFile(object):
                   LOGEXCEPT('Failed to decrypt some opaque entries')
                   stillOpaqueList.append(we)
                   
-            wlt.opaqueList = stillOpaqueList
-            wlt.addEntriesToWallet(newWEList)
+            self.opaqueList = stillOpaqueList
+            self.addEntriesToWallet(newWEList)
          
 
 
@@ -639,7 +695,7 @@ class ArmoryWalletFile(object):
 
          if fsync:
             # In case the Reed-Solomon error correction actually finds an error
-            if we.needRewrite:
+            if we.needFsync:
                self.addFileOperationToQueue('UpdateEntry', we)
 
             if we.wltByteLoc in [0, None]:
@@ -647,7 +703,7 @@ class ArmoryWalletFile(object):
 
 
          if we.isDisabled:
-            if we.isRootRoot:
+            if hasattr(we,'isAkpRootRoot') and we.isAkpRootRoot:
                self.disabledRootIDs.add(we.getEntryID())
             continue
 
@@ -655,8 +711,8 @@ class ArmoryWalletFile(object):
          # If WE is unrecognized, ignore, if also critical, disable parent
          if we.isUnrecognized:
             self.unrecognizedList.append(we)
-            if we.isRequired:
-               self.disabledRootIDs.add(we.parEntryID)
+            if we.isRequired and not CLI_OPTIONS.ignoreUnrecognized:
+               self.disabledRootIDs.add(we.wltParentID)
             continue
 
          if we.isUnrecoverable:
@@ -675,9 +731,8 @@ class ArmoryWalletFile(object):
       # Walk through all the remaining entries
       for we in activeWEList:
          # If we have a deactivated root, deactivate all direct children
-         if we.parEntryID in self.disabledRootIDs or \
-            we.getEntryID() in self.disabledRootIDs or \
-            we.isDisabled:
+         # Only need to check parent, because rootroot objs are their own parent
+         if we.wltParentID in self.disabledRootIDs or we.isDisabled:
             we.isDisabled = True
             self.disabledList.append(we)
             continue
@@ -686,37 +741,46 @@ class ArmoryWalletFile(object):
          # Everything else goes in the master list of entries
          self.allWalletEntries.append(we)
 
+         weID = we.getEntryID()
+         if len(weID)>0:
+            self.masterEntryIDMap[weID] = we
+
          if issubclass(we.__class__, ArmoryKeyPair):
             if we.getScrAddr() in self.masterScrAddrMap:
                LOGWARN('ScrAddr is in wallet file multiple times!')
 
             self.masterScrAddrMap[we.getScrAddr()] = we
+   
+            if we.isAkpRootRoot:
+               self.topLevelRoots.append(we)
 
             if we.FILECODE in ArmoryWalletFile.AKP_WALLET_TYPES:
                if we.notForDirectUse:
                   # This is most likely a part of a multisig wallet
                   LOGWARN('Base wallet type marked not for direct use')
                else:
-                  wltID = we.getUniqueIDBin()
+                  wltID = we.getEntryID()
                   if wltID in self.displayableWalletsMap:
                      LOGWARN('WltID=%s added to displayable wlts twice' % wltID)
                   self.displayableWalletsMap[wltID] = we
          elif we.FILECODE=='ADDRLABL':
-            self.allLabels[we.scrAddr] = we
+            pass # handled in linkWalletEntries
          elif we.FILECODE=='TXLABEL_':
-            if we.txidFull: 
-               self.allLabels[we.txidFull] = we
-            if we.txidMall: 
-               self.allLabels[we.txidMall] = we
+            pass # handled in linkWalletEntries
+            #if we.txidFull: 
+               #self.allLabels[we.txidFull] = we
+            #if we.txidMall: 
+               #self.allLabels[we.txidMall] = we
          elif we.FILECODE=='LOCKBOX_':
             self.lockboxMap[we.lboxID] = we
          elif we.FILECODE in ['EKEYREG_','EKEYMOFN']:
-            self.ekeyMap[we.ekeyID] = we
+            self.ekeyMap[we.getEncryptionKeyID()] = we
+            we.addWltChildRef(we)
          elif we.FILECODE=='KDFOBJCT':
-            self.kdfMap[we.kdfObjID] = we
+            self.kdfMap[we.getKdfID()] = we
+            we.addWltChildRef(we)
          elif we.FILECODE=='ARBDATA_':
-            # Everything needed for Arbitrary data objects is in linkEntries()
-            pass
+            we.insertIntoInfinimap(self.arbitraryDataMap)
          else:
             LOGERROR('Unhandled WalletEntry type: %s' % we.FILECODE)
             self.unrecognizedList.append(we)
@@ -731,7 +795,7 @@ class ArmoryWalletFile(object):
       if fsync:
          self.fsyncUpdates()
 
-      return wlt
+      return self
          
       
 
@@ -741,7 +805,7 @@ class ArmoryWalletFile(object):
       This method is pretty simple when we've required all classes to have this
       behavior implemented in the class.
       """
-      LOGINFO('Re-linking all wallet entries')
+      LOGINFO('Linking all wallet entries')
       for we in self.allWalletEntries:
          we.linkWalletEntries(self)
       
@@ -749,7 +813,7 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   def doFileOperation(self, operationType, theData, loc=None):
+   def doFileOperation(self, operationType, theData):
       """
       This is intended to be used for one-shot safe writing to file. 
       Normally, you would batch your updates using addFileOperationToQueue
@@ -762,7 +826,7 @@ class ArmoryWalletFile(object):
          LOGERROR('Wallet update queue not empty!  Adding this to the')
          LOGERROR('queue and fsyncing')
 
-      self.addFileOperationToQueue(operationType, theData, loc)
+      self.addFileOperationToQueue(operationType, theData)
       self.fsyncUpdates()
           
 
@@ -794,18 +858,29 @@ class ArmoryWalletFile(object):
          
          
          
+   #############################################################################
+   def createWalletName(self):
+      ArmoryWalletFile.CreateWalletNameFromID(self.uniqueIDB58)
+
+   #############################################################################
+   @staticmethod
+   def CreateWalletNameFromID(self, uniqB58):
+      return 'armory_wallet2.0_%s.wlt' % uniqB58
 
    #############################################################################
    def getWalletPath(self, nameSuffix=None):
       fpath = self.walletPath
 
-      if self.walletPath=='':
-         fpath = os.path.join(ARMORY_HOME_DIR, 'armory_wallet_%s.bin' % self.uniqueIDB58)
+      if not self.walletPath:
+         if not self.uniqueIDB58:
+            raise WalletExistsError('No wlt unique ID , cannot create filename')
+         fpath = os.path.join(ARMORY_HOME_DIR, self.createWalletName())
 
       if nameSuffix:
          name,ext = os.path.splitext(fpath)
          joiner = '' if name.endswith('_') else '_'
          fpath = name + joiner + nameSuffix + ext
+
       return fpath
 
 
@@ -844,19 +919,17 @@ class ArmoryWalletFile(object):
       """
       if self.isReadOnly:
          raise WalletUpdateError('Wallet is opened in read-only mode!')
-
       
       
       if len(self.updateQueue)==0:
          return False
 
 
-
       # We're going to block until we get the lock, regardless.  This call
       # here is simply putting an error in the log file to let us know that
       # there was a multi-threading collision.  I was kind of hoping we
       # wouldn't have this at all.  
-      gotLock = self.wltFileUpdateLock.acquire(blocking=False)
+      gotLock = self.wltFileUpdateLock.acquire(False)
       if not gotLock:
          LOGERROR( 'Attempted to call fsync while currently fsync\'ing.  '
                    'This is probably a multithreading collision.  Wallet '
@@ -867,7 +940,7 @@ class ArmoryWalletFile(object):
       try:
          if not gotLock:
             # Try again but block this time
-            self.wltFileUpdateLock.acquire(blocking=True)
+            self.wltFileUpdateLock.acquire(True)
          
 
          if not os.path.exists(self.walletPath):
@@ -877,19 +950,29 @@ class ArmoryWalletFile(object):
          # We can safely batch updates to any mixture of objects, but not 
          # multiple changes to the same object
          fileLocToUpdate = set()
+         fileIDsToUpdate = set()
          for opType,weObj in self.updateQueue:
-            if weObj.wltByteLoc in fileLocToUpdate:
-               LOGERROR('Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
-                           binary_to_hex(weObj.uniqueID, weObj.wltByteLoc))
-               raise WalletUpdateError('Multiple updates to same ID in batch')
-            fileLocToUpdate.add(weObj.wltByteLoc)
+            if weObj.wltByteLoc > 0:
+               if weObj.wltByteLoc in fileLocToUpdate:
+                  LOGERROR('Dup Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
+                           binary_to_hex(weObj.getEntryID()), weObj.wltByteLoc)
+                  raise WalletUpdateError('Multiple updates to same ID in batch')
+               fileLocToUpdate.add(weObj.wltByteLoc)
+
+            if len(weObj.getEntryID()) > 0:
+               if weObj.getEntryID() in fileIDsToUpdate:
+                  LOGERROR('Dup Obj: %s (ID=%s, loc=%d)', weObj.FILECODE, 
+                           binary_to_hex(weObj.getEntryID()), weObj.wltByteLoc)
+                  raise WalletUpdateError('Multiple updates to same ID in batch')
+               fileIDsToUpdate.add(weObj.wltByteLoc)
+               
    
          # Make sure that the primary and backup files are synced before update
          self.doWalletFileConsistencyCheck()
    
          # Make sure all entries have valid wallet file locations
          for opType,weObj in self.updateQueue:
-            if opType in ['updateentry', 'deleteentry'] and weObj.wltByteLoc <= 0:
+            if opType.lower() in ['updateentry', 'deleteentry'] and weObj.wltByteLoc <= 0:
                raise WalletUpdateError('Wallet entry cannot be updated without loc')
         
          # Apply updating to both files in an identical manner
@@ -922,7 +1005,7 @@ class ArmoryWalletFile(object):
             appendAfterOverwriteQueue = []
    
             try:
-               writefile = open(wltPath, 'r+b')
+               wltfile = open(wltPath, 'r+b')
             except IOError:
                LOGEXCEPT('Failed to open %s in r+b mode. Permissions?' % wltPath)
                return False
@@ -965,8 +1048,8 @@ class ArmoryWalletFile(object):
    
             # Close file for writing, reopen it in append mode
             try:
-               writefile.close()
-               appendFile = open(wltPath, 'ab')
+               wltfile.close()
+               appendfile = open(wltPath, 'ab')
             except IOError:
                LOGEXCEPT('Failed to open %s in ab mode. Permissions?' % wltPath)
                return False
@@ -993,6 +1076,8 @@ class ArmoryWalletFile(object):
             hashBack = sha256(open(self.walletPathBackup, 'rb').read())
             if not hashMain==hashBack:
                raise WalletUpdateError('Updates of two wallet files do not match!')
+
+         self.updateQueue = []
    
          return True
       finally:
@@ -1003,7 +1088,7 @@ class ArmoryWalletFile(object):
    
 
    #############################################################################
-   def doWalletFileConsistencyCheck(self, onlySyncBackup=True):
+   def doWalletFileConsistencyCheck(self):
       """
       First we check the file-update flags (files we touched/removed during
       file modification operations), and then restore the primary wallet file
@@ -1031,35 +1116,31 @@ class ArmoryWalletFile(object):
       if not os.path.exists(self.walletPath):
          raise FileExistsError('No wallet file exists to be checked!')
 
-      walletFileBackup = self.getWalletPath('backup')
-      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
-      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
 
-      if not os.path.exists(walletFileBackup):
+      if not os.path.exists(self.walletPathBackup):
          # We haven't even created a backup file, yet
-         LOGDEBUG('Creating backup file %s', walletFileBackup)
-         touchFile(backupUpdateFlag)
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(backupUpdateFlag)
+         LOGDEBUG('Creating backup file %s', self.walletPathBackup)
+         touchFile(self.walletPathBakFail)
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathBakFail)
 
-      if os.path.exists(backupUpdateFlag) and os.path.exists(mainUpdateFlag):
+      if os.path.exists(self.walletPathBakFail) and \
+         os.path.exists(self.walletPathUpdFail):
          # Here we actually have a good main file, but backup never succeeded
          LOGERROR('***WARNING: error in backup file... how did that happen?')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(mainUpdateFlag)
-         os.remove(backupUpdateFlag)
-      elif os.path.exists(mainUpdateFlag):
-         LOGERROR('***WARNING: last file operation failed!  Restoring wallet from backup')
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathUpdFail)
+         os.remove(self.walletPathBakFail)
+      elif os.path.exists(self.walletPathUpdFail):
+         LOGERROR('***WARNING: last file op failed!  Restoring from backup')
          # main wallet file might be corrupt, copy from backup
-         shutil.copy(walletFileBackup, self.walletPath)
-         os.remove(mainUpdateFlag)
-      elif os.path.exists(backupUpdateFlag):
+         shutil.copy(self.walletPathBackup, self.walletPath)
+         os.remove(self.walletPathUpdFail)
+      elif os.path.exists(self.walletPathBakFail):
          LOGERROR('***WARNING: creation of backup was interrupted -- fixing')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(backupUpdateFlag)
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathBakFail)
 
-      if onlySyncBackup:
-         return 0
 
 
    #############################################################################
@@ -1074,19 +1155,16 @@ class ArmoryWalletFile(object):
       if not os.path.exists(self.walletPath):
          raise FileExistsError('No wallet file exists to be checked!')
 
-      walletFileBackup = self.getWalletPath('backup')
-      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
-      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
-
-      if not os.path.exists(walletFileBackup):
+      if not os.path.exists(self.walletPathBackup):
          # No backup file to compare against
          return True
-      elif os.path.exists(backupUpdateFlag) and os.path.exists(mainUpdateFlag):
+      elif os.path.exists(self.walletPathBakFail) and \
+           os.path.exists(self.walletPathUpdFail):
          # Here we actually have a good main file, but backup never succeeded
          return False
-      elif os.path.exists(mainUpdateFlag):
+      elif os.path.exists(self.walletPathUpdFail):
          return False
-      elif os.path.exists(backupUpdateFlag):
+      elif os.path.exists(self.walletPathBakFail):
          return False
 
       return True
@@ -1107,8 +1185,9 @@ class ArmoryWalletFile(object):
             if node.getEntryID() in wlt.masterScrAddrMap:
                raise WalletUpdateError('Addr already in wallet file! %s' % \
                      scrAddr_to_addrStr(node.getEntryID()))
+
             for idx,child in node.akpChildByIndex.iteritems():
-               checkAlreadyInMap(child)
+               checkAlreadyInMap(wlt, child)
 
          checkAlreadyInMap(self, rootNodeOfBranch)
             
@@ -1119,9 +1198,10 @@ class ArmoryWalletFile(object):
       
       
    #############################################################################
+   @CheckFsyncArgument
    @VerifyArgTypes(ekeyObj=[EncryptionKey, MultiPwdEncryptionKey],
                    kdfObj=[None, KdfObject, list, tuple])
-   def addCryptObjsToWallet(self, parent, ekeyObj, kdfObj=None, errorIfDup=True):
+   def addCryptObjsToWallet(self, ekeyObj, kdfObj=None, errorIfDup=True, fsync=None):
       """
       We only supply a kdfObj as a separate arg when the ekeyObj doesn't have 
       one (or more) defined internally (i.e., only if not chained encryption).
@@ -1153,24 +1233,23 @@ class ArmoryWalletFile(object):
       for we in toAddToWallet:
          # All crypt objects are their own parent (root objs).  They may be
          # shared across multiple wallet/root/AKP/AWD objects
-         we.parEntryID = we.getEntryID()
          we.wltParentRef = we
+         we.wltParentID = we.getEntryID()
          we.wltFileRef = self
-         we.queueFsync()
 
    
-      self.fsyncUpdates()
+      self.addEntriesToWallet(toAddToWallet, fsync=fsync)
       
 
 
    #############################################################################
-   def unlockWalletEkey(self, ekeyID, **unlockArgs):
+   def unlockWalletEkey(self, ekeyID, *unlockArgs, **unlockKwargs):
       ekeyObj = self.ekeyMap.get(ekeyID, None)
 
       if ekeyObj is None:
          raise KeyDataError("No ekey in wlt with id=%s" % binary_to_hex(ekeyID))
 
-      ekeyObj.unlock(**unlockArgs)
+      ekeyObj.unlock(*unlockArgs, **unlockKwargs)
 
 
    #############################################################################
@@ -1239,7 +1318,7 @@ class ArmoryWalletFile(object):
       if withOrphan:        weListList.append(self.wltParentMissing)
 
       with open(newPath, 'wb') as newWltFile:
-         newWltFile.write(self.fileHeader.serializeHeaderData(altName=newName))
+         newWltFile.write(self.fileHeader.serialize(altName=newName))
          for we in self.allWalletEntries:
             newWE = weFilterFunc(we)
             if not newWE is None:
@@ -1262,13 +1341,13 @@ class ArmoryWalletFile(object):
       """
       
       def rootFilter(we):
-         if rootList=='ALL' or we.parEntryID in rootList:
+         if rootList=='ALL' or we.wltParentID in rootList:
             return we
          else:
             return None
       
 
-      writeFreshWalletFile_BASE(rootFilter, newPath, newName, withOpaque, 
+      self.writeFreshWalletFile_BASE(rootFilter, newPath, newName, withOpaque, 
                withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
 
 
@@ -1285,7 +1364,7 @@ class ArmoryWalletFile(object):
 
       
       def filterAndWipe(we):
-         if not rootList=='ALL' and not we.parEntryID in rootList:
+         if not rootList=='ALL' and not we.wltParentID in rootList:
             return None
 
          if isinstance(we, ArmoryKeyPair):
@@ -1296,9 +1375,30 @@ class ArmoryWalletFile(object):
             return we
             
             
-      writeFreshWalletFile_BASE(filterAndWipe, newPath, newName, withOpaque, 
+      self.writeFreshWalletFile_BASE(filterAndWipe, newPath, newName, withOpaque, 
                withDisabled, withUnrecognized, withUnrecoverable, withOrphan)
       
+
+   #############################################################################
+   @CheckFsyncArgument
+   def updateScrAddrLabel(self, scrAddr, lbl, fsync=None):
+      if not scrAddr in self.masterScrAddrMap:
+         raise WalletUpdateError('No scrAddr available')
+      
+      if scrAddr in self.scrAddrLabelMap:
+         sa = self.scrAddrLabelMap[scrAddr]
+         sa.label = lbl
+      else:
+         saLbl = ScrAddrLabel()
+         saLbl.initialize(sa, lbl)
+         saLbl.linkWalletEntries(self)
+
+      if fsync:
+         saLbl.fsync()
+
+   #############################################################################
+   @CheckFsyncArgument
+   def updateTxLabel(self, txidType, txid, label, fsync=None):
 
 
    #############################################################################
@@ -1308,15 +1408,20 @@ class ArmoryWalletFile(object):
       Since we are "adding" data to the map, we error out if it already exists.
       Clear the entry and call this method if you want to change the encryption.
       """
-      node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=False)
+      if not node is None:
+         raise KeyError('AWD already in map: %s' % str(keyList))
 
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=True)
       node.setPlaintext(plainStr)
-      node.awdObj.wltFileRef = self
-      node.awdObj.parEntryID = parentRef.getEntryID()
-      node.awdObj.wltParentRef = parentRef
 
+      # Link to parent and to wallet
+      parentRef.addWltChildRef(node.awdObj)
+      self.allWalletEntries.append(node.awdObj)
+      node.awdObj.linkWalletEntries(self)
       if fsync:
-         node.awdObj.fsyncUpdates()
+         node.awdObj.fsync()
+
       
    #############################################################################
    @CheckFsyncArgument
@@ -1333,20 +1438,28 @@ class ArmoryWalletFile(object):
       if ekey.isLocked():
          raise WalletLockError('Ekey %s is locked, cannot encrypt data')
 
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=False)
+      if not node is None:
+         raise KeyError('AWD already in map: %s' % str(keyList))
+
       randIV = SecureBinaryData().GenerateRandom(8).toBinStr()
       awdCryptInfo = ArmoryCryptInfo(NULLKDF, 'AE256CBC', ekeyID, randIV)
 
-      node = self.arbitraryDataMap.getNode(keyList, doCreate=True, errorIfDup=True)
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=True)
       node.awdObj.enableEncryption(awdCryptInfo, ekey)
 
       # If we got here, the node was created, encryption was set
       node.setPlaintextToEncrypt(plainStr)
-      node.awdObj.wltFileRef = self
-      node.awdObj.parEntryID = parentRef.getEntryID()
-      node.awdObj.wltParentRef = parentRef
+
+      # Link to parent and to wallet
+      parentRef.addWltChildRef(node.awdObj)
+      self.allWalletEntries.append(node.awdObj)
+      node.awdObj.linkWalletEntries(self)
+      if fsync:
+         node.awdObj.fsync()
       
       if fsync:
-         node.awdObj.fsyncUpdates()
+         node.awdObj.fsync()
 
    #############################################################################
    @CheckFsyncArgument
@@ -1357,9 +1470,18 @@ class ArmoryWalletFile(object):
 
       if fsync:
          node = self.arbitraryDataMap.getNode(keyList)
-         node.awdObj.fsyncUpdates()
+         node.awdObj.fsync()
       
 
+   #############################################################################
+   def getArbitraryWalletData(self, keyList):
+      """ Returns plain string if unencrypted, SBD if encrypted """
+      node = self.arbitraryDataMap.getNode(keyList, doCreate=False)
+      if node is None:
+         return None
+         
+      # This throws an error if ekey is needed but locked
+      return node.awdObj.getPlainDataCopy()  
 
 
    #############################################################################
@@ -1371,7 +1493,7 @@ class ArmoryWalletFile(object):
    #############################################################################
 
    #############################################################################
-   @VerifyArgTypes(extraEntropy=[SecureBinaryData, None],
+   @VerifyArgTypes(sbdExtraEntropy=[SecureBinaryData, None],
                    sbdPregeneratedSeed=[SecureBinaryData, None])
    def createNewRootObject(self, rootClass, encryptInfo, ekeyRef, 
                            sbdExtraEntropy=None, sbdPregeneratedSeed=None, 
@@ -1420,44 +1542,46 @@ class ArmoryWalletFile(object):
          if sbdExtraEntropy is None or sbdExtraEntropy.getSize() < 16:
             raise KeyDataError('Must provide 16+ bytes of extra entropy')
 
-         newRoot.createNewSeed(DEFAULT_SEED_SIZE, sbdExtraEntropy, fillPool=fillPool)
+         newRoot.createNewSeed(DEFAULT_SEED_SIZE, sbdExtraEntropy, 
+                                             fillPool=fillPool, fsync=fsync)
       else:
-         newRoot.initializeFromSeed(sbdPregeneratedSeed, fillPool=fillPool)
+         newRoot.initializeFromSeed(sbdPregeneratedSeed, 
+                                             fillPool=fillPool, fsync=fsync)
 
-      newRoot.parEntryID = newRoot.getScrAddr()
+      newRoot.wltParentID = newRoot.getEntryID()
       newRoot.wltParentRef = newRoot  # root address has self-reference
       return newRoot
       
 
    #############################################################################
-   @CheckFsyncArgument
-   @VerifyArgTypes(sbdPassphrase=SecureBinaryData,
-                   sbdExtraEntropy=[SecureBinaryData, None])
-   def generateNewSinglePwdMasterEKey(self, sbdPassphrase, 
-                                            kdfAlgo='ROMIXOV2', 
-                                            kdfTargSec=0.25, 
-                                            kdfMaxMem=32*MEGABYTE, 
-                                            encryptAlgo='AE256CBC'):
+   @staticmethod
+   @VerifyArgTypes(sbdPassphrase=SecureBinaryData)
+   def generateNewSinglePwdMasterEKey(sbdPassphrase, 
+                                      kdfAlgo='ROMIXOV2', 
+                                      kdfTargSec=0.25, 
+                                      kdfMaxMem=32*MEGABYTE, 
+                                      encryptAlgo='AE256CBC'):
 
       #####
       LOGINFO('Creating new KDF with params: time=%0.2fs, maxmem=%0.2fMB', 
                                         kdfTargSec, kdfMaxMem/float(MEGABYTE))
-      newKDF = KdfObject().createNewKDF(kdfAlgo, kdfTargSec, kdfMaxMem)
+      newKDF = KdfObject.CreateNewKDF(kdfAlgo, targSec=kdfTargSec, 
+                                               maxMem=kdfMaxMem)
       kdfID = newKDF.getKdfID()
       LOGINFO('Finished creating new KDF obj, ID=%s' % binary_to_hex(kdfID))
 
       tstart = RightNow()
-      newKdf.execKDF(SecureBinaryData('TestPassword'))
+      newKDF.execKDF(SecureBinaryData('TestPassword'))
       tend = RightNow()
 
       LOGINFO('KDF ID=%s uses %0.2fMB and a test password took %0.2fs',
-                     binary_to_hex(newKdf.getKdfID()), 
-                     newKdf.memReqd/float(MEGABYTE), (tend-tstart))
+                     binary_to_hex(newKDF.getKdfID()), 
+                     newKDF.memReqd/float(MEGABYTE), (tend-tstart))
 
       #####
       LOGDEBUG('Creating new master encryption key')
       newEKey = EncryptionKey().createNewMasterKey(newKDF, encryptAlgo, sbdPassphrase)
-      ekeyID = newEkey.getEncryptionKeyID()
+      ekeyID = newEKey.getEncryptionKeyID()
       LOGINFO('Finished creating new EKEY obj, ID=%s' % binary_to_hex(ekeyID))
 
       #####
@@ -1475,7 +1599,6 @@ class ArmoryWalletFile(object):
    #############################################################################
    @staticmethod
    def CreateWalletFile_BASE(
-                        walletPath,
                         walletName=u'',
                         newRootClass=ABEK_BIP44Seed,
                         sbdExtraEntropy=None,
@@ -1485,12 +1608,11 @@ class ArmoryWalletFile(object):
                         kdfRef=None,
                         createTime=0,
                         createBlock=0,
-                        prgFunc=emptyFunc):
+                        createInDir=None,
+                        specificFilename=None,
+                        progressUpdater=emptyFunc):
 
       """
-      We skip the atomic file operations since we don't even have a wallet 
-      file yet to safely update.
-
       If an ekeyRef is provided, the ekey needs to be unassociated (so far)
       with any wallet, and it must be unlocked
 
@@ -1513,7 +1635,7 @@ class ArmoryWalletFile(object):
          raise WalletLockError('Cannot create encrypted root with locked ekey')
 
       LOGINFO('***Creating new wallet')
-      newWlt = ArmoryWalletFile(walletPath, createNew=True)
+      newWlt = ArmoryWalletFile()
       newWlt.fileHeader.initialize(walletName, createTime, createBlock)
 
       #####
@@ -1521,23 +1643,42 @@ class ArmoryWalletFile(object):
       newRoot = newWlt.createNewRootObject(newRootClass, encryptInfo, ekeyRef,
                                            sbdExtraEntropy, sbdPregeneratedSeed, 
                                            fsync=False, kdfRef=kdfRef)
-      LOGINFO('Created new root of type: %s' % newRoot.getName())
+      LOGWARN('Created new root of type: %s, ID=%s' % \
+                                (newRoot.getName(), newRoot.getUniqueIDB58()))
 
+      # Set the unique ID so we can create the wallet file (filename has ID in it)
+      idB58 = newRoot.getUniqueIDB58()
+      newWlt.uniqueIDB58 = idB58
+
+      if createInDir is None:
+         createInDir = ARMORY_HOME_DIR 
+
+      if specificFilename is None:
+         specificFilename = ArmoryWalletFile.CreateWalletNameFromID(idB58)
+
+      # This sets the primary wallet file, as well as backups and flags
+      newWlt.setWalletPath(os.path.join(createInDir, specificFilename))
+   
+      # This creates the wallet file and writes the header to it
+      newWlt.initializeWalletOnDisk()
 
       # Don't fsync anything yet, fill the keypool in RAM first, with progress
-      newRoot.fillKeyPool(fsync=False, progressUpdater=prgFunc)
+      newRoot.fillKeyPool(fsync=False, progressUpdater=progressUpdater)
 
       # Confirm this root and its children are not in the wallet yet, then add
       newWlt.addAkpBranchToWallet(newRoot)
 
       # Confirm the ekey and kdf(s) are not in wallet yet, then add
-      newWlt.addCryptObjsToWallet(newRoot, ekeyRef, kdfRef)
+      newWlt.addCryptObjsToWallet(ekeyRef, kdfRef)
    
-      # Finally, make sure all the above operations are fsync'd
+      # Finally, make sure all the above operations are written to disk
       newWlt.fsyncUpdates()  
 
+      # Remove the object we just created, read back from file
+      newWltPath = newWlt.walletPath
+
       # Return the disk-syncrhonized wallet object
-      return newWlt
+      return ArmoryWalletFile.ReadWalletFile(newWltPath)
       
 
 
@@ -1546,10 +1687,8 @@ class ArmoryWalletFile(object):
    #############################################################################
    @staticmethod
    @VerifyArgTypes(sbdPassphrase=SecureBinaryData,
-                   sbdExtraEntropy=SecureBinaryData)
-   def CreateWalletFile_SinglePwd(self, 
-                                  walletPath,
-                                  walletName,
+                   sbdExtraEntropy=[SecureBinaryData, None])
+   def CreateWalletFile_SinglePwd(walletName,
                                   sbdPassphrase,
                                   newRootClass=ABEK_BIP44Seed,
                                   sbdExtraEntropy=None,
@@ -1558,24 +1697,30 @@ class ArmoryWalletFile(object):
                                   kdfAlgo='ROMIXOV2',
                                   kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET,
                                   kdfMaxMem=DEFAULT_MAXMEM_LIMIT,
-                                  progressUpdaterFunc=emptyFunc):
+                                  progressUpdater=emptyFunc,
+                                  createInDir=None,
+                                  specificFilename=None):
+      """
+      This can be used to either restore from an existing seed, or create
+      a new one.  
+      """
 
       if (sbdExtraEntropy is None) == (sbdPregeneratedSeed is None):
-         raise KeyDataError(
+         raise KeyDataError('Must supply only one: pregen seed or extra entropy')
                                        
-      aci, newEKey = generateNewSinglePwdMasterEKey( sbdPassphrase, 
-                                                     kdfAlgo,
-                                                     kdfTargSec,
-                                                     kdfMaxMem,
-                                                     encryptAlgo)
+      aci,newEKey = ArmoryWalletFile.generateNewSinglePwdMasterEKey( 
+                                                           sbdPassphrase, 
+                                                           kdfAlgo,
+                                                           kdfTargSec,
+                                                           kdfMaxMem,
+                                                           encryptAlgo)
    
 
-      newEkey.unlock(sbdPassphrase)
+      newEKey.unlock(sbdPassphrase)
       try:
-         newEkey.markKeyInUse()
+         newEKey.markKeyInUse()
          # Now we have everything we need to create the 
          newWlt = ArmoryWalletFile.CreateWalletFile_BASE( \
-                        walletPath,
                         walletName,
                         newRootClass,
                         sbdExtraEntropy,
@@ -1585,21 +1730,113 @@ class ArmoryWalletFile(object):
                         kdfRef=None,
                         createTime=0,
                         createBlock=0,
-                        prgFunc=progressUpdaterFunc)
+                        createInDir=createInDir,
+                        specificFilename=specificFilename,
+                        progressUpdater=progressUpdater)
 
       finally:
-         newEkey.finishedWithKey()
+         newEKey.finishedWithKey()
                                                   
 
       return newWlt
 
 
+   #############################################################################
+   def getOnlyEkeyID(self):
+      if not len(self.ekeyMap)==1:
+         raise KeyDataError('Expected one ekey, found %d', len(self.ekeyMap))
                                                   
+      for k in self.ekeyMap.keys():
+         return k
 
 
+   #############################################################################
+   def getOnlyEkey(self):
+      if not len(self.ekeyMap)==1:
+         raise KeyDataError('Expected one ekey, found %d', len(self.ekeyMap))
+                                                  
+      for v in self.ekeyMap.values():
+         return v
 
 
+   #############################################################################
+   def getOnlyKdfID(self):
+      if not len(self.kdfMap)==1:
+         raise KeyDataError('Expected one kdf, found %d', len(self.kdfMap))
+                                                  
+      for k in self.kdfMap.keys():
+         return k
+
+   #############################################################################
+   def getOnlyKdf(self):
+      if not len(self.kdfMap)==1:
+         raise KeyDataError('Expected one kdf, found %d', len(self.kdfMap))
+                                                  
+      for v in self.kdfMap.values():
+         return v
 
 
+   #############################################################################
+   # VARIETY OF WAYS TO PPRINT THE ENTRIES IN THE WALLET FILE
+   #############################################################################
 
+   #############################################################################
+   def pprintEntryList(self, indent=0):
+      for i,we in enumerate(self.allWalletEntries):
+         print '   %03d' % i,
+         we.pprintOneLine(indent=indent)
+
+   #############################################################################
+   def pprintToCSV_Simple(self, fileOut=None):
+      if fileOut:
+         csvOut = open(fileOut, 'w')
+
+      for i,we in enumerate(self.allWalletEntries):
+         pairs = we.getWltEntryPPrintPairs()
+         pairs.extend(we.getPPrintPairs())
+         strLine = str(i) + ',' + ','.join([str(a)+'='+str(b) for a,b in pairs])
+         if fileOut is None: 
+            print strLine
+         else:
+            csvOut.write(strLine + '\n')
+
+      if fileOut:
+         csvOut.close()
+
+   #############################################################################
+   def pprintToCSV_Columns(self, fileOut=None):
+      if fileOut:
+         csvOut = open(fileOut, 'w')
+
+      columnList = ['Index']
+      rowCols = []
+      for i,we in enumerate(self.allWalletEntries):
+         rowCols.append(['']*len(columnList))
+         rowCols[-1][0] = str(i)
+         pairs = we.getWltEntryPPrintPairs()
+         pairs.extend(we.getPPrintPairs())
+         for k,v in pairs:
+            if not k in columnList:
+               columnList.append(str(k))
+               rowCols[-1].append(str(v))
+            else:
+               col = columnList.index(str(k))
+               rowCols[-1][col] = str(v)
+
+      if fileOut is None: 
+         print ','.join(columnList)
+         for row in rowCols:
+            print ','.join(row)
+      else:
+         csvOut.write(','.join(columnList) + '\n')
+         for row in rowCols:
+            csvOut.write(','.join(row) + '\n')
+
+      if fileOut:
+         csvOut.close()
+
+
+ArmoryWalletFile.RegisterWalletDisplayClass(ABEK_StdWallet)
+ArmoryWalletFile.RegisterWalletDisplayClass(Armory135Root)
+ArmoryWalletFile.RegisterWalletDisplayClass(ArmoryImportedRoot)
 

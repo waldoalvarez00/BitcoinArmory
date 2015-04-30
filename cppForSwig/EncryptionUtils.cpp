@@ -125,6 +125,7 @@ SecureBinaryData SecureBinaryData::copySwapEndian(size_t pos1, size_t pos2) cons
 }
 
 /////////////////////////////////////////////////////////////////////////////
+// Uses X9.17
 SecureBinaryData SecureBinaryData::GenerateRandom(uint32_t numBytes, 
                                                   SecureBinaryData entropy)
 {
@@ -139,6 +140,19 @@ SecureBinaryData SecureBinaryData::GenerateRandom(uint32_t numBytes,
    SecureBinaryData randData(numBytes);
    prng.GenerateBlock(randData.getPtr(), numBytes);
    return randData;  
+}
+/////////////////////////////////////////////////////////////////////////////
+SecureBinaryData SecureBinaryData::GenerateRandom2xXOR(uint32_t numBytes, 
+                                                  SecureBinaryData entropy)
+{
+   // NIST (SP800-133) has recommended K=U XOR V, where U is output of an 
+   // RNG, V is an indepedently-generated string.  Previously recommended 
+   // generating 1.5x the desired bytes and hashing it to the right length.  
+   // So here we combine the concepts by just doing TWO 1x RNG pulls, 
+   // and XOR them together.  
+   SecureBinaryData U = SecureBinaryData().GenerateRandom(numBytes, entropy);
+   SecureBinaryData V = SecureBinaryData().GenerateRandom(numBytes);
+   return SecureBinaryData().XOR(U, V);  
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -542,7 +556,7 @@ SecureBinaryData CryptoAES::DecryptCBC(SecureBinaryData & data,
 /////////////////////////////////////////////////////////////////////////////
 BTC_PRIVKEY CryptoECDSA::CreateNewPrivateKey(SecureBinaryData entropy)
 {
-   return ParsePrivateKey(SecureBinaryData().GenerateRandom(32, entropy));
+   return ParsePrivateKey(SecureBinaryData().GenerateRandom2xXOR(32, entropy));
 }
 
 

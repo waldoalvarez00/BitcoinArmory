@@ -13,11 +13,16 @@ import sys
 sys.path.append('..')
 import textwrap
 
+sys.argv.append('--debug')
+sys.argv.append('--testnet')
 from armoryengine.ArmoryUtils import *
 from armoryengine.ArmoryEncryption import *
 from armoryengine.WalletEntry import *
 from armoryengine.ArmoryKeyPair import *
 from armoryengine.ArmoryWallet import *
+from armoryengine.WalletLabels import *
+from BIP32TestVectors import *
+sys.argv = sys.argv[:-2]
 
 WALLET_VERSION_BIN = hex_to_binary('002d3101')
 
@@ -64,7 +69,6 @@ class MockSerializableObject(WalletEntry):
       
 
 
-WalletEntry.RegisterWalletStorageClass(MockSerializableObject)
 
 
 ################################################################################
@@ -87,9 +91,8 @@ def compareWalletObjs(tself, wlt1, wlt2):
 
 
    cmpLen(wlt1, wlt2, 'allWalletEntries')
-   cmpLen(wlt1, wlt2, 'allKeyPairObjects')
    cmpLen(wlt1, wlt2, 'displayableWalletsMap')
-   cmpLen(wlt1, wlt2, 'allRootRoots')
+   cmpLen(wlt1, wlt2, 'topLevelRoots')
    cmpLen(wlt1, wlt2, 'lockboxMap')
    cmpLen(wlt1, wlt2, 'ekeyMap')
    cmpLen(wlt1, wlt2, 'kdfMap')
@@ -104,19 +107,17 @@ def compareWalletObjs(tself, wlt1, wlt2):
                      wlt2.arbitraryDataMap.countNodes())
 
    def cmpMapKeys(a,b,prop):
-      self.assertTrue(hasattr(a, prop) and hasattr(b, prop))
+      tself.assertTrue(hasattr(a, prop) and hasattr(b, prop))
       mapA = getattr(a, prop)
       mapB = getattr(b, prop)
       if not isinstance(mapA, dict) or not isinstance(mapB, dict):
          raise KeyError('Supplied property is not a map: %s' % prop)
       for key in mapA:
-         self.assertTrue(key in mapB)
+         tself.assertTrue(key in mapB)
       for key in mapB:
-         self.assertTrue(key in mapA)
+         tself.assertTrue(key in mapA)
 
-   cmpMapKeys(wlt1, wlt2, 'allKeyPairObjects')
    cmpMapKeys(wlt1, wlt2, 'displayableWalletsMap')
-   cmpMapKeys(wlt1, wlt2, 'allRootRoots')
    cmpMapKeys(wlt1, wlt2, 'lockboxMap')
    cmpMapKeys(wlt1, wlt2, 'ekeyMap')
    cmpMapKeys(wlt1, wlt2, 'kdfMap')
@@ -149,19 +150,22 @@ def writeReadWalletRoundTripTest(tself, wlt):
    fnameB = os.path.join(wltDir, 'testWltRW_%s_B.wallet' % tstr)
    fnameC = os.path.join(wltDir, 'testWltRW_%s_C.wallet' % tstr)
 
+   testWlt = wlt
    for f in [fnameA, fnameB, fnameC]:
       if os.path.exists(f):
          raise FileExistsError('Temporary wallet file already exists')
       
 
-   try:
-      wlt.writeFreshWalletFile(fname)
-      wlt2 = ArmoryWallet.ReadWalletFile(fname)
-      compareWalletObjs(wlt, wlt2)
-   finally:
-      for f in [fnameA, fnameB, fnameC]:
-         if os.path.exists(f):
-            os.remove(f)
+      try:
+         testWlt.writeFreshWalletFile(f)
+         wlt2 = ArmoryWalletFile.ReadWalletFile(f)
+         compareWalletObjs(tself, wlt, wlt2)
+         testWlt = wlt2
+      finally:
+         for f in [fnameA, fnameB, fnameC]:
+            if os.path.exists(f):
+               os.remove(f)
+            break
             
    
    
@@ -184,9 +188,9 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
    #############################################################################
    def roundTripTest(self, afh):
-      afhSer  = afh.serializeHeaderData()
+      afhSer  = afh.serialize()
       afh2    = ArmoryFileHeader.Unserialize(afhSer)
-      afhSer2 = afh2.serializeHeaderData()
+      afhSer2 = afh2.serialize()
       afh3    = ArmoryFileHeader.Unserialize(afhSer2)
       self.assertEqual(afhSer, afhSer2)
       
@@ -209,6 +213,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
 
    #############################################################################
+   @unittest.skip('')
    def test_CreateAFH(self):
       
       afh = ArmoryFileHeader()
@@ -254,11 +259,12 @@ class ArmoryFileHeaderTests(unittest.TestCase):
       afh4 = ArmoryFileHeader()
       afh4.initialize(u'', 0, 0, fl)
 
-      self.assertEqual( afh3.serializeHeaderData(), 
-                        afh4.serializeHeaderData(altName=u'Armory Wallet Test\u2122'))
+      self.assertEqual( afh3.serialize(), 
+                        afh4.serialize(altName=u'Armory Wallet Test\u2122'))
 
 
    #############################################################################
+   @unittest.skip('')
    def test_MagicFail(self):
       fl = BitSet(32)
       fl.setBit(0, False)
@@ -268,7 +274,7 @@ class ArmoryFileHeaderTests(unittest.TestCase):
 
       mgcC = '\xffARMORY\xff'
       mgcW = '\xbaWALLET\x00'
-      afhSer1 = afh.serializeHeaderData()
+      afhSer1 = afh.serialize()
       afhSer2 = mgcW + afhSer1[8:]
       afhSer3 = '\x00'*8 + afhSer1[8:]
       self.assertRaises(FileExistsError, ArmoryFileHeader.Unserialize, afhSer2)
@@ -286,20 +292,282 @@ class SimpleWalletTests(unittest.TestCase):
 
    #############################################################################
    def setUp(self):
-      pass
+      self.wltDir = 'tempwallets'
+      self.wltFN = 'test_wallet_file.wallet'
 
-      
+      if not os.path.exists('tempwallets'):
+         os.makedirs('tempwallets')
+
+      self.clearWallets()
+
 
       
    #############################################################################
    def tearDown(self):
-      pass
-      
+      self.clearWallets()
 
    #############################################################################
-   def test_InitABEK(self):
-      abek = ABEK_Generic()
+   def clearWallets(self):
+      flist = []
+      flist.append('tempwallets/test_wallet_file.wallet')
+      flist.append('tempwallets/test_wallet_file_backup.wallet')
+      flist.append('tempwallets/test_wallet_file_update_unsuccessful.wallet')
+      flist.append('tempwallets/test_wallet_file_backup_unsuccessful.wallet')
+      for f in flist:
+         if os.path.exists(f):
+            os.remove(f)
 
+   #############################################################################
+   def getProgressFunc(self):
+      lastChk = [0]
+      def prgUpdate(curr, tot):
+         if float(curr)/float(tot) > lastChk+0.05:
+            sys.stdout.write('.')
+            lastChk += 0.05
+      
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_BIP32TestVects(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData(hex_to_binary('000102030405060708090a0b0c0d0e0f'))
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            wltName,
+                                            pwd,
+                                            BIP32_TESTVECT_0,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
+
+      self.assertEqual(len(newWallet.topLevelRoots), 1)
+
+      akp = newWallet.topLevelRoots[0]
+      for i in range(6):
+         self.assertEqual(BIP32TestVectors[i]['seedCompPubKey'].toBinStr(),
+                          akp.sbdPublicKey33.toBinStr())
+
+         self.assertEqual(BIP32TestVectors[i]['seedCC'].toBinStr(),
+                          akp.sbdChaincode.toBinStr())
+
+         # There should only be one in the map, but we don't know the ID
+         for i,child in akp.akpChildByIndex.iteritems():
+            akp = child
+            break
+         
+
+         
+
+
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_PregenSeed(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            wltName,
+                                            pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
+
+      # Pass 0: check the already-created wallet
+      # Pass 1: re-read the wallet from file and check
+      # Pass 2: re-read the wallet from file in read-only mode 
+      for i in range(3):
+         wpath = os.path.join(self.wltDir, self.wltFN)
+         self.assertTrue(os.path.exists(wpath))
+         self.assertEqual(wltName, newWallet.fileHeader.wltUserName)
+         self.assertEqual(25, len(newWallet.allWalletEntries))
+         self.assertEqual(2,  len(newWallet.displayableWalletsMap))
+         self.assertEqual(1,  len(newWallet.ekeyMap))
+         self.assertEqual(1,  len(newWallet.kdfMap))
+         self.assertEqual(23, len(newWallet.masterScrAddrMap))
+         self.assertEqual(0 , len(newWallet.opaqueList))
+         self.assertEqual(0 , len(newWallet.unrecognizedList))
+         self.assertEqual(0 , len(newWallet.unrecoverableList))
+         self.assertEqual(0 , newWallet.arbitraryDataMap.countNodes())
+         self.assertEqual(0 , len(newWallet.disabledRootIDs))
+         self.assertEqual(0 , len(newWallet.disabledList))
+         self.assertEqual(None, newWallet.masterWalletRef)
+         self.assertEqual(None, newWallet.supplementalWltRef)
+         self.assertEqual(None, newWallet.supplementalWltPath)
+         self.assertEqual(newWallet.isReadOnly, (i==2))
+
+         for scrAddr,akpDisp in newWallet.displayableWalletsMap.iteritems():
+            self.assertEqual(akpDisp.__class__.__name__, 'ABEK_StdWallet')
+            self.assertTrue(akpDisp.childIndex is not None)
+            akpDisp.pprintOneLine(indent=3)
+
+
+         newWallet = ArmoryWalletFile.ReadWalletFile(wpath, openReadOnly=(i>0))
+
+       
+      # Wallet should be open in RO mode, so updating should fail
+      self.assertRaises(WalletUpdateError, newWallet.addFileOperationToQueue,
+                                                'AddEntry', EncryptionKey())
+
+
+      #newWallet.pprintEntryList()
+
+
+
+
+   #############################################################################
+   @unittest.skip('')
+   def testPregenSeed_Unlock(self):
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                                    wltName,
+                                                    pwd,
+                                                    ABEK_BIP44Seed,
+                                                    None,
+                                                    seed,
+                                                    createInDir=self.wltDir,
+                                                    specificFilename=self.wltFN,
+                                                    progressUpdater=prg)
+
+
+      self.assertEqual(1, len(newWallet.ekeyMap))
+      self.assertEqual(1, len(newWallet.kdfMap))
+      
+      self.assertTrue(newWallet.getOnlyEkey().isLocked())
+      newWallet.unlockWalletEkey(newWallet.getOnlyEkeyID(), pwd)
+      self.assertFalse(newWallet.getOnlyEkey().isLocked())
+
+################################################################################
+class SimpleWalletTests(unittest.TestCase):
+
+   #############################################################################
+   def setUp(self):
+      self.wltDir = 'tempwallets'
+      self.wltFN = 'test_wallet_file.wallet'
+
+      if not os.path.exists('tempwallets'):
+         os.makedirs('tempwallets')
+
+      self.clearWallets()
+
+      
+      self.pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      self.seed = SecureBinaryData('\xaa'*32) 
+      self.wltName = u'Test wallet\u2122'
+   
+      self.newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            self.wltName,
+                                            self.pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            self.seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=lambda x,y: None)
+
+
+      
+   #############################################################################
+   def tearDown(self):
+      self.clearWallets()
+
+   #############################################################################
+   def clearWallets(self):
+      flist = []
+      flist.append('tempwallets/test_wallet_file.wallet')
+      flist.append('tempwallets/test_wallet_file_backup.wallet')
+      flist.append('tempwallets/test_wallet_file_update_unsuccessful.wallet')
+      flist.append('tempwallets/test_wallet_file_backup_unsuccessful.wallet')
+      for f in flist:
+         if os.path.exists(f):
+            os.remove(f)
+
+   #############################################################################
+   #@unittest.skip('')
+   def testArbWltData(self):
+
+      pwd2 = SecureBinaryData('AWDPWD')
+      awdACI,awdEkey = ArmoryWalletFile.generateNewSinglePwdMasterEKey(pwd2)
+      newWallet.addCryptObjsToWallet(awdEkey)
+      awdEkeyID = awdEkey.getEncryptionKeyID()
+
+      msgPlain1 = 'plain ole text'
+      msgPlain2 = 'more plain text'
+      msgCrypt = SecureBinaryData('super secret!')
+
+      print 'topNode:',
+      topAKP = newWallet.topLevelRoots[0]
+      topAKP.pprintOneLine()
+      newWallet.addArbitraryWalletData(topAKP, ['Message'], msgPlain1)
+      newWallet.addArbitraryWalletData(topAKP, ['Message', 'PL41N'], msgPlain2)
+
+      newWallet.unlockWalletEkey(awdEkeyID, pwd2)
+
+      self.assertRaises(KeyError, newWallet.addArbitraryWalletData_Encrypted, topAKP, ['Message'], 
+                                 msgCrypt, awdEkeyID)
+      newWallet.addArbitraryWalletData_Encrypted(topAKP, ['Message','Encrypted'], 
+                                 msgCrypt, awdEkeyID)
+
+
+      newWallet.forceLockWalletEkey(awdEkeyID)
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message']), msgPlain1)
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'PL41N']), msgPlain2)
+
+      self.assertRaises(WalletLockError, newWallet.getArbitraryWalletData, ['Message', 'Encrypted'])
+      newWallet.unlockWalletEkey(awdEkeyID, pwd2)
+      self.assertEqual(newWallet.getArbitraryWalletData(['Message', 'Encrypted']), msgCrypt)
+
+      #newWallet.pprintEntryList()
+      print 'Printing to CSV:  pprintSimple.csv'
+      newWallet.pprintToCSV_Simple('pprintSimple.csv')
+      print 'Printing to CSV:  pprintColumns.csv'
+      newWallet.pprintToCSV_Columns('pprintColumns.csv')
+
+      writeReadWalletRoundTripTest(self, newWallet)
+
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_UpdateChangeSize(self):
+      # TODO
+      pass
+
+   #############################################################################
+   def testWalletLabels(self):
+      sa = addrStr_to_scrAddr('n23EicVUTyThGPraR7c3HxBixTve3RnQup')
+      saLbl = ScrAddrLabel()
+      saLbl.initialize(sa, 'Deposit Label')
+
+   #############################################################################
+   @unittest.skip('')
+   def testCreateAndReadWallet_DeleteData(self):
+
+      pwd = SecureBinaryData('T3ST1NG_P455W0RD')
+      seed = SecureBinaryData('\xaa'*32) 
+      prg = self.getProgressFunc()
+      wltName = u'Test wallet\u2122'
+   
+      newWallet = ArmoryWalletFile.CreateWalletFile_SinglePwd(
+                                            wltName,
+                                            pwd,
+                                            ABEK_BIP44Seed,
+                                            None,
+                                            seed,
+                                            createInDir='tempwallets',
+                                            specificFilename='test_wallet_file.wallet',
+                                            progressUpdater=prg)
 
 
 
