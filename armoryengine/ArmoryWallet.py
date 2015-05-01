@@ -7,7 +7,7 @@ from armoryengine.BinaryUnpacker import *
 
 from armoryengine.ArbitraryWalletData import Infinimap
 from armoryengine.ArmoryEncryption import EncryptionKey, MultiPwdEncryptionKey, KdfObject, ArmoryCryptInfo, NULLKDF
-from armoryengine.ArmoryKeyPair import ABEK_BIP44Seed, ABEK_StdWallet, Armory135Root, ArmoryImportedRoot, ArmorySeededKeyPair, ArmoryKeyPair
+from armoryengine.ArmoryKeyPair import ABEK_BIP44Seed, ABEK_StdWallet, Armory135Root, ArmoryImportedRoot, ArmorySeededKeyPair, ArmoryKeyPair, DEFAULT_SEED_SIZE
 from armoryengine.Decorators import VerifyArgTypes
 from armoryengine.ErrorCorrection import ERRCORR_BYTES, ERRCORR_PER_DATA
 from armoryengine.WalletEntry import WalletEntry
@@ -155,8 +155,8 @@ class ArmoryFileHeader(object):
          afh.isDisabled = True
          return afh
 
-      if not wltMagic==ArmoryFileHeader.WALLETMAGIC:
-         if not wltMagic=='\xbaWALLET\x00':
+      if wltMagic != ArmoryFileHeader.WALLETMAGIC:
+         if wltMagic != '\xbaWALLET\x00':
             LOGERROR('The wallet file does not have the correct magic bytes')
             raise FileExistsError('This does not appear to be an Armory wallet')
          else:
@@ -869,8 +869,8 @@ class ArmoryWalletFile(object):
       ArmoryWalletFile.CreateWalletNameFromID(self.uniqueIDB58)
 
    #############################################################################
-   @staticmethod
-   def CreateWalletNameFromID(self, uniqB58):
+   @classmethod
+   def CreateWalletNameFromID(cls, uniqB58):
       return 'armory_wallet2.0_%s.wlt' % uniqB58
 
    #############################################################################
@@ -1489,6 +1489,25 @@ class ArmoryWalletFile(object):
       # This throws an error if ekey is needed but locked
       return node.awdObj.getPlainDataCopy()  
 
+   #############################################################################
+   # Copy the wallet file to backup
+   def backupWalletFile(self, backupPath=None):
+      '''Function that attempts to make a backup copy of the wallet to the file
+         in a given path and returns whether or not the copy succeeded.'''
+
+      # Assume upfront that the copy will work.
+      retVal = True
+
+      walletFileBackup = self.getWalletPath('backup') if backupPath == None \
+                                                               else backupPath
+      try:
+         shutil.copy(self.walletPath, walletFileBackup)
+      except IOError, errReason:
+         LOGERROR('Unable to copy file %s' % backupPath)
+         LOGERROR('Reason for copy failure: %s' % errReason)
+         retVal = False
+
+      return retVal
 
    #############################################################################
    #############################################################################
