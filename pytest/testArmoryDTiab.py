@@ -6,10 +6,14 @@ Created on Oct 8, 2013
 import sys
 from unittest.case import SkipTest
 sys.path.append('..')
-from pytest.Tiab import TiabTest, TOP_TIAB_BLOCK, FIRST_WLT_BALANCE,\
-   FIRST_WLT_NAME, SECOND_WLT_NAME, THIRD_WLT_NAME, TIAB_SATOSHI_PORT
+from pytest.Tiab import TiabTest, TOP_TIAB_BLOCK, TIAB_SATOSHI_PORT, \
+   FIRST_WLT_NAME, SECOND_WLT_NAME, THIRD_WLT_NAME, FOURTH_WLT_NAME, \
+   FIRST_WLT_FILE_NAME, SECOND_WLT_FILE_NAME, THIRD_WLT_FILE_NAME, \
+   FIRST_WLT_BALANCE
+
 from armoryengine.ArmoryUtils import *
-from armoryd import AmountToJSON, Armory_Json_Rpc_Server, JSONtoAmount
+from armoryengine.ArmoryWallet import ArmoryWalletFile
+from armoryd import AmountToJSON, Armory_Json_Rpc_Server, JSONtoAmount, addMultWallets
 from armoryengine.BDM import TheBDM, BDM_BLOCKCHAIN_READY, REFRESH_ACTION
 from armoryengine.PyBtcWallet import PyBtcWallet
 from armoryengine.Transaction import UnsignedTransaction, PyTx
@@ -26,7 +30,7 @@ TX_ID1_OUTPUT0_VALUE = 63000
 TX_ID1_OUTPUT1_VALUE = 139367000
 
 # Values related primarily to createlockbox().
-TWO_OF_THREE_LB_NAME = 'VoKwnY2t'
+TWO_OF_THREE_LB_NAME = '82XXBBVi'
 TWO_OF_TWO_LB_NAME = '8Rw6Eg9e'
 GOOD_PK_UNCOMP_1 = '04e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d292728ad8d58a140050c1016e21f285636a580f4d2711b7fac3957a594ddf416a0'
 GOOD_PK_COMP_1 = '02e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29'
@@ -67,45 +71,18 @@ EXPECTED_UNSPENT_TX5_PRI  = 7511.1976
 EXPECTED_UNSPENT_TX_TOT   = 964.8997
 EXPECTED_RECEIVED_FROM_TIAB_WLT_1_ADDR_2 = 979.9999
 
-TIAB_WLT_1_ADDR_1 = 'muxkzd4sitPbMz4BXmkEJKT6ccshxDFsrn'
-TIAB_WLT_1_PK_1 = '92vsXfvjpbTj1sN75VSV2M7DWyqoVx5nayp3dE7ZaG9rRVRYU4P'
+TIAB_WLT_1_ADDR_1 = 'mrFNfhs1qhKXGq1FZ8qNm241fQPiNWEDMw'
+TIAB_WLT_1_PK_UTXO_BAL_1  = 20.0
 
-TIAB_WLT_1_ADDR_2 = 'mtZ2d1jFZ9YNp3Ku5Fb2u8Tfu3RgimBHAD'
-TIAB_WLT_1_PK_2 = '934MLhycJEAWL4kMbFt6JRSkNcgEtQXN3ha6Wh8WZyD85cZZZ4N'
+TIAB_WLT_1_ADDR_2 = 'mz4MVnVEg7YTXTyypvznkmuHrj9d6dwXx2'
+TIAB_WLT_1_PK_UTXO_BAL_2  = 0.0
 
-TIAB_WLT_1_ADDR_3 = 'mhrpYhQLgYgAvYs1A4E8Z4Dv4ZoZPyLbLS'
-TIAB_WLT_1_PK_3 = '91rTQa47dLQhNGDenejW9qxcMTL73GRG347zKfa3qVvzun7ZcNe'
-TIAB_WLT_1_PK_UTXO_BAL_3  = 3.0
-TIAB_WLT_1_PK_UTXO_HEX_3  = '507b01123e9416eb6de996f64686b7c8290eacd13b9607438a8bab4a78d3afd503000000'
+TIAB_WLT_1_ADDR_3 = 'myWQr29Yfwsvb8y9Kd5QhcmT4hTkKp6xNt'
+TIAB_WLT_1_ADDR_4 = "n3ELRZ3dDcSz66EnXH8CrEnNARbb9DABZQ"
 
-# Has 938.8997 BTC
-TIAB_WLT_1_ADDR_8 = 'mikxgMUqkk6Tts1D39Hhx6wKEeQbBH3ons'
-TIAB_WLT_1_PK_8 = '92fXG1foeHfn8DYEwTXggCPrFEEY6KpokqoJkp9EhpJw5boc3GY'
-TIAB_WLT_1_PK_UTXO_BAL_8  = 938.8997
-TIAB_WLT_1_PK_UTXO_HEX_8  = '721507bc7c4cdbd7cf798d362272b2e5941e619f2f300f46ac956933cb42181100000000'
-
-TIAB_WLT_2_ADDR_1 = 'mzkKrXNPU6nfBpZCKLmwueb9MvSFaKPDMD'
-TIAB_WLT_2_PK_1 = '91jZJ2BnJbk4B6zpqzJqVfbtaq4RMaPPvP7USr9rtWXusSAYrq7'
-
-TIAB_WLT_2_ADDR_2 = 'n2DLXxVZSNBfzXsAm4HewpsfAGBpgTW6DH'
-TIAB_WLT_2_PK_2 = '93LLsm4n19Dwbp6zbnmuvHmMjEJFR23h4xstnDnEBYMWSkXaFMT'
-
-TIAB_WLT_2_ADDR_3 = 'mhbmvVedo4i67maX6pfw9trcBWQQ3yXgkB'
-TIAB_WLT_2_PK_3 = '92aUXStPSfHDXydGh9MsBnnyacNzJwgWBC4G8W5BiTFkTJpeHEH'
-
-# Has 28.9 BTC
-TIAB_WLT_2_ADDR_4 = 'mk7pAQ7YdmnwWaGFCgwiKiEbaGjyEsSVUE'
-TIAB_WLT_2_PK_4 = '92gYPs8i6qvSmc8moBAaWLB7M16kX5MBpbGoUygUmQTdrxkNnwR'
-
-TIAB_WLT_3_ADDR_1 = 'mnHywMYRuMyYeamyGhUPJLFSsoWbNAnsNz'
-TIAB_WLT_3_PK_1 = '9295sDHkX1xDMzSxit3Bvi8GdLUQq1JFktBQFB8Ca45aLaw8neN'
-
-TIAB_WLT_3_ADDR_2 = 'mpXd2u8fPVYdL1Nf9bZ4EFnqhkNyghGLxL'
-TIAB_WLT_3_PK_2 = '92Mic29J44mKLn4qKXm31mMv45BtEnywBnJh36jn1Rk2RT9PTsK'
-
-# has 18.90 BTC
-TIAB_WLT_3_ADDR_3 = 'mmfN9oj2wtMTCACKJz7fUcDeAczz4kucvV'
-TIAB_WLT_3_PK_3 = '92ymyLuiEUJJz5madzhPtBTa3of46vLXDSuFPNMAA6DMLSeKA8S'
+TIAB_WLT_3_ADDR_1 = 'mz4MVnVEg7YTXTyypvznkmuHrj9d6dwXx2'
+TIAB_WLT_3_ADDR_2 = 'myWQr29Yfwsvb8y9Kd5QhcmT4hTkKp6xNt'
+TIAB_WLT_3_ADDR_3 = 'mrFNfhs1qhKXGq1FZ8qNm241fQPiNWEDMw'
 
 BTC_TO_SEND = 1
 
@@ -117,7 +94,6 @@ class ArmoryDTiabTest(TiabTest):
    def armoryDTiabTestCallback(self, action, args):
       if action == REFRESH_ACTION:
          for wltID in args:
-            print wltID
             if wltID in self.wltIDs:
                self.numberOfWalletsScanned += 1
          
@@ -125,36 +101,48 @@ class ArmoryDTiabTest(TiabTest):
       self.verifyBlockHeight()
       # Load the primary file from the test net in a box
       self.fileA = os.path.join(self.tiab.tiabDirectory, 'tiab', 'armory', \
-                                'armory_%s_.wallet' % FIRST_WLT_NAME)
-      self.wltA  = PyBtcWallet().readWalletFile(self.fileA)
+                                FIRST_WLT_FILE_NAME)
       self.fileB = os.path.join(self.tiab.tiabDirectory, 'tiab', 'armory', \
-                                'armory_%s_.wallet' % SECOND_WLT_NAME)
-      self.wltB  = PyBtcWallet().readWalletFile(self.fileB)
+                                SECOND_WLT_FILE_NAME)
       self.fileC = os.path.join(self.tiab.tiabDirectory, 'tiab', 'armory', \
-                                'armory_%s_.wallet' % THIRD_WLT_NAME)
-      self.wltC  = PyBtcWallet().readWalletFile(self.fileC)
-      self.jsonServer = Armory_Json_Rpc_Server(self.wltA, \
-                                    inWltMap={SECOND_WLT_NAME : self.wltB, \
-                                              THIRD_WLT_NAME : self.wltC}, \
-                       armoryHomeDir=os.path.join(self.tiab.tiabDirectory, \
-                                                  'tiab','armory'))
+                                THIRD_WLT_FILE_NAME)
+
+      inWltMap = {}
+      inWltPaths = [self.fileA, self.fileB, self.fileC]
+      wlts = addMultWallets(inWltPaths, inWltMap)
+      self.wltA = inWltMap[FIRST_WLT_NAME]
+      self.wltB = inWltMap[SECOND_WLT_NAME]
+      self.wltC = inWltMap[THIRD_WLT_NAME]
+      self.wltD = inWltMap[FOURTH_WLT_NAME]
+
+      wallets = [self.wltA, self.wltB, self.wltC, self.wltD]
+
+      self.jsonServer = Armory_Json_Rpc_Server(
+         self.wltA,
+         inWltMap=inWltMap,
+         armoryHomeDir=os.path.join(self.tiab.tiabDirectory,
+                                    'tiab','armory'))
+
+      self.wltIDs = []
+
+      for wlt in wallets:
+         wlt.fillKeyPool()
+         self.wltIDs.append(wlt.external.uniqueIDB58)
+         self.wltIDs.append(wlt.internal.uniqueIDB58)
       
-      self.wltIDs = [self.wltA.uniqueIDB58, self.wltB.uniqueIDB58, self.wltC.uniqueIDB58]
       #register a callback
       TheBDM.registerCppNotification(self.armoryDTiabTestCallback)
 
       #flag to check on wallet scan status
       self.numberOfWalletsScanned = 0
-      
-      self.wltA.registerWallet()
-      time.sleep(0.5)
-      self.wltB.registerWallet()
-      time.sleep(0.5)
-      self.wltC.registerWallet()
-      time.sleep(0.5)
+
+      for wlt in wallets:
+         wlt.registerWallet()
+         time.sleep(0.5)
+
       #wait on scan for 20sec then raise if the scan hasn't finished yet
       i = 0
-      while self.numberOfWalletsScanned < 3:
+      while self.numberOfWalletsScanned < len(self.wltIDs):
          time.sleep(0.5)
          i += 1
          if i >= 40:
@@ -168,6 +156,13 @@ class ArmoryDTiabTest(TiabTest):
       self.resetWalletFiles()
       
 
+   def getPrivateKey(self, address):
+      scrAddr = addrStr_to_scrAddr(address)
+      if self.wltA.isLocked:
+         self.wltA.unlock(SecureBinaryData(PASSPHRASE1), timeout=1000000)
+      return self.wltA.getAddress(scrAddr).getSerializedPrivKey("bin")
+
+
    def testActiveWallet(self):
       self.jsonServer.jsonrpc_setactivewallet(FIRST_WLT_NAME)
       result = self.jsonServer.jsonrpc_getactivewallet()
@@ -179,14 +174,11 @@ class ArmoryDTiabTest(TiabTest):
 
    # Tests all of the address meta data functions at once
 
-   def testAddressMetaData(self):
-      testInput = {TIAB_WLT_1_ADDR_1:
-                     {'chain': 5,
-                      'index': 2},
-                  TIAB_WLT_1_ADDR_2:
-                     {'CrazyField': 'what',
-                      '1': 1,
-                      '2': 2}}
+   def testAddressMetadata(self):
+      testInput = {
+         TIAB_WLT_1_ADDR_1: {'chain': 5, 'index': 2},
+         TIAB_WLT_1_ADDR_2: {'CrazyField': 'what', '1':1, '2':2},
+      }
       self.jsonServer.jsonrpc_setaddressmetadata(testInput)
       testOutput1=self.jsonServer.jsonrpc_getaddressmetadata()
       self.assertEqual(testOutput1, testInput)
@@ -195,32 +187,259 @@ class ArmoryDTiabTest(TiabTest):
       self.assertEqual(testOutput2, {})
 
 
+   def testGetBalance(self):
+      balances = {
+         'spendable' : FIRST_WLT_BALANCE,
+         'spend' : FIRST_WLT_BALANCE,
+         'unconf' : 0,
+         'unconfirmed' :  0,
+         'total' : FIRST_WLT_BALANCE,
+         'ultimate'  :  FIRST_WLT_BALANCE,
+         'unspent' :  FIRST_WLT_BALANCE,
+         'full' :  FIRST_WLT_BALANCE,
+      }
+      for balanceType in balances.keys():
+         result = self.jsonServer.jsonrpc_getbalance(balanceType)
+         self.assertEqual(result,
+                          AmountToJSON(self.wltA.getBalance(balanceType)))
 
-   def testListloadedwallets(self):
+
+   def testGetBlock(self):
+      block = self.jsonServer.jsonrpc_getblock('0000000064a1ad1f15981a713a6ef08fd98f69854c781dc7b8789cc5f678e01f')
+      # This method is broken in a couple ways.
+      # For now just verify that raw transaction is correct
+      self.assertEqual(block['rawheader'], '02000000d8778a50d43d3e02c4c20bdd0ed97077a3c4bef3e86ce58975f6f43a00000000d25912cfc67228748494d421512c7a6cc31668fa82b72265261558802a89f4c2e0350153ffff001d10bcc285',)
+
+
+   def testGetInfo(self):
+      info = self.jsonServer.jsonrpc_getarmorydinfo()
+      self.assertEqual(info['blocks'], TOP_TIAB_BLOCK)
+      self.assertEqual(info['bdmstate'], BDM_BLOCKCHAIN_READY)
+      self.assertEqual(info['walletversionstr'], '2.00')
+      self.assertEqual(info['difficulty'], 1.0)
+      self.assertEqual(info['balance'], FIRST_WLT_BALANCE)
+
+
+   # TODO: Fix this
+   def testGetLedgerSimple(self):
+      ledger = self.jsonServer.jsonrpc_getledgersimple(FIRST_WLT_NAME)
+      self.assertTrue(len(ledger)>4)
+      amountList = [row['amount'] for row in ledger]
+      expectedAmountList = [1000.0, 20.0, 30.0, 0.8, 10.0]
+      self.assertEqual(amountList[:5], expectedAmountList)
+
+
+   # TODO: Fix this
+   def testGetLedger(self):
+      ledger = self.jsonServer.jsonrpc_getledger(FIRST_WLT_NAME)
+      self.assertTrue(len(ledger)>6)
+      amountList = [row['amount'] for row in ledger]
+      expectedAmountList = [1000.0, 20.0, 30.0, 0.8, 10.0, 6.0, 20.0]
+      self.assertEqual(amountList, expectedAmountList)
+      self.assertEqual(ledger[0]['direction'], 'receive')
+      self.assertEqual(len(ledger[0]['recipme']), 1)
+      self.assertEqual(ledger[0]['recipme'][0]['amount'], 1000.0)
+      self.assertEqual(len(ledger[0]['recipother']), 1)
+      self.assertEqual(ledger[0]['recipother'][0]['amount'], 49.997)
+      self.assertEqual(len(ledger[0]['senderme']), 0)
+      self.assertEqual(len(ledger[0]['senderother']), 21)
+
+      self.assertEqual(ledger[1]['direction'], 'send')
+      self.assertEqual(len(ledger[1]['senderother']), 0)
+      self.assertEqual(len(ledger[1]['senderme']), 1)
+      self.assertEqual(ledger[1]['senderme'][0]['amount'], 1000.0)
+
+
+   def testGetNewAddress(self):
+      addr = self.wltA.peekNextReceivingAddress().getAddrStr()
+      result = self.jsonServer.jsonrpc_getnewaddress()
+      self.assertEqual(result, addr)
+
+
+   def testGetTransaction(self):
+      tx = self.jsonServer.jsonrpc_gettransaction('fe6ce1af081dae060a123608140201cfffa04ea61ffaf96e2caca2a05bd8f9c0')
+      self.assertEqual(tx, {
+         'category': 'unrelated',
+         'confirmations': 2,
+         'direction': 'unrelated',
+         'fee': 0.0001,
+         'infomissing': False,
+         'inputs': [{'fromtxid': '111842cb336995ac460f302f9f611e94e5b27222368d79cfd7db4c7cbc071572', 'ismine': False, 'fromtxindex': 0, 'value': 938.8997, 'address': 'mikxgMUqkk6Tts1D39Hhx6wKEeQbBH3ons'}],
+         'mainbranch': True,
+         'netdiff': 0.0,
+         'numtxin': 1,
+         'numtxout': 2,
+         'orderinblock': 1,
+         'outputs': [{'address': 'mfaNcTbpiX2f6WXsjREoYsmM2VKBLWRu1N', 'value': 918.8996, 'ismine': False}, {'address': 'mrFNfhs1qhKXGq1FZ8qNm241fQPiNWEDMw', 'value': 20.0, 'ismine': True}],
+         'totalinputs': 938.8997,
+         'txid': 'fe6ce1af081dae060a123608140201cfffa04ea61ffaf96e2caca2a05bd8f9c0',
+      })
+
+
+   def testListAddrUnspent(self):
+      addrs = '%s,%s' % (TIAB_WLT_1_ADDR_1, TIAB_WLT_1_ADDR_2)
+      result = self.jsonServer.jsonrpc_listaddrunspent(addrs)
+
+      self.assertEqual(result['addrbalance'][TIAB_WLT_1_ADDR_1], \
+                       TIAB_WLT_1_PK_UTXO_BAL_1)
+      self.assertEqual(result['addrbalance'][TIAB_WLT_1_ADDR_2], \
+                       TIAB_WLT_1_PK_UTXO_BAL_2)
+
+      # NB: Ideally, the TAB asserts would be against addresses with multiple
+      # UTXOs. As is, this test case works but could be better.
+      self.assertEqual(result['totalbalance'], TIAB_WLT_1_PK_UTXO_BAL_1 + TIAB_WLT_1_PK_UTXO_BAL_2 )
+      self.assertEqual(result['numutxo'], 1)
+
+
+   def testListLoadedWallets(self):
       result = self.jsonServer.jsonrpc_listloadedwallets()
-      self.assertEqual(len(result.keys()), 3)
+      self.assertEqual(len(result.keys()), 4)
       self.assertTrue(FIRST_WLT_NAME in result.values())
       self.assertTrue(SECOND_WLT_NAME in result.values())
       self.assertTrue(THIRD_WLT_NAME in result.values())
+      self.assertTrue(FOURTH_WLT_NAME in result.values())
 
 
+   # TODO: Fix this
+   def testListTransactions(self):
+      #takes a history page count now, not an amount of transactions to return
+      txList = self.jsonServer.jsonrpc_listtransactions(0) 
+      self.assertTrue(len(txList) > 0)
+      self.assertEqual(txList[0],'')
 
-   def getPrivateKey(self, address):
-      hash160 = addrStr_to_hash160(address)[1]
-      if self.wltA.isLocked:
-         self.wltA.unlock(securePassphrase=SecureBinaryData(PASSPHRASE1),
-                               tempKeyLifetime=1000000)
-      return self.wltA.addrMap[hash160].binPrivKey32_Plain.toBinStr()
+
+   # TODO: Fix this
+   def testListUnspent(self):
+      actualResult = self.jsonServer.jsonrpc_listunspent()
+
+      tx1Found = False
+      tx5Found = False
+      for i in range(len(actualResult)):
+         if actualResult[i]['txid'] == EXPECTED_UNSPENT_TX1_HEX:
+            self.assertEqual(actualResult[i]['amount'], \
+                             EXPECTED_UNSPENT_TX1_BAL)
+            self.assertEqual(actualResult[i]['confirmations'], \
+                             EXPECTED_UNSPENT_TX1_CONF)
+            self.assertEqual(actualResult[i]['priority'], \
+                             EXPECTED_UNSPENT_TX1_PRI)
+            tx1Found = True
+         elif actualResult[i]['txid'] == EXPECTED_UNSPENT_TX5_HEX:
+            self.assertEqual(actualResult[i]['amount'], \
+                             EXPECTED_UNSPENT_TX5_BAL)
+            self.assertEqual(actualResult[i]['confirmations'], \
+                             EXPECTED_UNSPENT_TX5_CONF)
+            self.assertEqual(actualResult[i]['priority'], \
+                             EXPECTED_UNSPENT_TX5_PRI)
+            tx5Found = True
+      self.assertTrue(tx1Found)
+      self.assertTrue(tx5Found)
+      
+
+   # TODO: Fix this
+   def testReceivedFromAddress(self):
+      result = self.jsonServer.jsonrpc_getreceivedfromaddress(TIAB_WLT_3_ADDR_3)
+      self.assertEqual(result, 0)
+      result = self.jsonServer.jsonrpc_getreceivedfromaddress(TIAB_WLT_1_ADDR_2)
+      self.assertEqual(result, EXPECTED_RECEIVED_FROM_TIAB_WLT_1_ADDR_2)
+
+
+   def testReceivedFromSigner(self):
+      clearSignMessage2 = ASv1CS(self.getPrivateKey(TIAB_WLT_1_ADDR_1), \
+                                 TEST_MESSAGE)
+      inMsg2 = '\"' + clearSignMessage2 + '\"'
+      result2 = self.jsonServer.jsonrpc_getreceivedfromsigner(inMsg2)
+      self.assertEqual(result2['message'], TEST_MESSAGE)
+      self.assertEqual(result2['amount'], 0)
+
+
+   # TODO: Fix this
+   def testSendToAddress(self):
+      # Send 1 BTC
+      serializedUnsignedTx = \
+         self.jsonServer.jsonrpc_createustxtoaddress(TIAB_WLT_3_ADDR_3, \
+                                                     BTC_TO_SEND)
+      unsignedTx = UnsignedTransaction().unserializeAscii(serializedUnsignedTx)
+      # Should have 2 txouts to TIAB_WLT_3_ADDR_3 and the change
+      self.assertEqual(len(unsignedTx.decorTxOuts), 2)
+      foundTxOut = False
+      for txout in unsignedTx.decorTxOuts:
+         if script_to_addrStr(txout.binScript) == TIAB_WLT_3_ADDR_3:
+            self.assertEqual(txout.value, JSONtoAmount(BTC_TO_SEND))
+            foundTxOut = True
+      self.assertTrue(foundTxOut)
+
+      # Test two paths through signing method and make sure they are equal
+      # Wallets in the TIAB start out unencrypted
+      f = open(TX_FILENAME, 'w')
+      f.write(serializedUnsignedTx)
+      f.close()
+      serializedSignedTxUnencrypted = \
+            self.jsonServer.jsonrpc_signasciitransaction(TX_FILENAME) 
+      self.jsonServer.jsonrpc_encryptwallet(PASSPHRASE1)
+      self.jsonServer.jsonrpc_walletpassphrase(PASSPHRASE1)
+      serializedSignedTxEncrypted = \
+            self.jsonServer.jsonrpc_signasciitransaction(TX_FILENAME)
+      # Other tests expect wallet to be unencrypted
+      self.wltA.unlock(securePassphrase=SecureBinaryData(PASSPHRASE1),
+                            tempKeyLifetime=1000000)
+      self.wltA.changeWalletEncryption()
+      signedTxUnencrypted = UnsignedTransaction().unserializeAscii(serializedSignedTxUnencrypted)
+      signedTxEncrypted = UnsignedTransaction().unserializeAscii(serializedSignedTxEncrypted)
+      # check number of outputs 1 Btc goes to a single output and the other goes to change
+      self.assertEqual(len(signedTxUnencrypted.decorTxOuts), 2)
+      self.assertEqual(len(signedTxEncrypted.decorTxOuts), 2)
+      self.assertEqual(signedTxUnencrypted.asciiID, signedTxEncrypted.asciiID)
+      self.assertTrue(JSONtoAmount(BTC_TO_SEND) in
+             [signedTxEncrypted.decorTxOuts[0].value,
+              signedTxEncrypted.decorTxOuts[1].value])
+      self.assertTrue(JSONtoAmount(BTC_TO_SEND) in
+             [signedTxUnencrypted.decorTxOuts[0].value,
+              signedTxUnencrypted.decorTxOuts[1].value])
+      f = open(TX_FILENAME, 'w')
+      f.write(signedTxEncrypted.serializeAscii())
+      f.close()
+      txHexToBroadcast = self.jsonServer.jsonrpc_gethextxtobroadcast(TX_FILENAME)
+      finalPyTx = PyTx().unserialize(hex_to_binary(txHexToBroadcast))
+      self.assertEqual(len(finalPyTx.outputs), 2)
+      self.assertTrue(JSONtoAmount(BTC_TO_SEND) in
+             [finalPyTx.outputs[0].value,
+              finalPyTx.outputs[1].value])
+
+
+   # TODO: Fix this
+   def testSendMany(self):
+      # Send 1 BTC
+      serializedUnsignedTx = \
+         self.jsonServer.jsonrpc_createustxformany(None, ','.join([TIAB_WLT_3_ADDR_2, str(BTC_TO_SEND)]), \
+                                                   ','.join([TIAB_WLT_3_ADDR_3, str(BTC_TO_SEND)]))
+      unsignedTx = UnsignedTransaction().unserializeAscii(serializedUnsignedTx)
+      # Should have 2 txouts to TIAB_WLT_3_ADDR_3 and the change
+      self.assertEqual(len(unsignedTx.decorTxOuts), 3)
+      txOutsFound = 0
+      for txout in unsignedTx.decorTxOuts:
+         if script_to_addrStr(txout.binScript) in [TIAB_WLT_3_ADDR_2, TIAB_WLT_3_ADDR_3]:
+            self.assertEqual(txout.value, JSONtoAmount(BTC_TO_SEND))
+            txOutsFound += 1
+      self.assertEqual(txOutsFound, 2)
+
+
+   def testVerifySignature(self):
+      clearSignMessage = ASv1CS(self.getPrivateKey(TIAB_WLT_1_ADDR_1), \
+                                TEST_MESSAGE)
+      inMsg = '\"' + clearSignMessage + '\"'
+      result = self.jsonServer.jsonrpc_verifysignature(inMsg)
+      self.assertEqual(result['message'], TEST_MESSAGE)
+      self.assertEqual(result['address'], TIAB_WLT_1_ADDR_1)
 
 
    # Test Create lockbox and list loaded lockbox at the same time.
    # Also test set and get active lockbox.
-
+   # TODO: Fix this
    def testLockboxMethods(self):
       self.assertEqual(self.jsonServer.jsonrpc_getactivelockbox(), None)
-      addrFromFirstWlt = self.wltA.peekNextUnusedAddr().getPubKey().toHexStr()
-      addrFromSecondWlt = self.wltB.peekNextUnusedAddr().getPubKey().toHexStr()
-      addrFromThirdWlt = self.wltC.peekNextUnusedAddr().getPubKey().toHexStr()
+      addrFromFirstWlt = self.wltA.peekNextReceivingAddress().getSerializedPubKey("hex")
+      addrFromSecondWlt = self.wltB.peekNextReceivingAddress().getSerializedPubKey("hex")
+      addrFromThirdWlt = self.wltC.peekNextReceivingAddress().getSerializedPubKey("hex")
 
       # This test should succeed.
       actualResult1 = self.jsonServer.jsonrpc_createlockbox(2, 3, \
@@ -300,6 +519,7 @@ class ArmoryDTiabTest(TiabTest):
                                                              SECOND_WLT_NAME, \
                                                              THIRD_WLT_NAME, \
                                                              GOOD_PK_UNCOMP_1, \
+                                  
                                                              GOOD_PK_UNCOMP_2)
       self.assertTrue(ERRSTR11 in actualResult11['Error'])
       actualResult12 = self.jsonServer.jsonrpc_createlockbox(1, 4)
@@ -321,238 +541,6 @@ class ArmoryDTiabTest(TiabTest):
       self.assertEqual(self.jsonServer.jsonrpc_getactivelockbox(), \
                        TWO_OF_THREE_LB_NAME)
 
-
-
-   def  testVerifysignature(self):
-      clearSignMessage = ASv1CS(self.getPrivateKey(TIAB_WLT_1_ADDR_1), \
-                                TEST_MESSAGE)
-      inMsg = '\"' + clearSignMessage + '\"'
-      result = self.jsonServer.jsonrpc_verifysignature(inMsg)
-      self.assertEqual(result['message'], TEST_MESSAGE)
-      self.assertEqual(result['address'], TIAB_WLT_1_ADDR_1)
-
-
-
-   def  testReceivedfromsigner(self):
-      clearSignMessage2 = ASv1CS(self.getPrivateKey(TIAB_WLT_1_ADDR_3), \
-                                 TEST_MESSAGE)
-      inMsg2 = '\"' + clearSignMessage2 + '\"'
-      result2 = self.jsonServer.jsonrpc_getreceivedfromsigner(inMsg2)
-      self.assertEqual(result2['message'], TEST_MESSAGE)
-      self.assertEqual(result2['amount'], 0)
-
-
-
-   def  testReceivedfromaddress(self):
-      result = self.jsonServer.jsonrpc_getreceivedfromaddress(TIAB_WLT_3_ADDR_3)
-      self.assertEqual(result, 0)
-      result = self.jsonServer.jsonrpc_getreceivedfromaddress(TIAB_WLT_1_ADDR_2)
-      self.assertEqual(result, EXPECTED_RECEIVED_FROM_TIAB_WLT_1_ADDR_2)
-
-
-   def testGettransaction(self):
-      tx = self.jsonServer.jsonrpc_gettransaction('db0ee46beff3a61f38bfc563f92c11449ed57c3d7d5cd5aafbe0114e5a9ceee4')
-      self.assertEqual(tx, {'category': 'send', 'inputs': [{'fromtxid': '04b865ecf5fca3a56f6ce73a571a09a668f4b7aa5a7547a5f51fae08eadcdbb5',
-                            'ismine': True, 'fromtxindex': 1, 'value': 1000.0, 'address': 'mtZ2d1jFZ9YNp3Ku5Fb2u8Tfu3RgimBHAD'}],
-                            'direction': 'send', 'fee': 0.0001, 'totalinputs': 1000.0, 'outputs':
-                             [{'address': 'mpXd2u8fPVYdL1Nf9bZ4EFnqhkNyghGLxL', 'value': 20.0, 'ismine': False},
-                              {'address': 'mgLjhTCUtbeLPP9fDkBnG8oztWgJaXZQjn', 'value': 979.9999, 'ismine': True}],
-                            'txid': 'db0ee46beff3a61f38bfc563f92c11449ed57c3d7d5cd5aafbe0114e5a9ceee4', 'confirmations': 10,
-                            'orderinblock': 1, 'mainbranch': True, 'numtxin': 1, 'numtxout': 2,
-                            'netdiff': -20.0001, 'infomissing': False})
-
-
-   def testGetblock(self):
-      block = self.jsonServer.jsonrpc_getblock('0000000064a1ad1f15981a713a6ef08fd98f69854c781dc7b8789cc5f678e01f')
-      # This method is broken in a couple ways.
-      # For no just verify that raw transaction is correct
-      self.assertEqual(block['rawheader'], '02000000d8778a50d43d3e02c4c20bdd0ed97077a3c4bef3e86ce58975f6f43a00000000d25912cfc67228748494d421512c7a6cc31668fa82b72265261558802a89f4c2e0350153ffff001d10bcc285',)
-
-
-
-   def testGetinfo(self):
-      info = self.jsonServer.jsonrpc_getarmorydinfo()
-      self.assertEqual(info['blocks'], TOP_TIAB_BLOCK)
-      self.assertEqual(info['bdmstate'], BDM_BLOCKCHAIN_READY)
-      self.assertEqual(info['walletversionstr'], '2.00')
-      self.assertEqual(info['difficulty'], 1.0)
-      self.assertEqual(info['balance'], FIRST_WLT_BALANCE)
-
-
-
-   def testListtransactions(self):
-      #takes a history page count now, not an amount of transactions to return
-      txList = self.jsonServer.jsonrpc_listtransactions(0) 
-      self.assertTrue(len(txList)>10)
-      self.assertEqual(txList[0], {'blockhash': '0000000064a1ad1f15981a713a6ef08fd98f69854c781dc7b8789cc5f678e01f',
-                  'blockindex': 1, 'confirmations': 31, 'address': 'mtZ2d1jFZ9YNp3Ku5Fb2u8Tfu3RgimBHAD',
-                  'category': 'receive', 'account': '',
-                  'txid': '04b865ecf5fca3a56f6ce73a571a09a668f4b7aa5a7547a5f51fae08eadcdbb5',
-                  'blocktime': 1392588256, 'amount': 1000.0, 'timereceived': 1392588256, 'time': 1392588256})
-
-
-
-   def testGetledgersimple(self):
-      ledger = self.jsonServer.jsonrpc_getledgersimple(FIRST_WLT_NAME)
-      self.assertTrue(len(ledger)>4)
-      amountList = [row['amount'] for row in ledger]
-      expectedAmountList = [1000.0, 20.0, 30.0, 0.8, 10.0]
-      self.assertEqual(amountList[:5], expectedAmountList)
-
-
-
-   def testGetledger(self):
-      ledger = self.jsonServer.jsonrpc_getledger(FIRST_WLT_NAME)
-      self.assertTrue(len(ledger)>6)
-      amountList = [row['amount'] for row in ledger]
-      expectedAmountList = [1000.0, 20.0, 30.0, 0.8, 10.0, 6.0, 20.0]
-      self.assertEqual(amountList, expectedAmountList)
-      self.assertEqual(ledger[0]['direction'], 'receive')
-      self.assertEqual(len(ledger[0]['recipme']), 1)
-      self.assertEqual(ledger[0]['recipme'][0]['amount'], 1000.0)
-      self.assertEqual(len(ledger[0]['recipother']), 1)
-      self.assertEqual(ledger[0]['recipother'][0]['amount'], 49.997)
-      self.assertEqual(len(ledger[0]['senderme']), 0)
-      self.assertEqual(len(ledger[0]['senderother']), 21)
-
-      self.assertEqual(ledger[1]['direction'], 'send')
-      self.assertEqual(len(ledger[1]['senderother']), 0)
-      self.assertEqual(len(ledger[1]['senderme']), 1)
-      self.assertEqual(ledger[1]['senderme'][0]['amount'], 1000.0)
-
-
-
-   def testSendtoaddress(self):
-      # Send 1 BTC
-      serializedUnsignedTx = \
-         self.jsonServer.jsonrpc_createustxtoaddress(TIAB_WLT_3_ADDR_3, \
-                                                     BTC_TO_SEND)
-      unsignedTx = UnsignedTransaction().unserializeAscii(serializedUnsignedTx)
-      # Should have 2 txouts to TIAB_WLT_3_ADDR_3 and the change
-      self.assertEqual(len(unsignedTx.decorTxOuts), 2)
-      foundTxOut = False
-      for txout in unsignedTx.decorTxOuts:
-         if script_to_addrStr(txout.binScript) == TIAB_WLT_3_ADDR_3:
-            self.assertEqual(txout.value, JSONtoAmount(BTC_TO_SEND))
-            foundTxOut = True
-      self.assertTrue(foundTxOut)
-
-      # Test two paths through signing method and make sure they are equal
-      # Wallets in the TIAB start out unencrypted
-      f = open(TX_FILENAME, 'w')
-      f.write(serializedUnsignedTx)
-      f.close()
-      serializedSignedTxUnencrypted = \
-            self.jsonServer.jsonrpc_signasciitransaction(TX_FILENAME) 
-      self.jsonServer.jsonrpc_encryptwallet(PASSPHRASE1)
-      self.jsonServer.jsonrpc_walletpassphrase(PASSPHRASE1)
-      serializedSignedTxEncrypted = \
-            self.jsonServer.jsonrpc_signasciitransaction(TX_FILENAME)
-      # Other tests expect wallet to be unencrypted
-      self.wltA.unlock(securePassphrase=SecureBinaryData(PASSPHRASE1),
-                            tempKeyLifetime=1000000)
-      self.wltA.changeWalletEncryption()
-      signedTxUnencrypted = UnsignedTransaction().unserializeAscii(serializedSignedTxUnencrypted)
-      signedTxEncrypted = UnsignedTransaction().unserializeAscii(serializedSignedTxEncrypted)
-      # check number of outputs 1 Btc goes to a single output and the other goes to change
-      self.assertEqual(len(signedTxUnencrypted.decorTxOuts), 2)
-      self.assertEqual(len(signedTxEncrypted.decorTxOuts), 2)
-      self.assertEqual(signedTxUnencrypted.asciiID, signedTxEncrypted.asciiID)
-      self.assertTrue(JSONtoAmount(BTC_TO_SEND) in
-             [signedTxEncrypted.decorTxOuts[0].value,
-              signedTxEncrypted.decorTxOuts[1].value])
-      self.assertTrue(JSONtoAmount(BTC_TO_SEND) in
-             [signedTxUnencrypted.decorTxOuts[0].value,
-              signedTxUnencrypted.decorTxOuts[1].value])
-      f = open(TX_FILENAME, 'w')
-      f.write(signedTxEncrypted.serializeAscii())
-      f.close()
-      txHexToBroadcast = self.jsonServer.jsonrpc_gethextxtobroadcast(TX_FILENAME)
-      finalPyTx = PyTx().unserialize(hex_to_binary(txHexToBroadcast))
-      self.assertEqual(len(finalPyTx.outputs), 2)
-      self.assertTrue(JSONtoAmount(BTC_TO_SEND) in
-             [finalPyTx.outputs[0].value,
-              finalPyTx.outputs[1].value])
-
-
-   def testSendmany(self):
-      # Send 1 BTC
-      serializedUnsignedTx = \
-         self.jsonServer.jsonrpc_createustxformany(None, ','.join([TIAB_WLT_3_ADDR_2, str(BTC_TO_SEND)]), \
-                                                   ','.join([TIAB_WLT_3_ADDR_3, str(BTC_TO_SEND)]))
-      unsignedTx = UnsignedTransaction().unserializeAscii(serializedUnsignedTx)
-      # Should have 2 txouts to TIAB_WLT_3_ADDR_3 and the change
-      self.assertEqual(len(unsignedTx.decorTxOuts), 3)
-      txOutsFound = 0
-      for txout in unsignedTx.decorTxOuts:
-         if script_to_addrStr(txout.binScript) in [TIAB_WLT_3_ADDR_2, TIAB_WLT_3_ADDR_3]:
-            self.assertEqual(txout.value, JSONtoAmount(BTC_TO_SEND))
-            txOutsFound += 1
-      self.assertEqual(txOutsFound, 2)
-
-
-
-   def testListUnspent(self):
-      actualResult = self.jsonServer.jsonrpc_listunspent()
-
-      tx1Found = False
-      tx5Found = False
-      for i in range(len(actualResult)):
-         if actualResult[i]['txid'] == EXPECTED_UNSPENT_TX1_HEX:
-            self.assertEqual(actualResult[i]['amount'], \
-                             EXPECTED_UNSPENT_TX1_BAL)
-            self.assertEqual(actualResult[i]['confirmations'], \
-                             EXPECTED_UNSPENT_TX1_CONF)
-            self.assertEqual(actualResult[i]['priority'], \
-                             EXPECTED_UNSPENT_TX1_PRI)
-            tx1Found = True
-         elif actualResult[i]['txid'] == EXPECTED_UNSPENT_TX5_HEX:
-            self.assertEqual(actualResult[i]['amount'], \
-                             EXPECTED_UNSPENT_TX5_BAL)
-            self.assertEqual(actualResult[i]['confirmations'], \
-                             EXPECTED_UNSPENT_TX5_CONF)
-            self.assertEqual(actualResult[i]['priority'], \
-                             EXPECTED_UNSPENT_TX5_PRI)
-            tx5Found = True
-      self.assertTrue(tx1Found)
-      self.assertTrue(tx5Found)
-      
-
-
-
-   def testListAddrUnspent(self):
-      totStr = '%s,%s' % (TIAB_WLT_1_ADDR_3, TIAB_WLT_1_ADDR_8)
-      actualResult = self.jsonServer.jsonrpc_listaddrunspent(totStr)
-
-      self.assertEqual(actualResult['addrbalance'][TIAB_WLT_1_ADDR_3], \
-                       TIAB_WLT_1_PK_UTXO_BAL_3)
-      self.assertEqual(actualResult['addrbalance'][TIAB_WLT_1_ADDR_8], \
-                       TIAB_WLT_1_PK_UTXO_BAL_8)
-      # NB: Ideally, the TAB asserts would be against addresses with multiple
-      # UTXOs. As is, this test case works but could be better.
-      self.assertEqual(actualResult['totalbalance'], TIAB_WLT_1_PK_UTXO_BAL_3 + TIAB_WLT_1_PK_UTXO_BAL_8 )
-      self.assertEqual(actualResult['numutxo'], 2)
-
-
-   def testGetNewAddress(self):
-      actualResult = self.jsonServer.jsonrpc_getnewaddress()
-      self.assertEqual(actualResult, EXPECTED_TIAB_NEXT_ADDR)
-
-
-
-   def testGetBalance(self):
-      balances = {'spendable' : FIRST_WLT_BALANCE, \
-                  'spend' : FIRST_WLT_BALANCE, \
-                  'unconf' : 0, \
-                  'unconfirmed' :  0, \
-                  'total' : FIRST_WLT_BALANCE, \
-                  'ultimate'  :  FIRST_WLT_BALANCE, \
-                  'unspent' :  FIRST_WLT_BALANCE, \
-                  'full' :  FIRST_WLT_BALANCE}
-      for balanceType in balances.keys():
-         result = self.jsonServer.jsonrpc_getbalance(balanceType)
-         self.assertEqual(result,
-                          AmountToJSON(self.wltA.getBalance(balanceType)))
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
 # You must run tests with "python -m unittest <module name>" or run all tests with "python -m unittest discover"

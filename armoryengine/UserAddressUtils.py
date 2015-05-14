@@ -191,7 +191,9 @@ def getDisplayStringForScript(binScript, wltMap, lboxList, maxChars=256,
 
    if wlt is not None:
       strType = 'Wallet:'
-      strLabel = wlt.labelName
+      # TODO get label once the wallet label stuff is working
+      strLabel = ""
+#      strLabel = wlt.labelName
       addrStr = None
       if scriptType in CPP_TXOUT_HAS_ADDRSTR:
          addrStr = scrAddr_to_addrStr(scrAddr)

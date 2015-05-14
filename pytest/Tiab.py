@@ -5,7 +5,7 @@ from twisted.python import filepath
 # TODO: Fix the code base so that nothing is started during imports.
 sys.argv.append('--testnet')
 # Uncomment when debugging
-sys.argv.append('--debug')
+# sys.argv.append('--debug')
 sys.argv.append('--supernode')
 # sys.argv.append('--nologging')
 
@@ -27,22 +27,25 @@ if not OS_WINDOWS:
    except subprocess.CalledProcessError:
       raise RuntimeError("bitcoind is not in your PATH, cannot run unit-tests")
 
-TOP_TIAB_BLOCK = 247
+TOP_TIAB_BLOCK = 249
 
 
 doneShuttingDownBDM = False
-      
-FIRST_WLT_FILE_NAME = "armory_GDHFnMQ2_.wallet"
-FIRST_WLT_NAME = "GDHFnMQ2"
 
-SECOND_WLT_FILE_NAME = "armory_vzgEfJrJ_.wallet"
-SECOND_WLT_NAME = "vzgEfJrJ"
+# two wallets in the same file
+FIRST_WLT_FILE_NAME = "armory_wallet2.0_1BsmPcJN.wlt"
+FIRST_WLT_NAME = "2AF4BhVoC"
+FOURTH_WLT_NAME = "rxfz9WEo"
 
-THIRD_WLT_FILE_NAME = "armory_DZMmtb2v_.wallet"
-THIRD_WLT_NAME = "DZMmtb2v"
+SECOND_WLT_FILE_NAME = "armory_wallet2.0_4R56FxEm.wlt"
+SECOND_WLT_NAME = "U5okKHWQ"
+
+THIRD_WLT_FILE_NAME = "armory_wallet2.0_egC6gByp.wlt"
+THIRD_WLT_NAME = "zjTpwbDn"
 
 
-FIRST_WLT_BALANCE = 964.8997
+
+FIRST_WLT_BALANCE = 20.0
 
 TIAB_SATOSHI_PORT = 19000
 

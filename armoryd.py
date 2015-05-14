@@ -183,8 +183,6 @@ def addMultWallets(inWltPaths, inWltMap):
          LOGEXCEPT('***WARNING: Unable to load wallet file %s. Skipping.', aWlt)
          raise
 
-   LOGERROR("wallets: %s" % newWltList)
-
    return newWltList
 
 
@@ -305,7 +303,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
       if not txObj:
          raise InvalidTransaction, "file does not contain a valid tx"
       if not txObj.verifySigsAllInputs():
-         raise IncompleteTransaction, "transaction is needs more signatures"
+         raise IncompleteTransaction("transaction needs more signatures")
 
       pytx = txObj.getSignedPyTx()
 
@@ -377,14 +375,15 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
             # and it will grab the TxOut being spent by that TxIn and return the
             # scraddr of it.  This will succeed 100% of the time.
             cppTxin = cppTx.getTxInCopy(0)
-            txInAddr = scrAddr_to_addrStr(TheBDM.bdv().getSenderScrAddr(cppTxin))
-            fromSender =  sender == txInAddr
+            scrAddr = TheBDM.bdv().getSenderScrAddr(cppTxin)
+            txInAddr = scrAddr_to_addrStr(scrAddr)
 
-            if fromSender:
+            if sender == txInAddr:
                txBinary = cppTx.serialize()
                pyTx = PyTx().unserialize(txBinary)
                for txout in pyTx.outputs:
-                  if self.curWlt.hasAddr(script_to_addrStr(txout.getScript())):
+                  scrAddr = script_to_scrAddr(txout.getScript())
+                  if self.curWlt.getAddress(scrAddr):
                      totalReceived += txout.value
 
       return AmountToJSON(totalReceived)
@@ -437,6 +436,9 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
       wallet. The dictionary is similar to the one returned by the bitcoind
       call of the same name.
       """
+
+      if TheBDM.getState()!=BDM_BLOCKCHAIN_READY:
+         raise BlockchainNotReady('Wallet is not loaded yet.')
 
       # Return a dictionary with a string as the key and a wallet B58 value as
       # the value.
@@ -596,7 +598,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
       retDict = {}
       privKey = str(privKey)
       privKeyValid = True
-      if self.curWlt.useEncryption and self.curWlt.masterEkeyRef.isLocked():
+      if self.curWlt.useEncryption and self.curWlt.isLocked():
          raise WalletUnlockNeeded
 
       # Make sure the key is one we can support
@@ -715,7 +717,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          self.sbdPassphrase = SecureBinaryData(str(newpassphrase))
          oldpassphrase = SecureBinaryData(str(oldpassphrase))
          self.curWlt.masterEkeyRef.changeEncryptionParams(oldpassphrase, self.sbdPassphrase)
-         self.curWlt.masterEkeyRef.lock()
+         self.curWlt.lock()
       except PassphraseError as e:
          return e.message
       finally:
@@ -731,7 +733,8 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
       PARAMETERS:
       wltID - (Default=currently loaded wallet) The wallet ID 
       RETURN:
-      A list of base58 strings of the addresses associated with the wallet.
+      A dict with two keys "external" and "internal" each of which is
+      a list of base58 strings of the addresses associated with the wallet.
       """
 
       if wltID is None:
@@ -743,18 +746,17 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
 
       # TODO handle Armory135
 
+      ret = {"external": [], "internal": []}
 
-      retStr = "external:\n\n"
       external = wlt.getChildByIndex(0)
       for i, c in external.akpChildByIndex.iteritems():
-         retStr += "%s: %s\n" % (i, c.getAddrStr())
+         ret["external"].append(c.getAddrStr())
 
-      retStr += "\n\ninternal:\n\n"
       internal = wlt.getChildByIndex(1)
       for i, c in internal.akpChildByIndex.iteritems():
-         retStr += "%s: %s\n" % (i, c.getAddrStr())
+         ret["internal"].append(c.getAddrStr())
 
-      return retStr
+      return ret
 
 
    #############################################################################
@@ -774,10 +776,10 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
 
       retStr = 'Wallet %s is already unlocked.' % self.curWlt.uniqueIDB58
 
-      if self.curWlt.masterEkeyRef.isLocked():
+      if self.curWlt.isLocked():
          self.sbdPassphrase = SecureBinaryData(str(passphrase))
-         success = self.curWlt.masterEkeyRef.unlock(self.sbdPassphrase, timeout=float(timeout))
-         if self.curWlt.masterEkeyRef.isLocked():
+         success = self.curWlt.unlock(self.sbdPassphrase, timeout=float(timeout))
+         if self.curWlt.isLocked():
             retStr = 'Wallet %s failed to unlock' % self.curWlt.uniqueIDB58
          else:
             retStr = 'Wallet %s has been unlocked.' % self.curWlt.uniqueIDB58
@@ -799,8 +801,8 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
       """
 
       # Lock the wallet. It should lock but we'll check to be safe.
-      self.curWlt.masterEkeyRef.lock()
-      retStr = 'Wallet is %slocked.' % '' if self.curWlt.masterEkeyRef.isLocked() else 'not '
+      self.curWlt.lock()
+      retStr = 'Wallet is %slocked.' % '' if self.curWlt.isLocked() else 'not '
       return retStr
 
 
@@ -924,7 +926,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
       """
 
       # Cannot dump the private key for a locked wallet
-      if self.curWlt.masterEkeyRef.isLocked():
+      if self.curWlt.isLocked():
          raise WalletUnlockNeeded
 
       # The first byte must be the correct net byte, and the
@@ -934,6 +936,8 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
 
       scrAddr = addrStr_to_scrAddr(addr58)
       address = self.curWlt.getAddress(scrAddr)
+      if address is None:
+         raise PrivateKeyNotFound("address %s not found in wallet" % addr58)
       return address.getSerializedPrivKey(keyFormat)
 
 
@@ -975,7 +979,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          "internaladdrgen": internal,
          "createdate":      self.wltToUse.keyBornTime,
          "walletid":        self.wltToUse.uniqueIDB58,
-         "islocked":        self.wltToUse.masterEkeyRef.isLocked(),
+         "islocked":        self.wltToUse.isLocked(),
       }
 
 
@@ -1061,13 +1065,14 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
 
    #############################################################################
    @catchErrsForJSON
-   def jsonrpc_getreceivedbyaddress(self, address, minconf=0):
+   def jsonrpc_getreceivedbyaddress(self, address, baltype="spendable", minconf=0):
       """
       DESCRIPTION:
       Get the number of coins received by a Base58 address associated with
       the currently loaded wallet.
       PARAMETERS:
       address - The Base58 address associated with the current wallet.
+      baltype - (Default=spendable) Balance type
       minconf - (Default=0) The minimum number of confirmations required for a
                 TX to be included in the final balance.
       RETURN:
@@ -1310,165 +1315,159 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          errMsg = 'Error: Base58 ID %s does not represent a valid wallet or ' \
                   'lockbox.' % self.b58ID
          LOGERROR(errMsg)
-         final_le_list.append(errMsg)
-      else:
-         # For now, lockboxes can only use C++ wallets, which use a different
-         # set of calls and such. If we got back a Python wallet, convert it.
-         if not wltIsCPP:
-            # TODO: add the internal child as well
-            ledgerWlt = ledgerWlt.external.cppWallet
+         return errMsg
+
+      # For now, lockboxes can only use C++ wallets, which use a different
+      # set of calls and such. If we got back a Python wallet, convert it.
+      if wltIsCPP:
+         b58Type = 'lockbox'
+
+      # Do some setup to determine how many ledger entries we'll get and
+      # which entries we'll get.
+      tx_count = int(tx_count)
+      from_tx = int(from_tx)
+      ledgerEntries = ledgerWlt.getTxLedger()
+      sz = len(ledgerEntries)
+      lower = min(sz, from_tx)
+      upper = min(sz, from_tx+tx_count)
+      txSet = set([])
+
+      # Loop through all the potential ledger entries and create what we can.
+      for i in range(lower,upper):
+         # Get the exact Tx we're looking for.
+         le = ledgerEntries[i]
+         txHashBin = le.getTxHash()
+         txHashHex = binary_to_hex(txHashBin, BIGENDIAN)
+
+         # If the BDM doesn't have the C++ Tx & header, log errors.
+         cppTx = TheBDM.bdv().getTxByHash(txHashBin)
+         if not cppTx.isInitialized():
+            LOGERROR('Tx hash not recognized by TheBDM: %s' % txHashHex)
+
+         try:
+            cppHead = TheBDM.bdv().getHeaderPtrForTx(cppTx)
+         except:
+            cppHead = None
+
+         if cppHead is None or not cppHead.isInitialized():
+            LOGERROR('Header pointer is not available!')
+            headHashBin = ''
+            headHashHex = ''
+            headtime    = 0
          else:
-            b58Type = 'lockbox'
+            headHashBin = cppHead.getThisHash()
+            headHashHex = binary_to_hex(headHashBin, BIGENDIAN)
+            headtime    = cppHead.getTimestamp()
 
-         # Do some setup to determine how many ledger entries we'll get and
-         # which entries we'll get.
-         tx_count = int(tx_count)
-         from_tx = int(from_tx)
-         ledgerEntries = ledgerWlt.getTxLedger()
-         sz = len(ledgerEntries)
-         lower = min(sz, from_tx)
-         upper = min(sz, from_tx+tx_count)
-         txSet = set([])
+         # Get some more data.
+         # amtCoins: amt of BTC transacted, always positive (how big are
+         #           outputs minus change?)
+         # netCoins: net effect on wallet (positive or negative)
+         # feeCoins: how much fee was paid for this tx
+         nconf = (TheBDM.getTopBlockHeight() - le.getBlockNum()) + 1
+         isToSelf = le.isSentToSelf()
+         amtCoins = 0.0
+         netCoins = le.getValue()
+         feeCoins = getFeeForTx(txHashBin)
+         scrAddrs = [cppTx.getTxOutCopy(i).getScrAddressStr() for i in \
+                     range(cppTx.getNumTxOut())]
 
-         # Loop through all the potential ledger entries and create what we can.
-         for i in range(lower,upper):
-            # Get the exact Tx we're looking for.
-            le = ledgerEntries[i]
-            txHashBin = le.getTxHash()
-            txHashHex = binary_to_hex(txHashBin, BIGENDIAN)
+         # Find the first recipient and the change recipient.
+         firstScrAddr = ''
+         changeScrAddr = ''
+         if cppTx.getNumTxOut()==1:
+            firstScrAddr = scrAddrs[0]
+         elif isToSelf:
+            # Sent-to-Self tx
+            amtCoins,changeIdx = determineSentToSelfAmt(le, ledgerWlt)
+            changeScrAddr = scrAddrs[changeIdx]
+            for iout,recipScrAddr in enumerate(scrAddrs):
+               if not iout==changeIdx:
+                  firstScrAddr = recipScrAddr
+                  break
+         elif netCoins<0:
+            # Outgoing transaction (process in reverse order so get first)
+            amtCoins = -1*(netCoins+feeCoins)
+            for recipScrAddr in scrAddrs[::-1]:
+               if ledgerWlt.hasScrAddress(recipScrAddr):
+                  changeScrAddr = recipScrAddr
+               else:
+                  firstScrAddr = recipScrAddr
+         else:
+            # Incoming transaction (process in reverse order so get first)
+            amtCoins = netCoins
+            for recipScrAddr in scrAddrs[::-1]:
+               if ledgerWlt.hasScrAddr(recipScrAddr):
+                  firstScrAddr = recipScrAddr
+               else:
+                  changeScrAddr = recipScrAddr
 
-            # If the BDM doesn't have the C++ Tx & header, log errors.
-            cppTx = TheBDM.bdv().getTxByHash(txHashBin)
-            if not cppTx.isInitialized():
-               LOGERROR('Tx hash not recognized by TheBDM: %s' % txHashHex)
+         # Determine the direction of the Tx based on the coin setup.
+         if netCoins < -feeCoins:
+            txDir = 'send'
+         elif netCoins > -feeCoins:
+            txDir = 'receive'
+         else:
+            txDir = 'toself'
 
-            try:
-               cppHead = TheBDM.bdv().getHeaderPtrForTx(cppTx)
-            except:
-               cppHead = None
+         # Convert the scrAddrs to display strings.
+         firstAddr = scrAddr_to_displayStr(firstScrAddr, self.serverWltMap, \
+                                           self.serverLBMap.values())
+         changeAddr = '' if len(changeScrAddr)==0 else \
+                      scrAddr_to_displayStr(changeScrAddr, \
+                                            self.serverWltMap, \
+                                            self.serverLBMap.values())
 
-            if cppHead is None or not cppHead.isInitialized():
-               LOGERROR('Header pointer is not available!')
-               headHashBin = ''
-               headHashHex = ''
-               headtime    = 0
-            else:
-               headHashBin = cppHead.getThisHash()
-               headHashHex = binary_to_hex(headHashBin, BIGENDIAN)
-               headtime    = cppHead.getTimestamp()
+         # Get the address & amount from each TxIn.
+         myinputs, otherinputs = [], []
+         for iin in range(cppTx.getNumTxIn()):
+            sender = TheBDM.bdv().getSenderScrAddr(cppTx.getTxInCopy(iin))
+            val    = TheBDM.bdv().getSentValue(cppTx.getTxInCopy(iin))
+            addTo  = (myinputs if ledgerWlt.hasScrAddr(sender) else \
+                      otherinputs)
+            addTo.append( {'address': scrAddr_to_displayStr(
+               sender, self.serverWltMap, self.serverLBMap.values()),
+                           'amount':  AmountToJSON(val)} )
 
-            # Get some more data.
-            # amtCoins: amt of BTC transacted, always positive (how big are
-            #           outputs minus change?)
-            # netCoins: net effect on wallet (positive or negative)
-            # feeCoins: how much fee was paid for this tx
-            nconf = (TheBDM.getTopBlockHeight() - \
-                     le.getBlockNum()) + 1
-            isToSelf = le.isSentToSelf()
-            amtCoins = 0.0
-            netCoins = le.getValue()
-            feeCoins = getFeeForTx(txHashBin)
-            scrAddrs = [cppTx.getTxOutCopy(i).getScrAddressStr() for i in \
-                       range(cppTx.getNumTxOut())]
+         # Get the address & amount from each TxOut.
+         myoutputs, otheroutputs = [], []
+         for iout in range(cppTx.getNumTxOut()):
+            recip = cppTx.getTxOutCopy(iout).getScrAddressStr()
+            val   = cppTx.getTxOutCopy(iout).getValue();
+            addTo = (myoutputs if ledgerWlt.hasScrAddr(recip) else \
+                     otheroutputs)
+            addTo.append( {'address': scrAddr_to_displayStr(
+               recip, self.serverWltMap, self.serverLBMap.values()),
+                           'amount':  AmountToJSON(val)} )
 
-            # Find the first recipient and the change recipient.
-            firstScrAddr = ''
-            changeScrAddr = ''
-            if cppTx.getNumTxOut()==1:
-               firstScrAddr = scrAddrs[0]
-            elif isToSelf:
-               # Sent-to-Self tx
-               amtCoins,changeIdx = determineSentToSelfAmt(le, ledgerWlt)
-               changeScrAddr = scrAddrs[changeIdx]
-               for iout,recipScrAddr in enumerate(scrAddrs):
-                  if not iout==changeIdx:
-                     firstScrAddr = recipScrAddr
-                     break
-            elif netCoins<0:
-               # Outgoing transaction (process in reverse order so get first)
-               amtCoins = -1*(netCoins+feeCoins)
-               for recipScrAddr in scrAddrs[::-1]:
-                  if ledgerWlt.hasScrAddress(recipScrAddr):
-                     changeScrAddr = recipScrAddr
-                  else:
-                     firstScrAddr = recipScrAddr
-            else:
-               # Incoming transaction (process in reverse order so get first)
-               amtCoins = netCoins
-               for recipScrAddr in scrAddrs[::-1]:
-                  if ledgerWlt.hasScrAddress(recipScrAddr):
-                     firstScrAddr = recipScrAddr
-                  else:
-                     changeScrAddr = recipScrAddr
+         # Create the ledger entry. (NB: "comment" isn't doable with C++
+         # wallets. Once the 2.0 wallets are ready, it should be restored.)
+         tx_info = {
+            'direction' :    txDir,
+            b58Type :        inB58ID,
+            'amount' :       AmountToJSON(amtCoins),
+            'netdiff' :      AmountToJSON(netCoins),
+            'fee' :          AmountToJSON(feeCoins),
+            'txid' :         txHashHex,
+            'blockhash' :    headHashHex,
+            'confirmations': nconf,
+            'txtime' :       le.getTxTime(),
+            'txsize' :       len(cppTx.serialize()),
+            'blocktime' :    headtime,
+            #'comment' :      ledgerWlt.getComment(txHashBin),
+            'firstrecip':    firstAddr,
+            'changerecip':   changeAddr
+         }
 
-            # Determine the direction of the Tx based on the coin setup.
-            if netCoins < -feeCoins:
-               txDir = 'send'
-            elif netCoins > -feeCoins:
-               txDir = 'receive'
-            else:
-               txDir = 'toself'
-
-            # Convert the scrAddrs to display strings.
-            firstAddr = scrAddr_to_displayStr(firstScrAddr, self.serverWltMap, \
-                                              self.serverLBMap.values())
-            changeAddr = '' if len(changeScrAddr)==0 else \
-                         scrAddr_to_displayStr(changeScrAddr, \
-                                               self.serverWltMap, \
-                                               self.serverLBMap.values())
-
-            # Get the address & amount from each TxIn.
-            myinputs, otherinputs = [], []
-            for iin in range(cppTx.getNumTxIn()):
-               sender = TheBDM.bdv().getSenderScrAddr(cppTx.getTxInCopy(iin))
-               val    = TheBDM.bdv().getSentValue(cppTx.getTxInCopy(iin))
-               addTo  = (myinputs if ledgerWlt.hasScrAddress(sender) else \
-                         otherinputs)
-               addTo.append( {'address': scrAddr_to_displayStr(sender, \
-                                                            self.serverWltMap, \
-                                                   self.serverLBMap.values()), \
-                              'amount':  AmountToJSON(val)} )
-
-            # Get the address & amount from each TxOut.
-            myoutputs, otheroutputs = [], []
-            for iout in range(cppTx.getNumTxOut()):
-               recip = cppTx.getTxOutCopy(iout).getScrAddressStr()
-               val   = cppTx.getTxOutCopy(iout).getValue();
-               addTo = (myoutputs if ledgerWlt.hasScrAddress(recip) else \
-                        otheroutputs)
-               addTo.append( {'address': scrAddr_to_displayStr(recip, \
-                                                            self.serverWltMap, \
-                                                   self.serverLBMap.values()), \
-                              'amount':  AmountToJSON(val)} )
-
-            # Create the ledger entry. (NB: "comment" isn't doable with C++
-            # wallets. Once the 2.0 wallets are ready, it should be restored.)
-            tx_info = {
-                        'direction' :    txDir,
-                        b58Type :        inB58ID,
-                        'amount' :       AmountToJSON(amtCoins),
-                        'netdiff' :      AmountToJSON(netCoins),
-                        'fee' :          AmountToJSON(feeCoins),
-                        'txid' :         txHashHex,
-                        'blockhash' :    headHashHex,
-                        'confirmations': nconf,
-                        'txtime' :       le.getTxTime(),
-                        'txsize' :       len(cppTx.serialize()),
-                        'blocktime' :    headtime,
-                        #'comment' :      ledgerWlt.getComment(txHashBin),
-                        'firstrecip':    firstAddr,
-                        'changerecip':   changeAddr
-                      }
-
-            # Add more info if it's not a simple ledger.
-            if not simple:
-               tx_info['senderme']     = myinputs
-               tx_info['senderother']  = otherinputs
-               tx_info['recipme']      = myoutputs
-               tx_info['recipother']   = otheroutputs
-
-            # Add the ledger entry to the ledger list.
-            final_le_list.append(tx_info)
+         # Add more info if it's not a simple ledger.
+         if not simple:
+            tx_info['senderme']     = myinputs
+            tx_info['senderother']  = otherinputs
+            tx_info['recipme']      = myoutputs
+            tx_info['recipother']   = otheroutputs
+            
+         # Add the ledger entry to the ledger list.
+         final_le_list.append(tx_info)
 
 
       return final_le_list
@@ -1858,101 +1857,6 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
 
 
    #############################################################################
-   @catchErrsForJSON
-   def jsonrpc_sendtransaction(self, txHash):
-      """
-      DESCRIPTION:
-      Send the transaction .
-      PARAMETERS:
-      txHash - A hex string representing the transaction to obtain.
-      RETURN:
-      A dictionary listing information on the desired transaction, or empty if
-      the transaction wasn't found.
-      """
-
-      if TheBDM.getState() in [BDM_UNINITIALIZED, BDM_OFFLINE]:
-         return {'Error': 'armoryd is offline'}
-
-      binhash = hex_to_binary(txHash, BIGENDIAN)
-      tx = TheBDM.bdv().getTxByHash(binhash)
-      if not tx.isInitialized():
-         return {'Error': 'transaction not found'}
-
-      out = {}
-      out['txid'] = txHash
-      isMainBranch = TheBDM.bdv().isTxMainBranch(tx)
-      out['mainbranch'] = isMainBranch
-      out['numtxin'] = int(tx.getNumTxIn())
-      out['numtxout'] = int( tx.getNumTxOut())
-
-      haveAllInputs = True
-      txindata = []
-      inputvalues = []
-      outputvalues = []
-      for i in range(tx.getNumTxIn()):
-         op = tx.getTxInCopy(i).getOutPoint()
-         prevtx = TheBDM.bdv().getTxByHash(op.getTxHash())
-         if not prevtx.isInitialized():
-            haveAllInputs = False
-            txindata.append( { 'address': '00'*32,
-                               'value':   '-1',
-                               'ismine':   False,
-                               'fromtxid': binary_to_hex(op.getTxHash(), BIGENDIAN),
-                               'fromtxindex': op.getTxOutIndex()})
-         else:
-            txout = prevtx.getTxOutCopy(op.getTxOutIndex())
-            inputvalues.append(txout.getValue())
-            recip160 = CheckHash160(txout.getScrAddressStr())
-            txindata.append( { 'address': hash160_to_addrStr(recip160),
-                               'value':   AmountToJSON(txout.getValue()),
-                               'ismine':   self.curWlt.hasAddr(recip160),
-                               'fromtxid': binary_to_hex(op.getTxHash(), BIGENDIAN),
-                               'fromtxindex': op.getTxOutIndex()})
-
-      txoutdata = []
-      for i in range(tx.getNumTxOut()):
-         txout = tx.getTxOutCopy(i)
-         a160 = CheckHash160(txout.getScrAddressStr())
-         txoutdata.append( { 'value': AmountToJSON(txout.getValue()),
-                             'ismine':  self.curWlt.hasAddr(a160),
-                             'address': hash160_to_addrStr(a160)})
-         outputvalues.append(txout.getValue())
-
-      fee = sum(inputvalues)-sum(outputvalues)
-      out['fee'] = AmountToJSON(fee)
-
-      out['infomissing'] = not haveAllInputs
-      out['inputs'] = txindata
-      out['outputs'] = txoutdata
-
-      if isMainBranch:
-         # The tx is in a block, fill in the rest of the data
-         out['confirmations'] = (TheBDM.getTopBlockHeight() - \
-                                 tx.getBlockHeight()) + 1
-         out['orderinblock'] = int(tx.getBlockTxIndex())
-
-         le = self.curWlt.cppWallet.getLedgerEntryForTx(binhash)
-         amt = le.getValue()
-         out['netdiff']     = AmountToJSON(amt)
-         out['totalinputs'] = AmountToJSON(sum(inputvalues))
-
-         if le.getTxHash()=='\x00'*32:
-            out['category']  = 'unrelated'
-            out['direction'] = 'unrelated'
-         elif le.isSentToSelf():
-            out['category']  = 'toself'
-            out['direction'] = 'toself'
-         elif amt<fee:
-            out['category']  = 'send'
-            out['direction'] = 'send'
-         else:
-            out['category']  = 'receive'
-            out['direction'] = 'receive'
-
-      return out
-
-
-   #############################################################################
    # Function that takes a paired list of recipients and the amount to be sent
    # to them, and creates an unsigned transaction based on the current wallet.
    # The ASCII version of the transaction is sent back.
@@ -1969,7 +1873,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          fee = wantfee
 
       if totalSend + fee <= 0:
-         raise InvalidTransaction, "You are not spending any coins. Not a valid transaction"
+         raise InvalidTransaction("You are not spending any coins. Not a valid transaction")
 
       lbox = None
       if spendFromLboxID is None:
@@ -1983,7 +1887,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          utxoList = cppWlt.getSpendableTxOutListForValue(totalSend, IGNOREZC)
 
       if spendBal < totalSend + fee:
-         raise NotEnoughCoinsError, "You have %s satoshis which is not enough to send %s satoshis with a fee of %s." % (spendBal, totalSend, fee)
+         raise NotEnoughCoinsError("You have %s satoshis which is not enough to send %s satoshis with a fee of %s." % (spendBal, totalSend, fee))
 
       utxoSelect = PySelectCoins(utxoList, totalSend, fee)
 
@@ -2021,7 +1925,7 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          p2shMap = {}
       if totalChange > 0:
          if spendFromLboxID is None:
-            nextAddr = self.curWlt.getNextUnusedAddress().getAddrStr()
+            nextAddr = self.curWlt.getNextChangeAddress().getAddrStr()
             ustxScr = getScriptForUserString(nextAddr, self.serverWltMap, \
                                              self.convLBDictToList())
             outputPairs.append( [ustxScr['Script'], totalChange] )
@@ -2036,10 +1940,9 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          scrType = getTxOutScriptType(utxo.getScript())
          if scrType in CPP_TXOUT_STDSINGLESIG:
             scrAddr = utxo.getRecipientScrAddr()
-            a160 = scrAddr_to_hash160(scrAddr)[1]
-            addrObj = self.curWlt.getAddrByHash160(a160)
+            addrObj = self.curWlt.getAddress(scrAddr)
             if addrObj:
-               pubKeyMap[scrAddr] = addrObj.binPublicKey65.toBinStr()
+               pubKeyMap[scrAddr] = addrObj.getSerializedPubKey()
 
       # Create an unsigned transaction and return the ASCII version.
       usTx = UnsignedTransaction().createFromTxOutSelection(utxoSelect, \
@@ -2124,11 +2027,11 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
          scriptType = None
          if displayInfo['WltID'] is not None:
             if displayInfo['WltID'] == self.curWlt.uniqueIDB58:
-               if self.curWlt.useEncryption and self.curWlt.masterEkeyRef.isLocked():
-                  raise WalletUnlockNeeded, "You need to unlock this wallet before you can sign this transaction"
-               a160 = CheckHash160(ustxi.scrAddrs[0])
-               addrObj = self.curWlt.getAddrByHash160(a160)
-               ustxi.createAndInsertSignature(pytx, addrObj.binPrivKey32_Plain)
+               if self.curWlt.useEncryption and self.curWlt.isLocked():
+                  raise WalletUnlockNeeded("You need to unlock this wallet before you can sign this transaction")
+               addrObj = self.curWlt.getAddress(ustxi.scrAddrs[0])
+               privKey = addrObj.getPlainPrivKeyCopy()
+               ustxi.createAndInsertSignature(pytx, privKey)
                signed += 1
          elif displayInfo['LboxID'] is not None:
             lockbox = self.serverLBMap.get(displayInfo['LboxID'])
@@ -2136,8 +2039,8 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
                for a160 in lockbox.a160List:
                   addrObj = self.curWlt.getAddrByHash160(a160)
                   if addrObj:
-                     if self.curWlt.useEncryption and self.curWlt.masterEkeyRef.isLocked():
-                        raise WalletUnlockNeeded, "You need to unlock this wallet before you can sign this transaction"
+                     if self.curWlt.useEncryption and self.curWlt.isLocked():
+                        raise WalletUnlockNeeded("You need to unlock this wallet before you can sign this transaction")
                      ustxi.createAndInsertSignature(pytx, addrObj.binPrivKey32_Plain)
                      signed += 1
       LOGWARN("Signed transaction %s times" % signed)
@@ -2224,8 +2127,9 @@ class Armory_Json_Rpc_Server(jsonrpc.JSONRPC):
                # If search item's a pub key, it'll cause a KeyError to be
                # thrown. That's fine. We can catch it and keep on truckin'.
                lbWlt = self.serverWltMap[lockboxItem]
-               addrList.append(lbWlt.getNextUnusedAddress().getPubKey().toHexStr())
-               addrName = 'Public key %d from wallet %s' % (lbWlt.getHighestUsedIndex(), \
+               pubkey = lbWlt.getNextReceivingAddress().getSerializedPubKey('hex')
+               addrList.append(pubkey)
+               addrName = 'Public key %d from wallet %s' % (lbWlt.external.childIndex, \
                                                             lockboxItem)
                addrNameList.append(addrName)
 
@@ -2958,7 +2862,7 @@ class Armory_Daemon(object):
       # NB: These objects contain ONLY wallet/lockbox data loaded at startup.
       # Armory_Json_Rpc_Server will contain the active wallet/LB lists.
 
-      # WltMap:   wltID --> PyBtcWallet
+      # WltMap:   wltID --> ArmoryWallet
       self.WltMap = {}
 
       # lboxMap:           lboxID --> MultiSigLockbox
@@ -3424,7 +3328,7 @@ class Armory_Daemon(object):
       try:
 
          for wltID,wlt in self.WltMap.iteritems():
-            wlt.masterEkeyRef.checkLockTimeout()
+            wlt.checkLockTimeout()
 
          # Check for new blocks in the latest blk0XXXX.dat file.
          if TheBDM.getState()==BDM_BLOCKCHAIN_READY:

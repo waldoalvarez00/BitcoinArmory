@@ -3106,7 +3106,7 @@ class PyBtcWallet(object):
       try:
          return self.cppWallet.getHistoryPageAsVector(pageID)
       except:
-         raise 'pageID is out of range'  
+         raise RuntimeError('pageID is out of range')
       
    ###############################################################################
    @CheckWalletRegistration
@@ -3117,8 +3117,6 @@ class PyBtcWallet(object):
       
       for calls in actionsList:
          calls[0](*calls[1])
-         
-      
       
    ###############################################################################
    @CheckWalletRegistration

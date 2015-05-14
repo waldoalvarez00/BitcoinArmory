@@ -11,6 +11,7 @@ from armoryengine.BDM import BDM_BLOCKCHAIN_READY
 from armoryd import Armory_Daemon
 from armoryengine.ArmoryUtils import CLI_OPTIONS
 
+
 # runs a Test In a Box (TIAB) bitcoind session. By copying a prebuilt
 # testnet with a known state
 # Charles's recommendation is that you keep the TIAB somewhere like ~/.armory/tiab.charles
@@ -119,11 +120,11 @@ class ArmoryDStartupTest(TiabTest):
       wltDictionary = json.loads(self.armoryDSession.callArmoryD(['listloadedwallets']))
       self.assertTrue(len(wltDictionary), 3)
       actualResult = json.loads(self.armoryDSession.callArmoryD(['getwalletinfo']))
-      self.assertEqual(actualResult['name'], 'Primary Wallet')
+      self.assertEqual(actualResult['walletid'], FIRST_WLT_NAME)
       setWltResult = self.armoryDSession.callArmoryD(['setactivewallet', THIRD_WLT_NAME])
       self.assertTrue(setWltResult.index(THIRD_WLT_NAME) > 0)
       actualResult2 = json.loads(self.armoryDSession.callArmoryD(['getwalletinfo']))
-      self.assertEqual(actualResult2['name'], 'Third Wallet')
+      self.assertEqual(actualResult2['walletid'], THIRD_WLT_NAME)
 
 # Running tests with "python <module name>" will NOT work for any Armory tests
 # You must run tests with "python -m unittest <module name>" or run all tests with "python -m unittest discover"

@@ -950,7 +950,7 @@ class ArmoryWalletFile(object):
          
 
          if not os.path.exists(self.walletPath):
-            raise FileExistsError, 'No wallet file exists to be updated!'
+            raise FileExistsError('No wallet file exists to be updated!')
    
          # Identify if the batch contains updates to the same object mult times.
          # We can safely batch updates to any mixture of objects, but not 

@@ -1251,8 +1251,10 @@ class UnsignedTxInput(AsciiSerializable):
       appended to the end
       """
       # Make sure the supplied privateKey is relevant to this USTXI
-      computedPub = CryptoECDSA().ComputePublicKey(sbdPrivKey).toBinStr()
-      if not computedPub in self.pubKeys:
+      uncompressedPub = CryptoECDSA().ComputePublicKey(sbdPrivKey)
+      compressedPub = CryptoECDSA().CompressPoint(uncompressedPub)
+      if uncompressedPub.toBinStr() not in self.pubKeys and \
+         compressedPub.toBinStr() not in self.pubKeys:
          raise SignatureError('No PubKey that matches this privKey')
 
       txiIdx = -1
@@ -1294,9 +1296,15 @@ class UnsignedTxInput(AsciiSerializable):
    #############################################################################
    def createAndInsertSignature(self, pytx, sbdPrivKey, hashcode=1, DetSign=True):
       derSig = self.createTxSignature(pytx, sbdPrivKey, hashcode, DetSign)
-      computedPub = CryptoECDSA().ComputePublicKey(sbdPrivKey).toBinStr()
+      uncompressedPub = CryptoECDSA().ComputePublicKey(sbdPrivKey)
+      compressedPub = CryptoECDSA().CompressPoint(uncompressedPub)
+      if uncompressedPub.toBinStr() in self.pubKeys:
+         msIdx = self.insertSignature(derSig, uncompressedPub.toBinStr())
+      elif compressedPub.toBinStr() in self.pubKeys:
+         msIdx = self.insertSignature(derSig, compressedPub.toBinStr())
+      else:
+         raise RuntimeError("Private Key is not a part of this transaction")
 
-      msIdx = self.insertSignature(derSig, computedPub)
       return derSig, msIdx
 
    #############################################################################
@@ -1339,7 +1347,6 @@ class UnsignedTxInput(AsciiSerializable):
       except ValueError:
          raise KeyDataError('Supplied pubkey does not match any USTXI keys')
 
-
       rBin, sBin = getRSFromDERSig(sigStr)
       hashcode  = binary_to_int(sigStr[-1])
       if not hashcode==1:
@@ -1352,6 +1359,8 @@ class UnsignedTxInput(AsciiSerializable):
       sbdMsg = SecureBinaryData(msg)
       sbdSig = SecureBinaryData(rBin + sBin)
       sbdPub = SecureBinaryData(pubKey)
+      if len(pubKey) == 33:
+         sbdPub = CryptoECDSA().UncompressPoint(sbdPub)
       return msIndex if CryptoECDSA().VerifyData(sbdMsg, sbdSig, sbdPub) else -1
 
    #############################################################################
@@ -2844,8 +2853,7 @@ def determineSentToSelfAmt(le, wlt):
       valSum = 0
       for i in range(txref.getNumTxOut()):
          valSum += txref.getTxOutCopy(i).getValue()
-         addr160 = CheckHash160(txref.getTxOutCopy(i).getScrAddressStr())
-         addr    = wlt.getAddrByHash160(addr160)
+         addr    = wlt.getAddress(txref.getTxOutCopy(i).getScrAddressStr())
          if addr and addr.chainIndex > maxChainIndex:
             maxChainIndex = addr.chainIndex
             txOutChangeVal = txref.getTxOutCopy(i).getValue()

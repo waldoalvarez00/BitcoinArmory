@@ -128,7 +128,30 @@ class ArmoryKeyPair(WalletEntry):
       self.masterKdfRef       = None
       self.scrAddrLabelRef    = None
 
+   #############################################################################
+   # PASSTHROUGH functions to masterEKeyRef for convenience
+   def isLocked(self):
+      if self.masterEkeyRef is None:
+         return False
+      return self.masterEkeyRef.isLocked()
 
+   def lock(self):
+      if self.masterEkeyRef is None:
+         return
+      self.masterEkeyRef.lock()
+
+   def unlock(self, passphrase, kdfObj=None, justVerify=False, timeout=None):
+      if self.masterEkeyRef is None:
+         return
+      self.masterEkeyRef.unlock(passphrase, kdfObj=kdfObj,
+                                justVerify=justVerify, timeout=timeout)
+
+   def checkLockTimeout(self):
+      if self.masterEkeyRef is None:
+         return
+      return self.masterEkeyRef.checkLockTimeout()
+
+   #############################################################################
 
    def getKeys(self):
       return self.akpChildByScrAddr.keys()
@@ -2489,9 +2512,24 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
       # "removed" and don't display it or do anything with it.
       self.userRemoved = False
 
+      self.external = None
+      self.internal = None
+
+
+   def initializeChildren(self):
+      # per the BIP44 spec, 0 is for the external child
+      # and 1 is for the internal child (aka change addresses)
+      self.external = self.getChildByIndex(0, spawnIfNeeded=True, fsync=True)
+      self.internal = self.getChildByIndex(1, spawnIfNeeded=True, fsync=True)
+
 
    #############################################################################
    def fillKeyPool(self, fsync=True, progressUpdater=emptyFunc):
+      # per the BIP44 spec, 0 is for the external child
+      # and 1 is for the internal child (aka change addresses)
+      self.external = self.spawnChild(0, fsync=fsync, linkToParent=True)
+      self.internal = self.spawnChild(1, fsync=fsync, linkToParent=True)
+
       self.external.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
       self.internal.fillKeyPool(fsync=fsync, progressUpdater=progressUpdater)
 
@@ -2540,26 +2578,32 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
 
    #############################################################################
    def getNextReceivingAddress(self, fsync=True):
+      if self.external is None:
+         self.initializeChildren()
       return self.external.getNextUnusedChild()
 
    #############################################################################
    def peekNextReceivingAddress(self):
+      if self.external is None:
+         self.initializeChildren()
       return self.external.peekNextUnusedChild()
 
    #############################################################################
    def getNextChangeAddress(self, fsync=True):
+      if self.internal is None:
+         self.initializeChildren()
       return self.internal.getNextUnusedChild()
 
    #############################################################################
    def peekNextChangeAddress(self):
+      if self.internal is None:
+         self.initializeChildren()
       return self.internal.peekNextUnusedChild()
 
    #############################################################################
    def registerWallet(self, isNew=False):
-      # per the BIP44 spec, 0 is for the external child
-      # and 1 is for the internal child (aka change addresses)
-      self.external = self.getChildByIndex(0, spawnIfNeeded=True, fsync=True)
-      self.internal = self.getChildByIndex(1, spawnIfNeeded=True, fsync=True)
+      if self.external is None:
+         self.initializeChildren()
       self.external.registerWallet()
       self.internal.registerWallet()
 
@@ -2571,11 +2615,18 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
    #############################################################################
    def getAddress(self, scrAddr):
       # find this address and send back the grandchild
-      return self.external.akpChildByScrAddr(scrAddr) \
-         or self.internal.akpChildByScrAddr(scrAddr)
+      return self.external.akpChildByScrAddr.get(scrAddr) \
+         or self.internal.akpChildByScrAddr.get(scrAddr)
+
+   #############################################################################
+   def hasScrAddr(self, scrAddr):
+      return self.getAddress(scrAddr) is not None
 
    #############################################################################
    def getAddrBalance(self, addr160, balType="Spendable", topBlockHeight=UINT32_MAX):
+      if self.external is None:
+         self.initializeChildren()
+
       # find the balance in the grandchild
       bal = None
       try:
@@ -2590,11 +2641,15 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
 
    #############################################################################
    def hasAddr(self, addr160):
+      if self.external is None:
+         self.initializeChildren()
       # find the balance in the grandchild
       return self.external.hasAddr(addr160) or self.internal.hasAddr(addr160)
 
    #############################################################################
    def getLedgerEntryForTx(self, binhash):
+      if self.external is None:
+         self.initializeChildren()
       ret = None
       try:
          ret = self.external.cppWallet.getLedgerEntryForTx(binhash)
@@ -2609,21 +2664,51 @@ class ABEK_StdWallet(ArmoryBip32ExtendedKey):
       """ Returns UnspentTxOut/C++ objects 
       returns a set of unspent TxOuts to cover for the value to spend 
       """
+      if self.external is None:
+         self.initializeChildren()
       
-      retVal = [ x for x in self.external.cppWallet.getSpendableTxOutListForValue(valToSpend, IGNOREZC) ]
-      for x in self.internal.cppWallet.getSpendableTxOutListForValue(valToSpend, IGNOREZC):
-         retVal.append(x)
-      return retVal
+      utxos = []
+      utxos.extend(self.external.cppWallet.getSpendableTxOutListForValue(valToSpend, IGNOREZC))
+      utxos.extend(self.internal.cppWallet.getSpendableTxOutListForValue(valToSpend, IGNOREZC))
+      return utxos
 
+   #############################################################################
    def getTxLedger(self, ledgType='Full'):
       """ 
       Gets the ledger entries for the entire wallet, from C++/SWIG data structs
       """
-      ledg = []
-      ledg.extend(self.external.getHistoryPage(0))
-      ledg.extend(self.internal.getHistoryPage(0))
-      return ledg
+      if self.external is None:
+         self.initializeChildren()
 
+      les = []
+      les.extend(self.external.getHistoryPage(0))
+      les.extend(self.internal.getHistoryPage(0))
+      return les
+
+   #############################################################################
+   def getHistoryPage(self, page=0):
+      les = []
+      les.extend(self.external.getHistoryPage(page))
+      les.extend(self.internal.getHistoryPage(page))
+      return les
+
+   def getFullUTXOList(self):
+      utxos = []
+      utxos.extend(self.external.cppWallet.getSpendableTxOutListForValue(IGNOREZC))
+      utxos.extend(self.internal.cppWallet.getSpendableTxOutListForValue(IGNOREZC))
+      return utxos
+
+   #############################################################################
+   def getHistoryPageCount(self):
+      return self.external.cppWallet.getHistoryPageCount() + \
+         self.internal.cppWallet.getHistoryPageCount()
+
+   #############################################################################
+   def unregisterWallet(self):
+      TheBDM.unregisterWallet(self.external.uniqueIDB58)
+      TheBDM.unregisterWallet(self.internal.uniqueIDB58)
+      self.external.cppWallet = None
+      self.internal.cppWallet = None
 
 
 
