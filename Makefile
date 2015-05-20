@@ -62,6 +62,10 @@ test: all-test-tools
 	(cd cppForSwig/gtest && ./CppBlockUtilsTests)
 	python -m unittest discover
 
+test-coverage: all-test-tools
+	(cd cppForSwig/gtest && ./CppBlockUtilsTests)
+	(cd cppForSwig/gtest && gcov ../*.cpp -o . | tail -n 1 | sed 's;.*:\([0-9.]*\)%.*;<measurement><name>Code Coverage</name><value>\1</value></measurement>;')
+
 osx :
 	chmod +x osxbuild/deploy.sh
 	cd osxbuild; ./deploy.sh

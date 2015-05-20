@@ -32,7 +32,6 @@ CPPFLAGS += -I$(GTEST_DIR) \
 				-g \
 				-fprofile-arcs \
 				-ftest-coverage \
-				--coverage 
 				#-O2 \
 
 HEADERS += 	$(USER_DIR)/BinaryData.h \
@@ -112,10 +111,10 @@ gtest.a : gtest-all.o
 
 
 libcryptopp.a: Makefile
-	cd ../cryptopp; make libcryptopp.a; mv libcryptopp.a ../gtest
+	cd ../cryptopp; $(MAKE) libcryptopp.a; mv libcryptopp.a ../gtest
 
 libleveldb.a: Makefile
-	cd ../leveldb; make libleveldb.a; mv libleveldb.a ../gtest
+	cd ../leveldb; $(MAKE) libleveldb.a; mv libleveldb.a ../gtest
 
 UniversalTimer.o: $(USER_DIR)/UniversalTimer.h $(USER_DIR)/UniversalTimer.cpp
 	$(CXX) $(CPPFLAGS) -c $(USER_DIR)/UniversalTimer.cpp
