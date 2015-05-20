@@ -74,6 +74,13 @@ mo: messages
 messages:
 	xgettext -o po/messages.pot --from-code=UTF-8 -L Python -ktr *.py armoryengine/*.py ui/*.py
 
+coverage-all-test-tools:
+	$(MAKE) COVERAGE=1 all-test-tools
+
+test-coverage: coverage-all-test-tools
+	(cd cppForSwig/gtest && ./CppBlockUtilsTests)
+	(cd cppForSwig/gtest && gcov ../*.cpp -o . | tail -n 1 | sed 's;.*:\([0-9.]*\)%.*;<measurement><name>Code Coverage</name><value>\1</value></measurement>;')
+
 osx :
 	chmod +x osxbuild/deploy.sh
 	cd osxbuild; ./deploy.sh
