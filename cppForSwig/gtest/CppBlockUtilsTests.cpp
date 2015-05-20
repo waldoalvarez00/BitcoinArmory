@@ -4606,7 +4606,7 @@ protected:
          rmdir("./ldbtestdir");
          mkdir("./ldbtestdir");
       #else
-         system("rm -rf ./ldbtestdir/*");
+         system("rm -rf ./ldbtestdir/*; mkdir -p ldbtestdir");
       #endif
 
       auto isready = [](void)->bool { return true; };
@@ -5801,7 +5801,7 @@ protected:
       rmdir("./ldbtestdir");
       mkdir("./ldbtestdir");
 #else
-      system("rm -rf ./ldbtestdir/*");
+      system("rm -rf ./ldbtestdir/*;mkdir -p ldbtestdir");
 #endif
 
       auto isready = [](void)->bool { return true; };
