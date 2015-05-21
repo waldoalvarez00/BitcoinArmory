@@ -80,7 +80,7 @@ coverage-all-test-tools:
 test-coverage: coverage-all-test-tools
 	(cd cppForSwig/gtest && ./CppBlockUtilsTests)
 	echo '<?xml version="1.0" encoding="UTF-8"?><testsuite><testcase name="coverage" classname="armory.cov" time="0"><system-out>' > test-report.xml
-	(cd cppForSwig/gtest && gcov ../*.cpp -o . | tail -n 1 | sed 's;.*:\([0-9.]*\)%.*;<measurement><name>Code Coverage</name><value>\1</value></measurement>;') | sed 's/</\&lt;/g' | sed 's/>/\&gt;/g' >> test-report.xml
+	(cd cppForSwig && gcov ./*.cpp -o . | tail -n 1 | sed 's;.*:\([0-9.]*\)%.*;<measurement><name>Code Coverage</name><value>\1</value></measurement>;') | sed 's/</\&lt;/g' | sed 's/>/\&gt;/g' >> test-report.xml
 	echo '</system-out></testcase></testsuite>' >> test-report.xml
 	
 osx :

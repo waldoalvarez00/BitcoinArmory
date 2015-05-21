@@ -27,8 +27,6 @@ CPPFLAGS += -I$(GTEST_DIR) \
 				-D__STDC_LIMIT_MACROS \
 				-D_DEBUG \
 				-g \
-				-fprofile-arcs \
-				-ftest-coverage \
 				--coverage
 
 # OS X requires a workaround.
@@ -121,4 +119,5 @@ CppBlockUtilsTests : $(OBJECTS) CppBlockUtilsTests.o gtest.a ../libcryptopp.a
 getScrAddrData : $(OBJECTS) getScrAddrData.o 
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -lpthread -lcryptopp -o $@
 
-
+clean:
+	rm -rf *.o *.gcno *.gcda *.gcov

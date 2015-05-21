@@ -119,6 +119,8 @@ playground: ../_CppBlockUtils.so playground.cpp $(ALL_HEADERS)
 #************************************************************************
 clean:
 	touch CppBlockUtils.i
-	rm -f *.o *.out *.a
+	rm -f *.o *.out *.a *.gcda *.gcno *.gcov
 	rm -f CppBlockUtils_wrap.cxx 
 	$(MAKE) -C cryptopp clean
+	$(MAKE) -C gtest clean
+
