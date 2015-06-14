@@ -378,7 +378,7 @@ void LMDBBlockDatabase::openDatabases(
    {
       //make sure it is a supernode DB
 #ifdef WIN32
-      if (access(dbHeadersFilename().c_str(), 0) == 0)
+      if (_access(dbHeadersFilename().c_str(), 0) == 0)
 #else
       if (access(dbHeadersFilename().c_str(), F_OK) == 0)
 #endif

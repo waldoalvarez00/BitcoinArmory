@@ -69,3 +69,13 @@ osxbuild/env
 /armory_*_raspbian-armhf*
 
 /dpkgfiles/control
+*.sdf
+cppForSwig/BitcoinArmory.opensdf
+*.obj
+*.tlog
+*.pdb
+*.log
+windowsbuild/~$ndows Build Instructions.docx
+~$ndows_Build_Instructions.rtf
+*.suo
+cppForSwig/guardian.exe

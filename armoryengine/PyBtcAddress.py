@@ -419,8 +419,6 @@ class PyBtcAddress(object):
 
       return self
 
-
-   
    #############################################################################
    def safeExtendPrivateKey(self, privKey, chn, pubKey=None):
       # We do this computation twice, in case one is somehow corrupted
