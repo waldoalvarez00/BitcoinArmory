@@ -134,16 +134,16 @@ class SatoshiDaemonManager(object):
       self.tdm = None
       self.satoshiHome = None
       self.satoshiRoot = None
-      
+
 
    #############################################################################
    def setSatoshiDir(self, newDir):
-      self.satoshiHome = newDir   
+      self.satoshiHome = newDir
       self.satoshiRoot = newDir
-      
+
       if 'testnet' in newDir:
-         self.satoshiRoot, tail = os.path.split(newDir) 
-      
+         self.satoshiRoot, tail = os.path.split(newDir)
+
    #############################################################################
    def setDisableTorrentDL(self, b):
       self.torrentDisabled = b
@@ -153,7 +153,7 @@ class SatoshiDaemonManager(object):
       if self.torrentDisabled:
          LOGWARN('Tried to setup torrent download mgr but we are disabled')
          return False
-      
+
       if not torrentPath or not os.path.exists(torrentPath):
          self.useTorrentFinalAnswer = False
          return False
@@ -216,25 +216,25 @@ class SatoshiDaemonManager(object):
       #####
       def warnUserHashFail():
          from PyQt4.QtGui import QMessageBox
-         QMessageBox.warning(self, tr('Hash Failure'), tr("""The torrent download 
-            is currently encountering too many packet hash failures to allow it to 
-            progress properly. As a result, the torrent engine has been halted. You 
-            should report this incident to the Armory team and turn off this feature 
-            until further notice."""), QMessageBox.Ok)      
-      
+         QMessageBox.warning(self, tr('Hash Failure'), tr("""The torrent download
+            is currently encountering too many packet hash failures to allow it to
+            progress properly. As a result, the torrent engine has been halted. You
+            should report this incident to the Armory team and turn off this feature
+            until further notice."""), QMessageBox.Ok)
+
       #####
       def torrentFailed(errMsg=''):
          # Not sure there's actually anything we need to do here...
          if errMsg == 'hashFail':
             warnUserHashFail()
-            
+
          bootsz = '<Unknown>'
          if os.path.exists(bootfile):
             bootsz = bytesToHumanSize(os.path.getsize(bootfile))
 
          LOGERROR('Torrent failed; size of %s is %s', torrentPath, bootsz)
          self.launchBitcoindAndGuardian()
-         
+
 
  
  
@@ -244,11 +244,11 @@ class SatoshiDaemonManager(object):
       TheTDM.setCallback('failedFunc',   torrentFailed)
 
       LOGINFO('Bootstrap file is %s' % bytesToHumanSize(TheTDM.torrentSize))
-         
+
       self.useTorrentFinalAnswer = True
       self.useTorrentFile = torrentPath
       return True
-      
+
 
    #############################################################################
    def shouldTryBootstrapTorrent(self):
@@ -258,8 +258,8 @@ class SatoshiDaemonManager(object):
       # The only torrent we have is for the primary Bitcoin network
       if not MAGIC_BYTES=='\xf9\xbe\xb4\xd9':
          return False
-      
-         
+
+
 
       if TheTDM.torrentSize:
          bootfile = os.path.join(self.satoshiHome, 'bootstrap.dat')
@@ -268,13 +268,13 @@ class SatoshiDaemonManager(object):
                LOGWARN('Looks like a full bootstrap is already here')
                LOGWARN('Skipping torrent download')
                return False
-               
+
 
       # If they don't even have a BTC_HOME_DIR, corebtc never been installed
       blockDir = os.path.join(self.satoshiHome, 'blocks')
       if not os.path.exists(self.satoshiHome) or not os.path.exists(blockDir):
          return True
-      
+
       # Get the cumulative size of the blk*.dat files
       blockDirSize = sum([os.path.getsize(os.path.join(blockDir, a)) \
                   for a in os.listdir(blockDir) if a.startswith('blk')])
@@ -296,7 +296,7 @@ class SatoshiDaemonManager(object):
          if os.path.exists(fn):
             if os.path.getsize(fn) > blockDirSize:
                return True
-            
+
       # Okay, we give up -- just download [the rest] via P2P
       return False
 
@@ -387,18 +387,18 @@ class SatoshiDaemonManager(object):
       if OS_WINDOWS:
          # Making sure the search path argument comes with /daemon and /Bitcoin on Windows
 
-         searchPaths.extend([os.path.join(sp, 'Bitcoin') for sp in searchPaths])
+         searchPaths.extend([os.path.join(sp, 'Groestlcoin') for sp in searchPaths])
          searchPaths.extend([os.path.join(sp, 'daemon') for sp in searchPaths])
 
-         possBaseDir = []         
-         
+         possBaseDir = []
+
          from platform import machine
          if '64' in machine():
-            possBaseDir.append(os.getenv("ProgramW6432"))            
+            possBaseDir.append(os.getenv("ProgramW6432"))
             possBaseDir.append(os.getenv('PROGRAMFILES(X86)'))
          else:
             possBaseDir.append(os.getenv('PROGRAMFILES'))
-        
+
          # check desktop for links
 
          home      = os.path.expanduser('~')
@@ -407,24 +407,25 @@ class SatoshiDaemonManager(object):
          if os.path.exists(desktop):
             dtopfiles = os.listdir(desktop)
             for path in [os.path.join(desktop, fn) for fn in dtopfiles]:
-               if 'bitcoin' in path.lower() and path.lower().endswith('.lnk'):
+               if 'groestlcoin' in path.lower() and path.lower().endswith('.lnk'):
                   import win32com.client
                   shell = win32com.client.Dispatch('WScript.Shell')
                   targ = shell.CreateShortCut(path).Targetpath
                   targDir = os.path.dirname(targ)
-                  LOGINFO('Found Bitcoin-Qt link on desktop: %s', targDir)
+                  LOGINFO('Found GroestlCoin-Qt link on desktop: %s', targDir)
                   possBaseDir.append( targDir )
+                  self.foundExe.append(targ)
 
          # Also look in default place in ProgramFiles dirs
 
 
-
+         '''
 
          # Now look at a few subdirs of the
          searchPaths.extend(possBaseDir)
-         searchPaths.extend([os.path.join(p, 'Bitcoin', 'daemon') for p in possBaseDir])
-         searchPaths.extend([os.path.join(p, 'daemon') for p in possBaseDir])
-         searchPaths.extend([os.path.join(p, 'Bitcoin') for p in possBaseDir])
+         #searchPaths.extend([os.path.join(p, 'Bitcoin', 'daemon') for p in possBaseDir])
+         #searchPaths.extend([os.path.join(p, 'daemon') for p in possBaseDir])
+         #searchPaths.extend([os.path.join(p, 'Bitcoin') for p in possBaseDir])
 
          for p in searchPaths:
             testPath = os.path.join(p, 'bitcoind.exe')
@@ -454,7 +455,7 @@ class SatoshiDaemonManager(object):
                self.foundExe.extend(locs)
          except:
             LOGEXCEPT('Error executing "whereis" command')
-
+'''
 
       # For logging purposes, check that the first answer matches one of the
       # extra search paths.  There should be some kind of notification that
@@ -466,13 +467,14 @@ class SatoshiDaemonManager(object):
                foundIt=True
 
          if not foundIt:
-            LOGERROR('Bitcoind could not be found in the specified installation:')
+            LOGERROR('Groestlcoin could not be found in the specified installation:')
             for p in extraSearchPaths:
                LOGERROR('   %s', p)
-            LOGERROR('Bitcoind is being started from:')
+            LOGERROR('Groestlcoin is being started from:')
             LOGERROR('   %s', self.foundExe[0])
 
       return self.foundExe
+
 
    #############################################################################
    def getGuardianPath(self):
@@ -493,7 +495,7 @@ class SatoshiDaemonManager(object):
 
    #############################################################################
    def readBitcoinConf(self, makeIfDNE=False):
-      LOGINFO('Reading bitcoin.conf file')
+      LOGINFO('Reading groestlcoin.conf file')
       bitconf = os.path.join(self.satoshiRoot, 'bitcoin.conf')
       if not os.path.exists(bitconf):
          if not makeIfDNE:
@@ -516,9 +518,9 @@ class SatoshiDaemonManager(object):
             import ctypes
             username_u16 = ctypes.create_unicode_buffer(u'\0', 512)
             str_length = ctypes.c_int(512)
-            ctypes.windll.Advapi32.GetUserNameW(ctypes.byref(username_u16), 
+            ctypes.windll.Advapi32.GetUserNameW(ctypes.byref(username_u16),
                                                 ctypes.byref(str_length))
-            
+
             if not CLI_OPTIONS.disableConfPermis:
                import win32process
                LOGINFO('Setting permissions on bitcoin.conf')
@@ -530,7 +532,7 @@ class SatoshiDaemonManager(object):
                LOGINFO('icacls returned: %s', icacls_out)
             else:
                LOGWARN('Skipped setting permissions on bitcoin.conf file')
-            
+
       else:
          if not CLI_OPTIONS.disableConfPermis:
             LOGINFO('Setting permissions on bitcoin.conf')
@@ -585,7 +587,7 @@ class SatoshiDaemonManager(object):
    #############################################################################
    def cleanupFailedTorrent(self):
       # Right now I think don't do anything
-      pass    
+      pass
 
    #############################################################################
    def startBitcoind(self, callback):
@@ -602,29 +604,30 @@ class SatoshiDaemonManager(object):
       if not os.path.exists(self.executable):
          raise self.BitcoindError, 'Could not find bitcoind'
 
-      
+
       chk1 = os.path.exists(self.useTorrentFile)
-      chk2 = self.shouldTryBootstrapTorrent()
+      #chk2 = self.shouldTryBootstrapTorrent()
+      chk2 = False
       chk3 = TheTDM.getTDMState()=='ReadyToStart'
 
       if chk1 and chk2 and chk3:
          TheTDM.startDownload()
       else:
          self.launchBitcoindAndGuardian()
-            
+
       #New backend code: we wont be polling the SDM state in the main thread
       #anymore, instead create a thread at bitcoind start to poll the SDM state
       #and notify the main thread once bitcoind is ready, then terminates
       self.pollBitcoindState(callback, async=True)
 
-      
+
    #############################################################################
    @AllowAsync
    def pollBitcoindState(self, callback):
       while self.getSDMStateLogic() != 'BitcoindReady':
          time.sleep(1.0)
       callback()
-      
+
    #############################################################################
    def launchBitcoindAndGuardian(self):
 
@@ -634,7 +637,7 @@ class SatoshiDaemonManager(object):
          pargs.append('-testnet')
 
       pargs.append('-datadir=%s' % self.satoshiRoot)
-      
+
       try:
          # Don't want some strange error in this size-check to abort loading
          blocksdir = os.path.join(self.satoshiHome, 'blocks')
@@ -659,7 +662,7 @@ class SatoshiDaemonManager(object):
          import win32process
          kargs['shell'] = True
          kargs['creationflags'] = win32process.CREATE_NO_WINDOW
-         
+
       # Startup bitcoind and get its process ID (along with our own)
       self.bitcoind = launchProcess(pargs, **kargs)
 

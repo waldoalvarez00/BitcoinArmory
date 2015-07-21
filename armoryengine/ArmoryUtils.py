@@ -293,7 +293,7 @@ if OS_WINDOWS:
    rt = ctypes.windll.shell32.SHGetFolderPathW(0, 26, 0, 0, ctypes.byref(buffer))
    USER_HOME_DIR = unicode(buffer.value)
                
-   BTC_HOME_DIR    = os.path.join(USER_HOME_DIR, 'Bitcoin', SUBDIR)
+   BTC_HOME_DIR    = os.path.join(USER_HOME_DIR, 'Groestlcoin', SUBDIR)
    ARMORY_HOME_DIR = os.path.join(USER_HOME_DIR, 'Armory', SUBDIR)
    BLKFILE_DIR     = os.path.join(BTC_HOME_DIR, 'blocks')
    BLKFILE_1stFILE = os.path.join(BLKFILE_DIR, 'blk00000.dat')
@@ -467,9 +467,11 @@ if not os.path.exists(ARMORY_DB_DIR):
 if not USE_TESTNET:
    # TODO:  The testnet genesis tx hash can't be the same...?
    BITCOIN_PORT = 8333
-   BITCOIN_RPC_PORT = 8332
+   BITCOIN_RPC_PORT = 1441
    ARMORY_RPC_PORT = 8225
    MAGIC_BYTES = '\xf9\xbe\xb4\xd9'
+   # 0x00000b94ee7f94431dad6f1c72cabc18b6923a4fa648be1002938874deb4a265
+   # 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
    GENESIS_BLOCK_HASH_HEX  = '6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
    GENESIS_BLOCK_HASH      = 'o\xe2\x8c\n\xb6\xf1\xb3r\xc1\xa6\xa2F\xaec\xf7O\x93\x1e\x83e\xe1Z\x08\x9ch\xd6\x19\x00\x00\x00\x00\x00'
    GENESIS_TX_HASH_HEX     = '3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a'
@@ -484,10 +486,12 @@ if not USE_TESTNET:
    BLOCKEXPLORE_URL_ADDR = 'https://blockchain.info/address/%s'
 else:
    BITCOIN_PORT = 18333
-   BITCOIN_RPC_PORT = 18332
+   BITCOIN_RPC_PORT = 1441
    ARMORY_RPC_PORT     = 18225
    MAGIC_BYTES  = '\x0b\x11\x09\x07'
-   GENESIS_BLOCK_HASH_HEX  = '43497fd7f826957108f4a30fd9cec3aeba79972084e90ead01ea330900000000'
+   # 0x00000ac5927c594d49cc0bdb81759d0da8297eb614683d3acb62f0703b639023
+   GENESIS_BLOCK_HASH_HEX  = '2390633b70f062cb3a3d6814b67e29a80d9d7581db0bcc494d597c92c50a0000'
+   # GENESIS_BLOCK_HASH_HEX  = '43497fd7f826957108f4a30fd9cec3aeba79972084e90ead01ea330900000000' bitcoin
    GENESIS_BLOCK_HASH      = 'CI\x7f\xd7\xf8&\x95q\x08\xf4\xa3\x0f\xd9\xce\xc3\xae\xbay\x97 \x84\xe9\x0e\xad\x01\xea3\t\x00\x00\x00\x00'
    GENESIS_TX_HASH_HEX     = '3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a'
    GENESIS_TX_HASH         = ';\xa3\xed\xfdz{\x12\xb2z\xc7,>gv\x8fa\x7f\xc8\x1b\xc3\x88\x8aQ2:\x9f\xb8\xaaK\x1e^J'

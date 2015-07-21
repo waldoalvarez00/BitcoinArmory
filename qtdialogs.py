@@ -7600,7 +7600,7 @@ class DlgBadConnection(ArmoryDialog):
       elif haveInternet and not haveSatoshi:
          lblDescr = QRichLabel(\
             'Armory was not able to detect the presence of Groestlcoin-Qt or bitcoind '
-            'client software (available at http://www.bitcoin.org).  Please make sure that '
+            'client software (available at http://www.groestlcoin.org/downloads/).  Please make sure that '
             'the one of those programs is... <br>'
             '<br><b>(1)</b> ...open and connected to the network '
             '<br><b>(2)</b> ...on the same network as Armory (main-network or test-network)'
@@ -10810,7 +10810,7 @@ class DlgInstallLinux(ArmoryDialog):
       lblManualExperiment = QRichLabel(\
          '<b>Download and set it up for me!  (All Linux):</b>'
          '<br><br>'
-         'Armory will download and verify the binaries from www.bitcoin.org.  '
+         'Armory will download and verify the binaries from http://www.groestlcoin.org/downloads/.  '
          'Your Armory settings will automatically be adjusted to point to that '
          'as the installation directory.')
       btnManualExperiment = QPushButton('Install for me!')
@@ -10820,8 +10820,8 @@ class DlgInstallLinux(ArmoryDialog):
       lblInstallManualDescr = QRichLabel(\
          '<b>Manual download and install of the Groestlcoin software:</b><br>'
          '<ol>'
-         '<li>Go to <a href="http://www.bitcoin.org/en/download">'
-         'http://www.bitcoin.org/en/download</a></li>'
+         '<li>Go to <a href="http://www.groestlcoin.org/downloads/">'
+         'http://www.groestlcoin.org/downloads/</a></li>'
          '<li>Click on the link that says "Download for Linux (tgz, 32/64-bit)" </li>'
          '<li>Open a file browser and navigate to the download directory</li>'
          '<li>Right-click on the downloaded file, and select "Extract Here"</li>'
@@ -10918,10 +10918,10 @@ class DlgInstallLinux(ArmoryDialog):
       fileData = dlg.dlFileData
       if len(fileData) == 0 or dlg.dlVerifyFailed:
          QMessageBox.critical(self, 'Download Failed', \
-            'The download failed.  Please visit www.bitcoin.org '
+            'The download failed.  Please visit http://www.groestlcoin.org/downloads/ '
             'to download and install Groestlcoin-Qt manually.', QMessageBox.Ok)
          import webbrowser
-         webbrowser.open('http://www.bitcoin.org/en/download')
+         webbrowser.open('http://www.groestlcoin.org/downloads/')
          return
 
       fullPath = os.path.join(installPath, dlg.dlFileName)

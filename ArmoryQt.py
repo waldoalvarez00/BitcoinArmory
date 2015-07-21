@@ -91,6 +91,7 @@ class ArmoryMainWindow(QMainWindow):
    #############################################################################
 
    def __init__(self, parent=None, splashScreen=None):
+      logging.basicConfig(level=logging.DEBUG)
       super(ArmoryMainWindow, self).__init__(parent)
 
       self.isShuttingDown = False
@@ -4338,7 +4339,7 @@ class ArmoryMainWindow(QMainWindow):
       elif self.doAutoBitcoind and not TheSDM.isRunningBitcoind():
          if satoshiIsAvailable():
             result = QMessageBox.warning(self, tr('Still Running'), tr("""
-               'Bitcoin-Qt is still running.  Armory cannot start until
+               'Groestlcoin-Qt is still running.  Armory cannot start until
                'it is closed.  Do you want Armory to close it for you?"""), \
                QMessageBox.Yes | QMessageBox.No)
             if result==QMessageBox.Yes:
@@ -4464,7 +4465,7 @@ class ArmoryMainWindow(QMainWindow):
       self.dashBtns = [[None]*3 for i in range(5)]
       self.dashBtns[DASHBTNS.Close   ][BTN] = QPushButton('Close Groestlcoin Process')
       self.dashBtns[DASHBTNS.Install ][BTN] = QPushButton('Download Groestlcoin')
-      self.dashBtns[DASHBTNS.Browse  ][BTN] = QPushButton('Open www.bitcoin.org')
+      self.dashBtns[DASHBTNS.Browse  ][BTN] = QPushButton('Open www.groestlcoin.org')
       self.dashBtns[DASHBTNS.Instruct][BTN] = QPushButton('Installation Instructions')
       self.dashBtns[DASHBTNS.Settings][BTN] = QPushButton('Change Settings')
 
@@ -4487,7 +4488,7 @@ class ArmoryMainWindow(QMainWindow):
 
       #####
       def openBitcoinOrg():
-         webbrowser.open('http://www.bitcoin.org/en/download')
+         webbrowser.open('http://www.groestlcoin.org/downloads/')
 
 
       #####
@@ -4526,7 +4527,7 @@ class ArmoryMainWindow(QMainWindow):
 
 
       self.dashBtns[DASHBTNS.Browse][TTIP] = self.createToolTipWidget( \
-           'Will open your default browser to http://www.bitcoin.org where you can '
+           'Will open your default browser to http://www.groestlcoin.org/downloads/ where you can '
            'download the latest version of Groestlcoin-Qt, and get other information '
            'and links about Groestlcoin, in general.')
       self.dashBtns[DASHBTNS.Instruct][TTIP] = self.createToolTipWidget( \
@@ -4970,8 +4971,8 @@ class ArmoryMainWindow(QMainWindow):
    def closeExistingBitcoin(self):
       for proc in psutil.process_iter():
          try:
-            if proc.name().lower() in ['bitcoind.exe','bitcoin-qt.exe',\
-                                        'bitcoind','bitcoin-qt']:
+            if proc.name().lower() in ['bitcoind.exe','groestlcoin-qt.exe',\
+                                        'bitcoind','groestlcoin-qt']:
                killProcess(proc.pid)
                time.sleep(2)
                return
@@ -5409,8 +5410,8 @@ class ArmoryMainWindow(QMainWindow):
          'option, or change it in the Armory settings.'
          '<br><br>'
          'If you do not have Groestlcoin-Qt installed, you can '
-         'download it from <a href="http://www.bitcoin.org">'
-         'http://www.bitcoin.org</a>.')
+         'download it from <a href="http://www.groestlcoin.org/downloads/">'
+         'http://www.groestlcoin.org/downloads/</a>.')
 
       # Branch the available display text based on which Satoshi-Management
       # mode Armory is using.  It probably wasn't necessary to branch the
@@ -5456,7 +5457,7 @@ class ArmoryMainWindow(QMainWindow):
             'frequently asked questions</a> page for more general information.  '
             'If you already know what you\'re doing and simply need '
             'to fetch the latest version of Groestlcoin-Qt, you can download it from '
-            '<a href="http://www.bitcoin.org">http://www.bitcoin.org</a>.')
+            '<a href="http://www.groestlcoin.org/downloads/">http://www.groestlcoin.org/downloads/</a>.')
          elif state == 'OfflineNoInternet':
             return tr( \
             'You are currently in offline mode because '
@@ -5516,7 +5517,7 @@ class ArmoryMainWindow(QMainWindow):
          if state == 'OfflineNeedBitcoinInst':
             return tr( \
             '<b>Only one more step to getting online with Armory!</b>   You '
-            'must install the Groestlcoin software from www.bitcoin.org in order '
+            'must install the Groestlcoin software from http://www.groestlcoin.org/downloads/ in order '
             'for Armory to communicate with the Groestlcoin network.  If the '
             'Groestlcoin software is already installed and/or you would prefer '
             'to manage it yourself, please adjust your settings and '
@@ -5785,7 +5786,7 @@ class ArmoryMainWindow(QMainWindow):
                if satoshiIsAvailable() or sdmState=='BitcoindAlreadyRunning':
                   # But bitcoind/-qt is already running
                   LOGINFO('Dashboard switched to auto-butSatoshiRunning')
-                  self.lblDashModeSync.setText(tr(' Please close Bitcoin-Qt'), \
+                  self.lblDashModeSync.setText(tr(' Please close Groestlcoin-Qt'), \
                                                          size=4, bold=True)
                   setBtnFrameVisible(True, '')
                   setBtnRowVisible(DASHBTNS.Close, True)
