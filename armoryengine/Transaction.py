@@ -2028,9 +2028,9 @@ class UnsignedTransaction(AsciiSerializable):
       totalOut = sum([dtxo.value  for dtxo  in dtxoList  ])
       if totalIn - totalOut > 100*MIN_RELAY_TX_FEE:
          LOGWARN('Exceptionally high fee in createFromUnsignedTxIO')
-         LOGWARN('TotalInputs  = %s BTC', coin2strNZS(totalIn))
-         LOGWARN('TotalOutputs = %s BTC', coin2strNZS(totalOut))
-         LOGWARN('Computed Fee = %s BTC', coin2strNZS(totalIn-totalOut))
+         LOGWARN('TotalInputs  = %s GRS', coin2strNZS(totalIn))
+         LOGWARN('TotalOutputs = %s GRS', coin2strNZS(totalOut))
+         LOGWARN('Computed Fee = %s GRS', coin2strNZS(totalIn-totalOut))
       elif totalIn - totalOut < 0:
          raise ValueError('Supplied inputs are less than the supplied outputs')
 
@@ -2530,7 +2530,7 @@ class UnsignedTransaction(AsciiSerializable):
       print ind+'Curr TxID    : ', binary_to_hex(txHash, BIGENDIAN)
       print ind+'Version      : ', tx.version
       print ind+'Lock Time    : ', tx.lockTime
-      print ind+'Fee (BTC)    : ', coin2strNZS(self.calculateFee())
+      print ind+'Fee (GRS)    : ', coin2strNZS(self.calculateFee())
       print ind+'#Inputs      : ', len(tx.inputs)
 
       for i,ustxi in enumerate(self.ustxInputs):
@@ -2557,7 +2557,7 @@ class UnsignedTransaction(AsciiSerializable):
          addrDisp = getTxOutScriptDisplayStr(txout.binScript)
          valDisp = coin2str(txout.value, maxZeros=2)
          print ' '*2*indent + 'Recip:', addrDisp.ljust(35),
-         print valDisp, 'BTC',
+         print valDisp, 'GRS',
          print ('(%s)' % dtxo.contribID) if dtxo.contribID else ''
 
 

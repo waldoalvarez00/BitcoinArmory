@@ -433,9 +433,9 @@ class ArmoryMainWindow(QMainWindow):
       self.lblSpd.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
       self.lblUcn.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-      self.lblBTC1 = QRichLabel('<b>BTC</b>', doWrap=False)
-      self.lblBTC2 = QRichLabel('<b>BTC</b>', doWrap=False)
-      self.lblBTC3 = QRichLabel('<b>BTC</b>', doWrap=False)
+      self.lblBTC1 = QRichLabel('<b>GRS</b>', doWrap=False)
+      self.lblBTC2 = QRichLabel('<b>GRS</b>', doWrap=False)
+      self.lblBTC3 = QRichLabel('<b>GRS</b>', doWrap=False)
       self.ttipTot = self.createToolTipWidget( \
             'Funds if all current transactions are confirmed.  '
             'Value appears gray when it is the same as your spendable funds.')
@@ -3244,7 +3244,7 @@ class ArmoryMainWindow(QMainWindow):
          goodColor= htmlColor('TextGreen')
          self.lblTotalFunds.setText( '<b><font color="%s">%s</font></b>' % (btccolor,coin2str(totalFunds)))
          self.lblTot.setText('<b><font color="%s">Maximum Funds:</font></b>' % lblcolor)
-         self.lblBTC1.setText('<b><font color="%s">BTC</font></b>' % lblcolor)
+         self.lblBTC1.setText('<b><font color="%s">GRS</font></b>' % lblcolor)
          self.lblSpendFunds.setText( '<b><font color=%s>%s</font></b>' % (goodColor, coin2str(spendFunds)))
          self.lblUnconfFunds.setText('<b><font color="%s">%s</font></b>' % \
                                              (uncolor, coin2str(unconfFunds)))
@@ -4069,7 +4069,7 @@ class ArmoryMainWindow(QMainWindow):
       if uri_has('amount'):
          amt     = uriDict['amount']
          amtstr  = coin2str(amt, maxZeros=1)
-         descrStr += '<br>--<b>Amount</b>:\t%s BTC' % amtstr
+         descrStr += '<br>--<b>Amount</b>:\t%s GRS' % amtstr
 
 
       if newMsg:
@@ -5432,7 +5432,7 @@ class ArmoryMainWindow(QMainWindow):
             'Groestlcoins and viewing the balances and transaction histories '
             'of each of your wallets.<br><br>')
          elif state == 'OfflineNoSatoshi':
-            bitconf = os.path.join(BTC_HOME_DIR, 'bitcoin.conf')
+            bitconf = os.path.join(BTC_HOME_DIR, 'groestlcoin.conf')
             return tr( \
             'You are currently in offline mode because '
             'Groestlcoin-Qt is not running.  To switch to online '
@@ -6561,12 +6561,12 @@ class ArmoryMainWindow(QMainWindow):
       if ledgerAmt > 0:
          # Received!
          title = tr('Groestlcoins Received!')
-         dispLines.append(tr('Amount:  %(total)s BTC') % { 'total' : totalStr })
+         dispLines.append(tr('Amount:  %(total)s GRS') % { 'total' : totalStr })
          dispLines.append(tr('Recipient:  %(recp)s') % { 'recp' : dispName } )
       elif ledgerAmt < 0:
          # Sent!
          title = tr('Groestlcoins Sent!')
-         dispLines.append(tr('Amount:  %(tot)s BTC') % { 'tot' : totalStr })
+         dispLines.append(tr('Amount:  %(tot)s GRS') % { 'tot' : totalStr })
          dispLines.append(tr('Sender:  %(disp)s') % { 'disp' : dispName })
 
       self.showTrayMsg(title, '\n'.join(dispLines), \
@@ -6648,7 +6648,7 @@ class ArmoryMainWindow(QMainWindow):
          totalStr = coin2strNZS(abs(le.getValue()))
          if le.getValue() > 0:
             title = tr('Groestlcoin Received!')
-            dispLines.append(tr('Amount:  %(tot)s BTC') % { 'tot' : totalStr })
+            dispLines.append(tr('Amount:  %(tot)s GRS') % { 'tot' : totalStr })
             dispLines.append(tr('From:    %(wlt)s') % { 'wlt' : wltName })
          elif le.getValue() < 0:
             # Also display the address of where they went
@@ -6665,7 +6665,7 @@ class ArmoryMainWindow(QMainWindow):
                   recipStr = tr('<Multiple Recipients>')
             
             title = tr('Groestlcoins Sent!')
-            dispLines.append(tr('Amount:  %(tot)s BTC') % { 'tot' : totalStr })
+            dispLines.append(tr('Amount:  %(tot)s GRS') % { 'tot' : totalStr })
             dispLines.append(tr('From:    %(wlt)s') % { 'wlt' : wltName })
             dispLines.append(tr('To:      %(recp)s') % { 'recp' : recipStr })
    

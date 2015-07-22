@@ -1353,7 +1353,7 @@ msgid "Download via Armory CDN"
 msgstr ""
 
 #: ArmoryQt.py:5773
-msgid "Initializing Bitcoin Engine"
+msgid "Initializing Groestlcoin Engine"
 msgstr ""
 
 #: ArmoryQt.py:5799
@@ -1454,7 +1454,7 @@ msgstr ""
 
 #: ArmoryQt.py:6361
 #, python-format
-msgid "Amount:  %(total)s BTC"
+msgid "Amount:  %(total)s GRS"
 msgstr ""
 
 #: ArmoryQt.py:6362
@@ -1468,7 +1468,7 @@ msgstr ""
 
 #: ArmoryQt.py:6366 ArmoryQt.py:6448 ArmoryQt.py:6465
 #, python-format
-msgid "Amount:  %(tot)s BTC"
+msgid "Amount:  %(tot)s GRS"
 msgstr ""
 
 #: ArmoryQt.py:6367
@@ -1492,7 +1492,7 @@ msgstr ""
 
 #: ArmoryQt.py:6439
 #, python-format
-msgid "%(wltName)s just sent some BTC to itself!"
+msgid "%(wltName)s just sent some GRS to itself!"
 msgstr ""
 
 #: ArmoryQt.py:6449 ArmoryQt.py:6466
@@ -2297,7 +2297,7 @@ msgstr ""
 #, python-format
 msgid ""
 "\n"
-"         This transaction will spend <b>%s BTC</b> from \n"
+"         This transaction will spend <b>%s GRS</b> from \n"
 "         <font color=\"%s\">Wallet \"<b>%s</b>\" (%s)</font> to the "
 "following\n"
 "         recipients:"
@@ -2311,7 +2311,7 @@ msgid ""
 "            outputs are going to the same wallet from which they came \n"
 "            and do not affect the wallet's final balance.\n"
 "            The total balance of the wallet will actually only decrease \n"
-"            <b>%s BTC</b> as a result of this transaction.  %s</font>"
+"            <b>%s GRS</b> as a result of this transaction.  %s</font>"
 msgstr ""
 
 #: qtdialogs.py:5284
@@ -2854,7 +2854,7 @@ msgid ""
 "\n"
 "         Fees go to users that contribute computing power to keep the\n"
 "         Bitcoin network secure.  It also increases the priority of your\n"
-"         transactions so they confirm faster (%s BTC is standard)."
+"         transactions so they confirm faster (%s GRS is standard)."
 msgstr ""
 
 #: qtdialogs.py:9070
@@ -5897,7 +5897,7 @@ msgid "Add fee:"
 msgstr ""
 
 #: ui/MultiSigDialogs.py:3157 ui/MultiSigDialogs.py:3158
-msgid "BTC"
+msgid "GRS"
 msgstr ""
 
 #: ui/MultiSigDialogs.py:3191
@@ -5958,7 +5958,7 @@ msgstr ""
 #: ui/MultiSigDialogs.py:3324
 msgid ""
 "\n"
-"               You cannot promise 0 BTC.   <br>Please enter \n"
+"               You cannot promise 0 GRS.   <br>Please enter \n"
 "               a positive amount."
 msgstr ""
 
@@ -5981,7 +5981,7 @@ msgstr ""
 msgid ""
 "\n"
 "            Bitcoins can only be specified down to 8 decimal places. \n"
-"            The smallest value that can be sent is  0.0000 0001 BTC. \n"
+"            The smallest value that can be sent is  0.0000 0001 GRS. \n"
 "            Please enter a new amount"
 msgstr ""
 
@@ -6028,9 +6028,9 @@ msgstr ""
 #, python-format
 msgid ""
 "\n"
-"            You specified <b>%s</b> BTC (amount + fee), but the selected "
+"            You specified <b>%s</b> GRS (amount + fee), but the selected "
 "wallet\n"
-"            only has <b>%s</b> BTC spendable."
+"            only has <b>%s</b> GRS spendable."
 msgstr ""
 
 #: ui/MultiSigDialogs.py:3390 ui/TxFrames.py:673
@@ -6042,7 +6042,7 @@ msgid ""
 "\n"
 "            There was an error constructing your transaction, due to a \n"
 "            quirk in the way Bitcoin transactions work.  If you see this\n"
-"            error more than once, try sending your BTC in two or more \n"
+"            error more than once, try sending your GRS in two or more \n"
 "            separate transactions."
 msgstr ""
 
@@ -6381,7 +6381,7 @@ msgstr ""
 msgid ""
 "\n"
 "            Bitcoins can only be specified down to 8 decimal places. \n"
-"            The smallest unit of a Bitcoin is 0.0000 0001 BTC. \n"
+"            The smallest unit of a Bitcoin is 0.0000 0001 GRS. \n"
 "            Please enter a fee of at least 0.0000 0001"
 msgstr ""
 
@@ -6389,7 +6389,7 @@ msgstr ""
 msgid ""
 "\n"
 "            The fee you specified is invalid.  A standard fee is \n"
-"            0.0001 BTC, though some transactions may succeed with \n"
+"            0.0001 GRS, though some transactions may succeed with \n"
 "            zero fee."
 msgstr ""
 
@@ -6408,7 +6408,7 @@ msgid ""
 "\n"
 "            You just tried to send more Bitcoins than you have available. "
 "You only \n"
-"            have %s BTC (spendable) in this wallet!"
+"            have %s GRS (spendable) in this wallet!"
 msgstr ""
 
 #: ui/TxFrames.py:576
@@ -6417,7 +6417,7 @@ msgid ""
 "\n"
 "            You just tried to send more Bitcoins than you have available. "
 "You only \n"
-"            have %s BTC with this coin control selection!"
+"            have %s GRS with this coin control selection!"
 msgstr ""
 
 #: ui/TxFrames.py:609
@@ -6428,7 +6428,7 @@ msgstr ""
 #, python-format
 msgid ""
 "\n"
-"            The minimum fee for this transaction is <b>%s BTC</b>. That fee "
+"            The minimum fee for this transaction is <b>%s GRS</b>. That fee "
 "is too\n"
 "            large and indicates that there are probably too many small "
 "inputs to fit\n"
@@ -6450,11 +6450,11 @@ msgid ""
 "exceed \n"
 "               your balance.  In order to send this transaction, you will "
 "be \n"
-"               required to pay a fee of <b>%s BTC</b>. \n"
+"               required to pay a fee of <b>%s GRS</b>. \n"
 "               <br><br>\n"
 "               Please go back and adjust the value of your transaction, "
 "not \n"
-"               to exceed a total of <b>%s BTC</b> (the necessary fee has \n"
+"               to exceed a total of <b>%s GRS</b> (the necessary fee has \n"
 "               been entered into the form, so you can use the \"MAX\" "
 "button \n"
 "               to enter the remaining balance for a recipient)."
@@ -6468,11 +6468,11 @@ msgstr ""
 #, python-format
 msgid ""
 "\n"
-"            The fee you have specified (%s BTC) is insufficient for the \n"
+"            The fee you have specified (%s GRS) is insufficient for the \n"
 "            size and priority of your transaction.  You must include at \n"
-"            least %s BTC to send this transaction. \n"
+"            least %s GRS to send this transaction. \n"
 "            <br><br> \n"
-"            Do you agree to the fee of %s BTC?"
+"            Do you agree to the fee of %s GRS?"
 msgstr ""
 
 #: ui/TxFrames.py:658
@@ -6483,8 +6483,8 @@ msgstr ""
 #, python-format
 msgid ""
 "\n"
-"            You have specified a fee of <b>%s BTC</b> which is much higher\n"
-"            than the minimum fee required for this transaction: <b>%s BTC</"
+"            You have specified a fee of <b>%s GRS</b> which is much higher\n"
+"            than the minimum fee required for this transaction: <b>%s GRS</"
 "b>.\n"
 "            Are you <i>absolutely sure</i> that you want to send with this\n"
 "            fee?  \n"

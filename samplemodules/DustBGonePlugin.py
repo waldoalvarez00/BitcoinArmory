@@ -99,7 +99,7 @@ class PluginObject(object):
          except TooMuchPrecisionError:
             QMessageBox.critical(self.main.main, tr('Too much precision'), tr("""
                Bitcoins can only be specified down to 8 decimal places. 
-               The smallest unit of a Bitcoin is 0.0000 0001 BTC. 
+               The smallest unit of a Groestlcoin is 0.0000 0001 GRS.
                Please enter a dust limit of at least 0.0000 0001 and less than %s.""" % MAX_DUST_LIMIT_STR), QMessageBox.Ok)
          finally:
             for scraddr in privKeyMap:
@@ -117,7 +117,7 @@ class PluginObject(object):
       topRow =  makeHorizFrame([self.lblHeader,'stretch'])
       secondRow =  makeHorizFrame([self.beGoneDustButton, 'stretch'])
       
-      self.dustLimitLabel = QLabel("Max Dust Value (BTC): ")
+      self.dustLimitLabel = QLabel("Max Dust Value (GRS): ")
       self.dustLimitText = QLineEdit()
       self.dustLimitText.setFont(GETFONT('Fixed'))
       self.dustLimitText.setMinimumWidth(tightSizeNChar(self.dustLimitText, 6)[0])

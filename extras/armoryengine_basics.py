@@ -72,12 +72,12 @@ print 46, '   123456 seconds is     :', secondsToHumanTime(123456)
 print 47, '   123456 bytes is       :', bytesToHumanSize(123456)
 
 print '\nCoin2Str functions align the decimal point'
-print 48, '   coin2str(0.01 BTC)    :', coin2str(0.01 * ONE_BTC)
-print 49, '   coin2str(0.01 BTC)    :', coin2str(1000000, maxZeros=4)
-print 50, '   coin2str(0.01 BTC)    :', coin2str(1000000, maxZeros=0)
-print 51, '   coin2str(0.01 BTC)    :', coin2str(2300500000, maxZeros=0)
-print 51, '   coin2str(0.01 BTC)    :', coin2str(160400000000, maxZeros=0)
-print 51, '   coin2str(0.01 BTC)    :', coin2str(10000000, maxZeros=0)
+print 48, '   coin2str(0.01 GRS)    :', coin2str(0.01 * ONE_BTC)
+print 49, '   coin2str(0.01 GRS)    :', coin2str(1000000, maxZeros=4)
+print 50, '   coin2str(0.01 GRS)    :', coin2str(1000000, maxZeros=0)
+print 51, '   coin2str(0.01 GRS)    :', coin2str(2300500000, maxZeros=0)
+print 51, '   coin2str(0.01 GRS)    :', coin2str(160400000000, maxZeros=0)
+print 51, '   coin2str(0.01 GRS)    :', coin2str(10000000, maxZeros=0)
 
 
 print '\nRaw crypto operations:'

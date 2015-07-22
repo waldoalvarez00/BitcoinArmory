@@ -38,7 +38,7 @@ class LockboxSelectFrame(ArmoryFrame):
       lbls.append(QRichLabel("Lockbox ID:", doWrap=False))
       lbls.append(QRichLabel("Name:", doWrap=False))
       lbls.append(QRichLabel("Description:", doWrap=False))
-      lbls.append(QRichLabel("Spendable BTC:", doWrap=False))
+      lbls.append(QRichLabel("Spendable GRS:", doWrap=False))
 
       layoutDetails = QGridLayout()
       for i,lbl in enumerate(lbls):
@@ -156,7 +156,7 @@ class SelectWalletFrame(ArmoryFrame):
       lbls.append(QRichLabel("Wallet ID:", doWrap=False))
       lbls.append(QRichLabel("Name:", doWrap=False))
       lbls.append(QRichLabel("Description:", doWrap=False))
-      lbls.append(QRichLabel("Spendable BTC:", doWrap=False))
+      lbls.append(QRichLabel("Spendable GRS:", doWrap=False))
 
       for i in range(len(lbls)):
          lbls[i].setAlignment(Qt.AlignLeft | Qt.AlignTop)

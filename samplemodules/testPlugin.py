@@ -55,13 +55,13 @@ class PluginObject(object):
 
       ##########################################################################
       ##### A calculator for converting prices between USD and BTC
-      lblCalcTitle = QRichLabel(tr("""Convert between USD and BTC using 
+      lblCalcTitle = QRichLabel(tr("""Convert between USD and GRS using
          Coinbase sell price"""), hAlign=Qt.AlignHCenter, doWrap=False)
       self.edtEnterUSD = QLineEdit()
       self.edtEnterBTC = QLineEdit()
       self.lblEnterUSD1 = QRichLabel('$')
       self.lblEnterUSD2 = QRichLabel('USD')
-      self.lblEnterBTC = QRichLabel('BTC')
+      self.lblEnterBTC = QRichLabel('GRS')
       btnClear = QPushButton('Clear')
 
       self.main.connect(self.edtEnterUSD, SIGNAL('textEdited(QString)'), self.updateCalcBTC)
@@ -172,9 +172,9 @@ class PluginObject(object):
          self.lastSellStr = self.fetchFormattedPrice(urlSell)
          self.lastBuyStr  = self.fetchFormattedPrice(urlBuy)
          
-         self.lblSellPrice.setText('<b><font color="%s">$%s</font> / BTC</b>' % \
+         self.lblSellPrice.setText('<b><font color="%s">$%s</font> / GRS</b>' % \
                                            (htmlColor('TextBlue'), self.lastSellStr))
-         self.lblBuyPrice.setText( '<b><font color="%s">$%s</font> / BTC</b>' % \
+         self.lblBuyPrice.setText( '<b><font color="%s">$%s</font> / GRS</b>' % \
                                            (htmlColor('TextBlue'), self.lastBuyStr))
       
          self.lastPriceFetch = RightNow()

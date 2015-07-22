@@ -478,7 +478,7 @@ class SendBitcoinsFrame(ArmoryFrame):
             value = str2coin(valueStr, negAllowed=False)
             if value == 0:
                QMessageBox.critical(self, 'Zero Amount', \
-                  'You cannot send 0 BTC to any recipients.  <br>Please enter '
+                  'You cannot send 0 GRS to any recipients.  <br>Please enter '
                   'a positive amount for recipient %d.' % (row+1), QMessageBox.Ok)
                return False
 
@@ -490,7 +490,7 @@ class SendBitcoinsFrame(ArmoryFrame):
          except TooMuchPrecisionError:
             QMessageBox.critical(self, 'Too much precision', \
                'Bitcoins can only be specified down to 8 decimal places. '
-               'The smallest value that can be sent is  0.0000 0001 BTC. '
+               'The smallest value that can be sent is  0.0000 0001 GRS. '
                'Please enter a new amount for recipient %d.' % (row + 1), QMessageBox.Ok)
             return False
          except ValueError:
@@ -552,13 +552,13 @@ class SendBitcoinsFrame(ArmoryFrame):
       except TooMuchPrecisionError:
          QMessageBox.critical(self, tr('Too much precision'), tr("""
             Bitcoins can only be specified down to 8 decimal places. 
-            The smallest unit of a Bitcoin is 0.0000 0001 BTC. 
+            The smallest unit of a Bitcoin is 0.0000 0001 GRS.
             Please enter a fee of at least 0.0000 0001"""), QMessageBox.Ok)
          return False
       except:
          QMessageBox.critical(self, tr('Invalid Fee String'), tr("""
             The fee you specified is invalid.  A standard fee is 
-            0.0001 BTC, though some transactions may succeed with 
+            0.0001 GRS, though some transactions may succeed with
             zero fee."""), QMessageBox.Ok)
          LOGERROR(tr('Invalid fee specified: "%s"') % feeStr)
          return False
@@ -571,12 +571,12 @@ class SendBitcoinsFrame(ArmoryFrame):
          if self.altBalance == None:
             QMessageBox.critical(self, tr('Insufficient Funds'), tr("""
             You just tried to send more Bitcoins than you have available. You only 
-            have %s BTC (spendable) in this wallet!""") % \
+            have %s GRS (spendable) in this wallet!""") % \
             valMax, QMessageBox.Ok)
          else:
             QMessageBox.critical(self, tr('Insufficient Funds'), tr("""
             You just tried to send more Bitcoins than you have available. You only 
-            have %s BTC with this coin control selection!""") % \
+            have %s GRS with this coin control selection!""") % \
             valMax, QMessageBox.Ok)
          return False
 
@@ -608,7 +608,7 @@ class SendBitcoinsFrame(ArmoryFrame):
 
       if minFee > 99*MIN_RELAY_TX_FEE:
          QMessageBox.critical(self, tr('Minimum Transaction Fee Is Too Large'), tr("""
-            The minimum fee for this transaction is <b>%s BTC</b>. That fee is too
+            The minimum fee for this transaction is <b>%s GRS</b>. That fee is too
             large and indicates that there are probably too many small inputs to fit
             into a single transaction. To send these Bitcoins, this transaction must
             be broken up into to smaller pieces.            
@@ -628,21 +628,21 @@ class SendBitcoinsFrame(ArmoryFrame):
             QMessageBox.warning(self, tr('Insufficient Balance'), tr("""
                The required transaction fee causes this transaction to exceed 
                your balance.  In order to send this transaction, you will be 
-               required to pay a fee of <b>%s BTC</b>. 
+               required to pay a fee of <b>%s GRS</b>.
                <br><br>
                Please go back and adjust the value of your transaction, not 
-               to exceed a total of <b>%s BTC</b> (the necessary fee has 
+               to exceed a total of <b>%s GRS</b> (the necessary fee has
                been entered into the form, so you can use the "MAX" button 
                to enter the remaining balance for a recipient).""") % \
                (minFeeStr, newBalStr), QMessageBox.Ok)
             return
 
          reply = QMessageBox.warning(self, tr('Insufficient Fee'), tr("""
-            The fee you have specified (%s BTC) is insufficient for the 
+            The fee you have specified (%s GRS) is insufficient for the
             size and priority of your transaction.  You must include at 
-            least %s BTC to send this transaction. 
+            least %s GRS to send this transaction.
             <br><br> 
-            Do you agree to the fee of %s BTC?""") % \
+            Do you agree to the fee of %s GRS?""") % \
             (usrFeeStr, minFeeStr, minFeeStr), \
             QMessageBox.Yes | QMessageBox.Cancel)
 
@@ -657,8 +657,8 @@ class SendBitcoinsFrame(ArmoryFrame):
       # Warn user of excessive fee specified
       if fee > 100*MIN_RELAY_TX_FEE or (minFee > 0 and fee > 10*minFee):
          reply = QMessageBox.warning(self, tr('Excessive Fee'), tr("""
-            You have specified a fee of <b>%s BTC</b> which is much higher
-            than the minimum fee required for this transaction: <b>%s BTC</b>.
+            You have specified a fee of <b>%s GRS</b> which is much higher
+            than the minimum fee required for this transaction: <b>%s GRS</b>.
             Are you <i>absolutely sure</i> that you want to send with this
             fee?  
             <br><br>
@@ -674,7 +674,7 @@ class SendBitcoinsFrame(ArmoryFrame):
          QMessageBox.critical(self, tr('Coin Selection Error'), tr("""
             There was an error constructing your transaction, due to a 
             quirk in the way Bitcoin transactions work.  If you see this
-            error more than once, try sending your BTC in two or more 
+            error more than once, try sending your GRS in two or more
             separate transactions."""), QMessageBox.Ok)
          return False
 
@@ -1001,7 +1001,7 @@ class SendBitcoinsFrame(ArmoryFrame):
          self.widgetTable[r]['QLE_AMT'].setMaximumHeight(self.maxHeight)
          self.widgetTable[r]['QLE_AMT'].setAlignment(Qt.AlignLeft)
 
-         self.widgetTable[r]['LBL_BTC'] = QLabel('BTC')
+         self.widgetTable[r]['LBL_BTC'] = QLabel('GRS')
          self.widgetTable[r]['LBL_BTC'].setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
          self.widgetTable[r]['BTN_MAX'] = \
@@ -1601,7 +1601,7 @@ class SignBroadcastOfflineTxFrame(ArmoryFrame):
 
          ##### 3
          if self.leValue:
-            self.infoLbls[3][2].setText(coin2strNZS(self.leValue) + '  BTC')
+            self.infoLbls[3][2].setText(coin2strNZS(self.leValue) + '  GRS')
          else:
             self.infoLbls[3][2].setText('')
 

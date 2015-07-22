@@ -45,7 +45,7 @@ def printWalletBalance(args):
    for balType in ['full', 'spendable', 'unconfirmed']:
       balStr  = coin2str(wlt.getBalance(balType))
       typeStr = balType.upper().rjust(16)
-      print '%s balance for wallet %s: %s BTC' % (typeStr, wlt.uniqueIDB58, balStr)
+      print '%s balance for wallet %s: %s GRS' % (typeStr, wlt.uniqueIDB58, balStr)
    
 
 

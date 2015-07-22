@@ -30,9 +30,9 @@ def calcAvgAndVar(targ,E,F,X=1):
    
 
 print ''
-print 'Breakdown of SatoshiDice profit for bets of size: %0.2f BTC' % amt
+print 'Breakdown of SatoshiDice profit for bets of size: %0.2f GRS' % amt
 print '"House Edge" (actual edge is 1/2 this):           %0.1f%%' % (100*(1-E))
-print 'Standard fee per return transaction:              %0.4f BTC' % F
+print 'Standard fee per return transaction:              %0.4f GRS' % F
 print 'Target'.rjust(10), 'Avg Profit'.rjust(12), '1-sigma'.rjust(12), '3-sigma'.rjust(12)
 print '-'*50
 for targ in Targets:
@@ -46,9 +46,9 @@ for targ in Targets:
 
 
 print ''
-print 'Breakdown of SatoshiDice profit for *%d* bets:  %0.2f BTC each' % (nBet,amt)
+print 'Breakdown of SatoshiDice profit for *%d* bets:  %0.2f GRS each' % (nBet,amt)
 print '"House Edge" (actual edge is 1/2 this):            %0.1f%%' % (100*(1-E))
-print 'Standard fee per return transaction:               %0.4f BTC' % F
+print 'Standard fee per return transaction:               %0.4f GRS' % F
 print 'Target'.rjust(10), 'Avg Profit'.rjust(12), '1-sigma'.rjust(12), '3-sigma'.rjust(12)
 print '-'*50
 for targ in Targets:

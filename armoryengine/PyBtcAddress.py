@@ -1229,7 +1229,7 @@ class PyBtcAddress(object):
             return '--'*32
          else:
             return x.toHexStr()[:nchar]
-      print indent + 'BTC Address      :', self.getAddrStr()
+      print indent + 'GRS Address      :', self.getAddrStr()
       print indent + 'Hash160[BE]      :', binary_to_hex(self.getAddr160())
       print indent + 'Wallet Location  :', self.walletByteLoc
       print indent + 'Chained Address  :', self.chainIndex >= -1
@@ -1266,7 +1266,7 @@ class PyBtcAddress(object):
             return '--'*32
          else:
             return x.toHexStr()[:nchar]
-      result = ''.join([indent + 'BTC Address      :', self.getAddrStr()])
+      result = ''.join([indent + 'GRS Address      :', self.getAddrStr()])
       result = ''.join([result, '\n', indent + 'Hash160[BE]      :', binary_to_hex(self.getAddr160())])
       result = ''.join([result, '\n',  indent + 'Wallet Location  :', str(self.walletByteLoc)])
       result = ''.join([result, '\n',  indent + 'Chained Address  :', str(self.chainIndex >= -1)])

@@ -447,13 +447,13 @@ if run_SatoshiDice:
    print ''
    print '-'*118
    print 'Total Bets Made:               ', totalBets
-   print 'Cumulative Wagers:         ', coin2str(sdRecvAmt), 'BTC'
-   print 'Cumulative Rewards:        ', coin2str(sdRtrnAmt), 'BTC'
-   print 'Cumulative Fees Paid:      ', coin2str(sdFeePaid), 'BTC'
-   print 'Cumulative Unreturned:     ', coin2str(unacctBTC), 'BTC'
+   print 'Cumulative Wagers:         ', coin2str(sdRecvAmt), 'GRS'
+   print 'Cumulative Rewards:        ', coin2str(sdRtrnAmt), 'GRS'
+   print 'Cumulative Fees Paid:      ', coin2str(sdFeePaid), 'GRS'
+   print 'Cumulative Unreturned:     ', coin2str(unacctBTC), 'GRS'
    print '----'
-   print 'SD Profit/Loss From Games: ', coin2str(sdRecvAmt - sdRtrnAmt), 'BTC'
-   print 'SD Profit/Loss With Fees:  ', coin2str(sdRecvAmt - (sdRtrnAmt + sdFeePaid)), 'BTC'
+   print 'SD Profit/Loss From Games: ', coin2str(sdRecvAmt - sdRtrnAmt), 'GRS'
+   print 'SD Profit/Loss With Fees:  ', coin2str(sdRecvAmt - (sdRtrnAmt + sdFeePaid)), 'GRS'
 
 
 

@@ -209,7 +209,7 @@ class SatoshiDaemonManager(object):
             bootsz = bytesToHumanSize(os.path.getsize(bootfile))
 
          LOGINFO('Torrent finished; size of %s is %s', torrentPath, bootsz)
-         LOGINFO('Remove the core btc databases before doing bootstrap')
+         LOGINFO('Remove the core GRS databases before doing bootstrap')
          deleteBitcoindDBs()
          self.launchBitcoindAndGuardian()
 
@@ -315,10 +315,10 @@ class SatoshiDaemonManager(object):
       if pathToBitcoindExe==None:
          pathToBitcoindExe = self.findBitcoind(extraExeSearch)
          if len(pathToBitcoindExe)==0:
-            LOGDEBUG('Failed to find bitcoind')
+            LOGDEBUG('Failed to find groestlcoind')
             self.failedFindExe = True
          else:
-            LOGINFO('Found bitcoind in the following places:')
+            LOGINFO('Found groestlcoind in the following places:')
             for p in pathToBitcoindExe:
                LOGINFO('   %s', p)
             pathToBitcoindExe = pathToBitcoindExe[0]
@@ -347,7 +347,7 @@ class SatoshiDaemonManager(object):
             LOGINFO('No home dir, makedir not requested')
             self.failedFindHome = True
 
-      if self.failedFindExe:  raise self.BitcoindError, 'bitcoind not found'
+      if self.failedFindExe:  raise self.BitcoindError, 'groestlcoind not found'
       if self.failedFindHome: raise self.BitcoindError, 'homedir not found'
 
       self.disabled = False
@@ -496,15 +496,15 @@ class SatoshiDaemonManager(object):
    #############################################################################
    def readBitcoinConf(self, makeIfDNE=False):
       LOGINFO('Reading groestlcoin.conf file')
-      bitconf = os.path.join(self.satoshiRoot, 'bitcoin.conf')
+      bitconf = os.path.join(self.satoshiRoot, 'groestlcoin.conf')
       if not os.path.exists(bitconf):
          if not makeIfDNE:
-            raise self.BitcoinDotConfError, 'Could not find bitcoin.conf'
+            raise self.BitcoinDotConfError, 'Could not find groestlcoin.conf'
          else:
-            LOGINFO('No bitcoin.conf available.  Creating it...')
+            LOGINFO('No groestlcoin.conf available.  Creating it...')
             touchFile(bitconf)
 
-      # Guarantee that bitcoin.conf file has very strict permissions
+      # Guarantee that GroestlCoin.conf file has very strict permissions
       if OS_WINDOWS:
          if OS_VARIANT[0].lower()=='xp':
             LOGERROR('Cannot set permissions correctly in XP!')
@@ -514,7 +514,7 @@ class SatoshiDaemonManager(object):
             LOGERROR('on XP systems):')
             LOGERROR('    %s', bitconf)
          else:
-            LOGINFO('Setting permissions on bitcoin.conf')
+            LOGINFO('Setting permissions on groestlcoin.conf')
             import ctypes
             username_u16 = ctypes.create_unicode_buffer(u'\0', 512)
             str_length = ctypes.c_int(512)
@@ -523,7 +523,7 @@ class SatoshiDaemonManager(object):
 
             if not CLI_OPTIONS.disableConfPermis:
                import win32process
-               LOGINFO('Setting permissions on bitcoin.conf')
+               LOGINFO('Setting permissions on groestlcoin.conf')
                cmd_icacls = [u'icacls',bitconf,u'/inheritance:r',u'/grant:r', u'%s:F' % username_u16.value]
                kargs = {}
                kargs['shell'] = True
@@ -531,14 +531,14 @@ class SatoshiDaemonManager(object):
                icacls_out = subprocess_check_output(cmd_icacls, **kargs)
                LOGINFO('icacls returned: %s', icacls_out)
             else:
-               LOGWARN('Skipped setting permissions on bitcoin.conf file')
+               LOGWARN('Skipped setting permissions on groestlcoin.conf file')
 
       else:
          if not CLI_OPTIONS.disableConfPermis:
-            LOGINFO('Setting permissions on bitcoin.conf')
+            LOGINFO('Setting permissions on groestlcoin.conf')
             os.chmod(bitconf, stat.S_IRUSR | stat.S_IWUSR)
          else:
-            LOGWARN('Skipped setting permissions on bitcoin.conf file')
+            LOGWARN('Skipped setting permissions on groestlcoin.conf file')
 
 
       with open(bitconf,'r') as f:
@@ -577,9 +577,9 @@ class SatoshiDaemonManager(object):
 
 
       if not isASCII(self.bitconf['rpcuser']):
-         LOGERROR('Non-ASCII character in bitcoin.conf (rpcuser)!')
+         LOGERROR('Non-ASCII character in groestlcoin.conf (rpcuser)!')
       if not isASCII(self.bitconf['rpcpassword']):
-         LOGERROR('Non-ASCII character in bitcoin.conf (rpcpassword)!')
+         LOGERROR('Non-ASCII character in groestlcoin.conf (rpcpassword)!')
 
       self.bitconf['host'] = '127.0.0.1'
 

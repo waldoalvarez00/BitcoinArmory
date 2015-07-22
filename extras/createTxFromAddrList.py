@@ -67,7 +67,7 @@ def createTxFromAddrList(walletObj, addrList, recipAmtPairList, \
    # Display what we found
    totalUtxo = sumTxOutList(utxoList)
    totalSpend   = sum([pair[1] for pair in recipList])
-   print 'Available:  %d unspent outputs from %d addresses: %s BTC' % \
+   print 'Available:  %d unspent outputs from %d addresses: %s GRS' % \
                   (len(utxoList), len(addrList), coin2str(totalUtxo, ndec=2))
 
    # Print more detailed information
@@ -91,7 +91,7 @@ def createTxFromAddrList(walletObj, addrList, recipAmtPairList, \
 
    if minValidFee>fee:
       print '***WARNING:'
-      print 'This transaction requires a fee of at least %s BTC' % coin2str(minValidFee)
+      print 'This transaction requires a fee of at least %s GRS' % coin2str(minValidFee)
       print 'Sending of this transaction *will fail*.  Will you increase the fee?'
       confirm = raw_input('Increase Fee [Y/n]:')
       if 'n' in confirm.lower():

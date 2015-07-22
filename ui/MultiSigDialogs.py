@@ -3169,8 +3169,8 @@ class DlgCreatePromNote(ArmoryDialog):
       lblAddress = QRichLabel(tr('Address:'))
       lblAmount  = QRichLabel(tr('Amount:'))
       lblFee     = QRichLabel(tr('Add fee:'))
-      lblBTC1    = QRichLabel(tr('BTC'))
-      lblBTC2    = QRichLabel(tr('BTC'))
+      lblBTC1    = QRichLabel(tr('GRS'))
+      lblBTC2    = QRichLabel(tr('GRS'))
 
       startStr = ''
       if defaultIDorAddr:
@@ -3337,7 +3337,7 @@ class DlgCreatePromNote(ArmoryDialog):
          valueAmt = str2coin(valueStr)
          if valueAmt == 0:
             QMessageBox.critical(self, tr('Zero Amount'), tr("""
-               You cannot promise 0 BTC.   <br>Please enter 
+               You cannot promise 0 GRS.   <br>Please enter
                a positive amount."""), QMessageBox.Ok)
             return False
       except NegativeValueError:
@@ -3348,7 +3348,7 @@ class DlgCreatePromNote(ArmoryDialog):
       except TooMuchPrecisionError:
          QMessageBox.critical(self, tr('Too much precision'), tr("""
             Bitcoins can only be specified down to 8 decimal places. 
-            The smallest value that can be sent is  0.0000 0001 BTC. 
+            The smallest value that can be sent is  0.0000 0001 GRS.
             Please enter a new amount"""), QMessageBox.Ok)
          return False
       except ValueError:
@@ -3374,7 +3374,7 @@ class DlgCreatePromNote(ArmoryDialog):
       except TooMuchPrecisionError:
          QMessageBox.critical(self, tr('Too much precision'), tr("""
             Bitcoins can only be specified down to 8 decimal places. 
-            The smallest value that can be sent is  0.0000 0001 BTC. 
+            The smallest value that can be sent is  0.0000 0001 GRS.
             Please enter a new amount"""), QMessageBox.Ok)
          return False
       except ValueError:
@@ -3393,8 +3393,8 @@ class DlgCreatePromNote(ArmoryDialog):
       availBal = wlt.getBalance('Spendable')
       if totalAmt > availBal:
          QMessageBox.critical(self, tr('Not enough funds!'), tr("""
-            You specified <b>%s</b> BTC (amount + fee), but the selected wallet
-            only has <b>%s</b> BTC spendable.""") % (coin2strNZS(totalAmt), 
+            You specified <b>%s</b> GRS (amount + fee), but the selected wallet
+            only has <b>%s</b> GRS spendable.""") % (coin2strNZS(totalAmt),
             coin2strNZS(availBal)), QMessageBox.Ok)
          return False
 
@@ -3404,8 +3404,8 @@ class DlgCreatePromNote(ArmoryDialog):
       if len(utxoSelect) == 0:
          QMessageBox.critical(self, tr('Coin Selection Error'), tr("""
             There was an error constructing your transaction, due to a 
-            quirk in the way Bitcoin transactions work.  If you see this
-            error more than once, try sending your BTC in two or more 
+            quirk in the way Groestlcoin transactions work.  If you see this
+            error more than once, try sending your GRS in two or more
             separate transactions."""), QMessageBox.Ok)
          return False
 
@@ -3532,8 +3532,8 @@ class DlgMergePromNotes(ArmoryDialog):
       lblFeeText = QRichLabel('Total Fee:', doWrap=False)
       self.lblCurrPay = QMoneyLabel(0, maxZeros=2)
       self.lblCurrFee = QMoneyLabel(0, maxZeros=2)
-      self.lblPayUnits = QRichLabel('BTC')
-      self.lblFeeUnits = QRichLabel('BTC')
+      self.lblPayUnits = QRichLabel('GRS')
+      self.lblFeeUnits = QRichLabel('GRS')
 
       
 

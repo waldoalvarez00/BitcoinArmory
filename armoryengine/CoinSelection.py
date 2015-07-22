@@ -149,7 +149,7 @@ def sumTxOutList(txoutList):
 # This is really just for viewing a TxOut list -- usually for debugging
 def pprintUnspentTxOutList(utxoList, headerLine='Coin Selection: '):
    totalSum = sum([u.getValue() for u in utxoList])
-   print headerLine, '(Total = %s BTC)' % coin2str(totalSum)
+   print headerLine, '(Total = %s GRS)' % coin2str(totalSum)
    print '   ','Owner Address'.ljust(34),
    print '   ','TxOutValue'.rjust(18),
    print '   ','NumConf'.rjust(8),
@@ -157,7 +157,7 @@ def pprintUnspentTxOutList(utxoList, headerLine='Coin Selection: '):
    for utxo in utxoList:
       a160 = CheckHash160(utxo.getRecipientScrAddr())
       print '   ',hash160_to_addrStr(a160).ljust(34),
-      print '   ',(coin2str(utxo.getValue()) + ' BTC').rjust(18),
+      print '   ',(coin2str(utxo.getValue()) + ' GRS').rjust(18),
       print '   ',str(utxo.getNumConfirm()).rjust(8),
       print '   ', ('%0.2f' % (utxo.getValue()*utxo.getNumConfirm()/(ONE_BTC*144.))).rjust(16)
 

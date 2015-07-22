@@ -1860,9 +1860,9 @@ class DlgWalletDetails(ArmoryDialog):
       self.lblSpendFunds.setText(spdStr)
       self.lblUnconfFunds.setText(ucnStr)
 
-      self.lblBTC1.setText('<b><font color="%s">BTC</font></b>' % lblcolor)
-      self.lblBTC2.setText('<b>BTC</b>')
-      self.lblBTC3.setText('<b>BTC</b>')
+      self.lblBTC1.setText('<b><font color="%s">GRS</font></b>' % lblcolor)
+      self.lblBTC2.setText('<b>GRS</b>')
+      self.lblBTC3.setText('<b>GRS</b>')
 
 
    #############################################################################
@@ -3483,7 +3483,7 @@ class DlgVerifySweep(ArmoryDialog):
       # frmLayout.addWidget(QRichLabel('Funds will be <i>swept</i>...'), 0,0, 1,2)
       frmLayout.addWidget(QRichLabel('      From ' + inputStr, doWrap=False), 1, 0, 1, 2)
       frmLayout.addWidget(QRichLabel('      To ' + outputStr, doWrap=False), 2, 0, 1, 2)
-      frmLayout.addWidget(QRichLabel('      Total <b>%s</b> BTC %s' % (outStr, feeStr), doWrap=False), 3, 0, 1, 2)
+      frmLayout.addWidget(QRichLabel('      Total <b>%s</b> GRS %s' % (outStr, feeStr), doWrap=False), 3, 0, 1, 2)
       frm.setLayout(frmLayout)
 
       lblFinalConfirm = QLabel('Are you sure you want to execute this transaction?')
@@ -3707,9 +3707,9 @@ class DlgAddressInfo(ArmoryDialog):
          if balCoin > 0:
             goodColor = htmlColor('MoneyPos')
             lbls[-1].append(QRichLabel(\
-               '<font color=' + goodColor + '>' + balStr.strip() + '</font> BTC'))
+               '<font color=' + goodColor + '>' + balStr.strip() + '</font> GRS'))
          else:
-            lbls[-1].append(QRichLabel(balStr.strip() + ' BTC'))
+            lbls[-1].append(QRichLabel(balStr.strip() + ' GRS'))
       except:
          lbls[-1].append(QRichLabel("N/A"))
          
@@ -4455,11 +4455,11 @@ class DlgRemoveWallet(ArmoryDialog):
          lbls.append([])
          lbls[3].append(QLabel('Current Balance (w/ unconfirmed):'))
          if bal > 0:
-            lbls[3].append(QLabel('<font color="red"><b>' + coin2str(bal, maxZeros=1).strip() + ' BTC</b></font>'))
+            lbls[3].append(QLabel('<font color="red"><b>' + coin2str(bal, maxZeros=1).strip() + ' GRS</b></font>'))
             lbls[3][-1].setTextFormat(Qt.RichText)
             wltEmpty = False
          else:
-            lbls[3].append(QLabel(coin2str(bal, maxZeros=1) + ' BTC'))
+            lbls[3].append(QLabel(coin2str(bal, maxZeros=1) + ' GRS'))
 
 
       # Add two WARNING images on either side of dialog
@@ -4727,11 +4727,11 @@ class DlgRemoveAddress(ArmoryDialog):
          lbls.append([])
          lbls[-1].append(QLabel('Address Balance (w/ unconfirmed):'))
          if bal > 0:
-            lbls[-1].append(QLabel('<font color="red"><b>' + coin2str(bal, maxZeros=1) + ' BTC</b></font>'))
+            lbls[-1].append(QLabel('<font color="red"><b>' + coin2str(bal, maxZeros=1) + ' GRS</b></font>'))
             lbls[-1][-1].setTextFormat(Qt.RichText)
             addrEmpty = False
          else:
-            lbls[3].append(QLabel(coin2str(bal, maxZeros=1) + ' BTC'))
+            lbls[3].append(QLabel(coin2str(bal, maxZeros=1) + ' GRS'))
 
 
       # Add two WARNING images on either side of dialog
@@ -4979,7 +4979,7 @@ class DlgConfirmSend(ArmoryDialog):
 
 
       lblMsg = QRichLabel(tr("""
-         This transaction will spend <b>%s BTC</b> from 
+         This transaction will spend <b>%s GRS</b> from
          <font color="%s">Wallet "<b>%s</b>" (%s)</font> to the following
          recipients:""") % 
          (totalSendStr, htmlColor('TextBlue'), wlt.labelName, wlt.uniqueIDB58))
@@ -4990,7 +4990,7 @@ class DlgConfirmSend(ArmoryDialog):
             outputs are going to the same wallet from which they came 
             and do not affect the wallet's final balance.
             The total balance of the wallet will actually only decrease 
-            <b>%s BTC</b> as a result of this transaction.  %s</font>""") % \
+            <b>%s GRS</b> as a result of this transaction.  %s</font>""") % \
             (sendFromWalletStr, showAllMsg))
       elif len(showAllMsg)>0:
          lblAfterBox.setText(showAllMsg)
@@ -5619,7 +5619,7 @@ class DlgTxFeeOptions(ArmoryDialog):
          'the Groestlcoin network to process transactions and keep it secure.')
       lblDescr2 = QLabel(\
          'Nearly all transactions are guaranteed to be '
-         'processed if a fee of 0.0005 BTC is included (less than $0.01 USD).  You '
+         'processed if a fee of 0.0005 GRS is included (less than $0.01 USD).  You '
          'will be prompted for confirmation if a higher fee amount is required for '
          'your transaction.')
 
@@ -5976,7 +5976,7 @@ class DlgDispTxInfo(ArmoryDialog):
                'to determine which is which, and so this fields shows the sum '
                'of <b>all</b> outputs.'))
          lbls[-1].append(QLabel('Sum of Outputs:'))
-         lbls[-1].append(QLabel(coin2str(txAmt, maxZeros=1).strip() + '  BTC'))
+         lbls[-1].append(QLabel(coin2str(txAmt, maxZeros=1).strip() + '  GRS'))
       else:
          lbls.append([])
          lbls[-1].append(self.main.createToolTipWidget(
@@ -5989,7 +5989,7 @@ class DlgDispTxInfo(ArmoryDialog):
                'The value shown here is the net effect on your '
                'wallet, including transaction fee.'))
          lbls[-1].append(QLabel('Transaction Amount:'))
-         lbls[-1].append(QRichLabel(coin2str(txAmt, maxZeros=1).strip() + '  BTC'))
+         lbls[-1].append(QRichLabel(coin2str(txAmt, maxZeros=1).strip() + '  GRS'))
          if txAmt < 0:
             lbls[-1][-1].setText('<font color="red">' + lbls[-1][-1].text() + '</font> ')
          elif txAmt > 0:
@@ -6003,7 +6003,7 @@ class DlgDispTxInfo(ArmoryDialog):
             'Transaction fees go to users supplying the Groestlcoin network with '
             'computing power for processing transactions and maintaining security.'))
          lbls[-1].append(QLabel('Tx Fee Paid:'))
-         lbls[-1].append(QLabel(coin2str(fee, maxZeros=0).strip() + '  BTC'))
+         lbls[-1].append(QLabel(coin2str(fee, maxZeros=0).strip() + '  GRS'))
 
 
 
@@ -6043,7 +6043,7 @@ class DlgDispTxInfo(ArmoryDialog):
 
             rlbls[-1].append(QLabel(scrAddr_to_addrStr(sv[0])))
             if numRV > 1:
-               rlbls[-1].append(QLabel(coin2str(sv[1], maxZeros=1) + '  BTC'))
+               rlbls[-1].append(QLabel(coin2str(sv[1], maxZeros=1) + '  GRS'))
             else:
                rlbls[-1].append(QLabel(''))
             ffixBold = GETFONT('Fixed', 10)
@@ -8947,7 +8947,7 @@ class DlgSettings(ArmoryDialog):
       lblDefaultDescr = QRichLabel(tr("""
          Fees go to users that contribute computing power to keep the
          Groestlcoin network secure.  It also increases the priority of your
-         transactions so they confirm faster (%s BTC is standard).""") % \
+         transactions so they confirm faster (%s GRS is standard).""") % \
          coin2strNZS(MIN_TX_FEE))
 
       ttipDefaultFee = self.main.createToolTipWidget(tr("""
@@ -9353,7 +9353,7 @@ class DlgSettings(ArmoryDialog):
       except:
          QMessageBox.warning(self, 'Invalid Amount', \
             'The default fee specified could not be understood.  Please '
-            'specify in BTC with no more than 8 decimal places.', \
+            'specify in GRS with no more than 8 decimal places.', \
             QMessageBox.Ok)
          return
 
@@ -9920,7 +9920,7 @@ class DlgRequestPayment(ArmoryDialog):
          'usually begin with "Click here..." to reaffirm to the user it is '
          'is clickable.')
       ttipAmount = self.main.createToolTipWidget(\
-         'All amounts are specifed in BTC')
+         'All amounts are specifed in GRS')
       ttipAddress = self.main.createToolTipWidget(\
          'The person clicking the link will be sending Groestlcoins to this address')
       ttipMessage = self.main.createToolTipWidget(\
@@ -9949,7 +9949,7 @@ class DlgRequestPayment(ArmoryDialog):
       layoutEntry.addWidget(ttipAddress, i, 2)
 
       i += 1
-      layoutEntry.addWidget(QRichLabel('<b>Request (BTC):</b>'), i, 0)
+      layoutEntry.addWidget(QRichLabel('<b>Request (GRS):</b>'), i, 0)
       layoutEntry.addWidget(self.edtAmount, i, 1)
 
       i += 1
@@ -10106,7 +10106,7 @@ class DlgRequestPayment(ArmoryDialog):
       self.dispText += '<br>'
       self.dispText += '<b>Pay to</b>:\t%s<br>' % addr
       if amt:
-         self.dispText += '<b>Amount</b>:\t%s BTC<br>' % coin2str(amt, maxZeros=0).strip()
+         self.dispText += '<b>Amount</b>:\t%s GRS<br>' % coin2str(amt, maxZeros=0).strip()
       if msgStr:
          self.dispText += '<b>Message</b>:\t%s<br>' % msgStr
       self.lblLink.setText(self.dispText)
@@ -10121,7 +10121,7 @@ class DlgRequestPayment(ArmoryDialog):
       self.plainText += 'If clicking on the line above does not work, use this payment info:\n'
       self.plainText += 'Pay to:  %s' % addr
       if amt:
-         self.plainText += '\nAmount:  %s BTC' % coin2str(amt, maxZeros=0).strip()
+         self.plainText += '\nAmount:  %s GRS' % coin2str(amt, maxZeros=0).strip()
       if msgStr:
          self.plainText += '\nMessage: %s' % msgStr
       self.plainText += '\n'
