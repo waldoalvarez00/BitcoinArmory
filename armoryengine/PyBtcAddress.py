@@ -1202,16 +1202,21 @@ class PyBtcAddress(object):
       self.isInitialized = True
       return self
 
-   def calculateAddrStr(self, netbyte=ADDRBYTE):
+   def calculateAddrStr(self, netbyte=0):
       """
       Forces a recalculation of the address string from the public key
       """
       if not self.hasPubKey():
          raise KeyDataError, 'Cannot compute address without PublicKey'
       keyHash = self.binPublicKey65.getHash160()
-      chksum  = hash256(netbyte + keyHash)[:4]
-      return  binary_to_base58(netbyte + keyHash + chksum)
 
+      #chksum  = hash256(netbyte + keyHash)[:4]
+      #return  binary_to_base58(netbyte + keyHash + chksum)
+
+      vh160 = chr(netbyte) + keyHash
+      h = Hash(vh160)
+      addr = vh160 + h[0:4]
+      return  binary_to_base58(addr)
 
 
    def checkAddressValid(self):

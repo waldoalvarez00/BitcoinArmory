@@ -88,8 +88,8 @@ haveGUI = [False, None]
 parser = optparse.OptionParser(usage="%prog [options]\n")
 parser.add_option("--settings",        dest="settingsPath",default=DEFAULT, type="str",          help="load Armory with a specific settings file")
 parser.add_option("--datadir",         dest="datadir",     default=DEFAULT, type="str",          help="Change the directory that Armory calls home")
-parser.add_option("--satoshi-datadir", dest="satoshiHome", default=DEFAULT, type='str',          help="The Bitcoin-Qt/bitcoind home directory")
-parser.add_option("--satoshi-port",    dest="satoshiPort", default=DEFAULT, type="str",          help="For Bitcoin-Qt instances operating on a non-standard port")
+parser.add_option("--satoshi-datadir", dest="satoshiHome", default=DEFAULT, type='str',          help="The Groestlcoin-Qt/groestlcoind home directory")
+parser.add_option("--satoshi-port",    dest="satoshiPort", default=DEFAULT, type="str",          help="For Groestlcoin-Qt instances operating on a non-standard port")
 parser.add_option("--satoshi-rpcport", dest="satoshiRpcport",default=DEFAULT,type="str",         help="RPC port Bitcoin-Qt instances operating on a non-standard port")
 #parser.add_option("--bitcoind-path",   dest="bitcoindPath",default='DEFAULT', type="str",         help="Path to the location of bitcoind on your system")
 parser.add_option("--dbdir",           dest="armoryDBDir",  default=DEFAULT, type='str',          help="Location to store blocks database (defaults to --datadir)")
@@ -108,7 +108,7 @@ parser.add_option("--skip-stats-report", dest="skipStatsReport", default=False, 
 parser.add_option("--skip-announce-check",dest="skipAnnounceCheck", default=False, action="store_true", help="Do not query for Armory announcements")
 parser.add_option("--tor",             dest="useTorSettings", default=False, action="store_true", help="Enable common settings for when Armory connects through Tor")
 parser.add_option("--keypool",         dest="keypool",     default=100, type="int",                help="Default number of addresses to lookahead in Armory wallets")
-parser.add_option("--redownload",      dest="redownload",  default=False,     action="store_true", help="Delete Bitcoin-Qt/bitcoind databases; redownload")
+parser.add_option("--redownload",      dest="redownload",  default=False,     action="store_true", help="Delete Groestlcoin-Qt/groestlcoind databases; redownload")
 parser.add_option("--rebuild",         dest="rebuild",     default=False,     action="store_true", help="Rebuild blockchain database and rescan")
 parser.add_option("--rescan",          dest="rescan",      default=False,     action="store_true", help="Rescan existing blockchain DB")
 parser.add_option("--disable-torrent", dest="disableTorrent", default=False,     action="store_true", help="Only download blockchain data via P2P network (slow)")
@@ -117,7 +117,7 @@ parser.add_option("--nospendzeroconfchange",dest="ignoreAllZC",default=False, ac
 parser.add_option("--multisigfile",  dest="multisigFile",  default=DEFAULT, type='str',          help="File to store information about multi-signature transactions")
 parser.add_option("--force-wallet-check", dest="forceWalletCheck", default=False, action="store_true", help="Force the wallet sanity check on startup")
 parser.add_option("--disable-modules", dest="disableModules", default=False, action="store_true", help="Disable looking for modules in the execution directory")
-parser.add_option("--disable-conf-permis", dest="disableConfPermis", default=False, action="store_true", help="Disable forcing permissions on bitcoin.conf")
+parser.add_option("--disable-conf-permis", dest="disableConfPermis", default=False, action="store_true", help="Disable forcing permissions on groestlcoin.conf")
 parser.add_option("--detsign",         dest="enableDetSign", default=False,   action="store_true", help="Enable Transaction Deterministic Signing (RFC 6979)")
 parser.add_option("--supernode", dest="enableSupernode", default=False, action="store_true", help="Enabled Exhaustive Blockchain Tracking")
 
@@ -2746,12 +2746,28 @@ def stripJSONStrChars(inStr):
    return inStr[2:-1]
 
 
+def sha256(x):
+    return hashlib.sha256(x).digest()
+
+
+def Hash(x):
+    if type(x) is unicode: x=x.encode('utf-8')
+    return sha256(sha256(x))
+
 ################################################################################
 def checkAddrType(addrBin):
    """ Gets the network byte of the address.  Returns -1 if chksum fails """
-   first21, chk4 = addrBin[:-4], addrBin[-4:]
-   chkBytes = hash256(first21)
-   return addrBin[0] if (chkBytes[:4] == chk4) else -1
+   #first21, chk4 = addrBin[:-4], addrBin[-4:]
+   #chkBytes = hash256(first21)
+   #return addrBin[0] if (chkBytes[:4] == chk4) else -1
+
+   key = addrBin[0:-4]
+   csum = addrBin[-4:]
+   hash = Hash(key)
+   cs32 = hash[0:4]
+   return (cs32 == csum)
+
+
 
 ################################################################################
 def checkAddrBinValid(addrBin, validPrefixes=None):
@@ -2759,13 +2775,16 @@ def checkAddrBinValid(addrBin, validPrefixes=None):
    Checks whether this address is valid for the given network
    (set at the top of pybtcengine.py)
    """
-   if validPrefixes is None:
-      validPrefixes = [ADDRBYTE, P2SHBYTE]
 
-   if not isinstance(validPrefixes, list):
-      validPrefixes = [validPrefixes]
+   return checkAddrType(addrBin)
 
-   return (checkAddrType(addrBin) in validPrefixes)
+   #if validPrefixes is None:
+   #   validPrefixes = [ADDRBYTE, P2SHBYTE]
+
+   #if not isinstance(validPrefixes, list):
+   #   validPrefixes = [validPrefixes]
+
+   #return (checkAddrType(addrBin) in validPrefixes)
 
 
 
@@ -2903,7 +2922,7 @@ def parseBitcoinURI(uriStr):
          query[k] = v[0]
 
    # Now start walking through the parts and get the info out of it.
-   if uri.scheme == 'bitcoin':
+   if uri.scheme == 'groestlcoin':
       data['address'] = uri.path
 
       # Apply filters to known keys. Do NOT filter based on the "req-"
@@ -2948,7 +2967,7 @@ def uriPercentToReserved(theStr):
 
 ################################################################################
 def createBitcoinURI(addr, amt=None, msg=None):
-   uriStr = 'bitcoin:%s' % addr
+   uriStr = 'groestlcoin:%s' % addr
    if amt or msg:
       uriStr += '?'
 
