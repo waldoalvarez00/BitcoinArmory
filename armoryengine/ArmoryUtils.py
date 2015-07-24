@@ -325,8 +325,8 @@ OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
 OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
 
 BLOCKCHAINS = {}
-BLOCKCHAINS['\xf9\xbe\xb4\xd9'] = "Main Network"
-BLOCKCHAINS['\xfa\xbf\xb5\xda'] = "Old Test Network"
+BLOCKCHAINS['\xf9\xbe\xb4\xd4'] = "Main Network"
+#BLOCKCHAINS['\xfa\xbf\xb5\xda'] = "Old Test Network"
 BLOCKCHAINS['\x0b\x11\x09\x07'] = "Test Network (testnet3)"
 
 NETWORKS = {}
@@ -466,10 +466,10 @@ if not os.path.exists(ARMORY_DB_DIR):
 ##### MAIN NETWORK IS DEFAULT #####
 if not USE_TESTNET:
    # TODO:  The testnet genesis tx hash can't be the same...?
-   BITCOIN_PORT = 8333
+   BITCOIN_PORT = 1331
    BITCOIN_RPC_PORT = 1441
    ARMORY_RPC_PORT = 8225
-   MAGIC_BYTES = '\xf9\xbe\xb4\xd9'
+   MAGIC_BYTES = '\xf9\xbe\xb4\xd4'
    # 0x00000b94ee7f94431dad6f1c72cabc18b6923a4fa648be1002938874deb4a265
    # 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
    GENESIS_BLOCK_HASH_HEX  = '6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
@@ -485,8 +485,8 @@ if not USE_TESTNET:
    BLOCKEXPLORE_URL_TX   = 'https://blockchain.info/tx/%s'
    BLOCKEXPLORE_URL_ADDR = 'https://blockchain.info/address/%s'
 else:
-   BITCOIN_PORT = 18333
-   BITCOIN_RPC_PORT = 1441
+   BITCOIN_PORT = 17777
+   BITCOIN_RPC_PORT = 17766
    ARMORY_RPC_PORT     = 18225
    MAGIC_BYTES  = '\x0b\x11\x09\x07'
    # 0x00000ac5927c594d49cc0bdb81759d0da8297eb614683d3acb62f0703b639023
