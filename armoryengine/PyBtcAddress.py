@@ -168,9 +168,14 @@ class PyBtcAddress(object):
       #return  binary_to_base58(netbyte + keyHash + chksum)
 
       vh160 = chr(netbyte) + self.addrStr20
-      h = groestlHash(vh160)
+      h = self.groestlHash(vh160)
       addr = vh160 + h[0:4]
       return  binary_to_base58(addr)
+
+      #vh160 = chr(netbyte) + self.addrStr20
+      #h = Hash(vh160)
+      #addr = vh160 + h[0:4]
+      #return  binary_to_base58(addr)
 
       #vh160 = chr(netbyte) + self.addrStr20
       #h = Hash(vh160)
@@ -1230,7 +1235,7 @@ class PyBtcAddress(object):
       #return  binary_to_base58(netbyte + keyHash + chksum)
 
       vh160 = chr(netbyte) + keyHash
-      h = Hash(vh160)
+      h = self.groestlHash(vh160)
       addr = vh160 + h[0:4]
       return  binary_to_base58(addr)
 
