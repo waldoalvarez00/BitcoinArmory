@@ -12,13 +12,12 @@ from armoryengine.ArmoryUtils import ADDRBYTE, hash256, binary_to_base58, \
    computeChecksum, getVersionInt, PYBTCWALLET_VERSION, bitset_to_int, \
    LOGDEBUG, Hash160ToScrAddr, int_to_bitset, UnserializeError, \
    hash160_to_addrStr, int_to_binary, BIGENDIAN, \
-   BadAddressError, checkAddrStrValid, binary_to_hex, ENABLE_DETSIGN
+   BadAddressError, checkAddrStrValid, binary_to_hex, ENABLE_DETSIGN, groestlHash
 from armoryengine.BinaryPacker import BinaryPacker, UINT8, UINT16, UINT32, UINT64, \
    INT8, INT16, INT32, INT64, VAR_INT, VAR_STR, FLOAT, BINARY_CHUNK
 from armoryengine.BinaryUnpacker import BinaryUnpacker
 from armoryengine.Timer import TimeThisFunction
 import CppBlockUtils as Cpp
-import groestlcoin_hash
 
 #############################################################################
 def calcWalletIDFromRoot(root, chain):
@@ -155,9 +154,7 @@ class PyBtcAddress(object):
          raise KeyDataError, 'PyBtcAddress does not have a chain code!'
       return self.chaincode
 
-   def groestlHash(self, x):
-       if type(x) is unicode: x=x.encode('utf-8')
-       return groestlcoin_hash.getHash(x, len(x))
+
 
    #############################################################################
    def getAddrStr(self, netbyte=36):
@@ -168,7 +165,7 @@ class PyBtcAddress(object):
       #return  binary_to_base58(netbyte + keyHash + chksum)
 
       vh160 = chr(netbyte) + self.addrStr20
-      h = self.groestlHash(vh160)
+      h = groestlHash(vh160)
       addr = vh160 + h[0:4]
       return  binary_to_base58(addr)
 

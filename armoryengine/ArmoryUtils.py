@@ -42,6 +42,7 @@ import shutil
 import base64
 import socket
 import subprocess
+import groestlcoin_hash
 
 #from psutil import Popen
 import psutil
@@ -2754,6 +2755,10 @@ def Hash(x):
     if type(x) is unicode: x=x.encode('utf-8')
     return sha256(sha256(x))
 
+def groestlHash(x):
+       if type(x) is unicode: x=x.encode('utf-8')
+       return groestlcoin_hash.getHash(x, len(x))
+
 ################################################################################
 def checkAddrType(addrBin):
    """ Gets the network byte of the address.  Returns -1 if chksum fails """
@@ -2763,7 +2768,7 @@ def checkAddrType(addrBin):
 
    key = addrBin[0:-4]
    csum = addrBin[-4:]
-   hash = Hash(key)
+   hash = groestlHash(key)
    cs32 = hash[0:4]
    return (cs32 == csum)
 
